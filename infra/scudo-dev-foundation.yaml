@@ -314,6 +314,55 @@ Resources:
       ImageScanningConfiguration: { ScanOnPush: true }
       Tags: [{ Key: Project, Value: !Ref ProjectTag }]
 
+  # ──────── HMAC signing key for verdict seals ────────
+  # AWS-managed KMS (alias/aws/secretsmanager) is used by default; Secrets
+  # Manager picks the encryption key transparently. Match&Verify + Persistence
+  # roles get GetSecretValue on this ARN; Ingestion role gets an EXPLICIT
+  # Deny on the same ARN. The task definition references this via the
+  # `Secrets:` block (not `Environment:`), so DescribeTaskDefinition does
+  # not surface the value.
+  #
+  # Note: Secrets Manager rather than SSM SecureString because CFN can
+  # auto-generate the secret value without exposing it in the template.
+  VerdictSigningKey:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: scudo/dev/verdict-signing-key
+      Description: HMAC signing key for SCUDO verdict seals (v=2); readable by Match&Verify + Persistence task roles only.
+      GenerateSecretString:
+        SecretStringTemplate: '{}'
+        GenerateStringKey: value
+        PasswordLength: 64
+        ExcludeCharacters: '"@/\'
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+  # ──────── DynamoDB reviewer queue ────────
+  # Append-only handoff channel between Match&Verify (puts items) and
+  # Persistence (puts + updates + queries). NOT the graph of record — that
+  # discipline matters: an item in the queue is awaiting human verdict,
+  # not a fact. M&V gets PutItem only; Persistence gets PutItem + UpdateItem
+  # + Query + GetItem; Ingestion gets an EXPLICIT Deny on dynamodb:*.
+  ReviewerQueueTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: scudo-dev-reviewer-queue
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: vendor, AttributeType: S }
+        - { AttributeName: product_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: vendor, KeyType: HASH }
+        - { AttributeName: product_id, KeyType: RANGE }
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
   # ──────── Fargate IAM roles ────────
   FargateExecutionRole:
     Type: AWS::IAM::Role
@@ -354,6 +403,21 @@ Resources:
                 Resource:
                   - !GetAtt FramesBucket.Arn
                   - !Sub ${FramesBucket.Arn}/*
+        # EXPLICIT DENIES — the trust gradient's IAM teeth. These survive
+        # future policy mistakes that grant broader secretsmanager or
+        # dynamodb access; the explicit Deny outranks any later Allow.
+        - PolicyName: scudo-dev-ingestion-explicit-deny
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DenySigningKeyAccess
+                Effect: Deny
+                Action: [ secretsmanager:GetSecretValue, secretsmanager:DescribeSecret ]
+                Resource: !Ref VerdictSigningKey
+              - Sid: DenyReviewerQueueAccess
+                Effect: Deny
+                Action: [ dynamodb:* ]
+                Resource: !GetAtt ReviewerQueueTable.Arn
       Tags: [{ Key: Project, Value: !Ref ProjectTag }]
 
   FargateMatchVerifyTaskRole:
@@ -388,6 +452,24 @@ Resources:
                   - bedrock:GetInferenceProfile
                   - bedrock:ListInferenceProfiles
                 Resource: '*'
+        # Verdict signing — Match&Verify reads the key to sign result.band
+        # into the seal (v=2). Scoped to the single secret ARN.
+        - PolicyName: scudo-dev-mv-signing-key
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ secretsmanager:GetSecretValue ]
+                Resource: !Ref VerdictSigningKey
+        # Reviewer queue — Match&Verify can PUT items (queue an entry awaiting
+        # verdict). It cannot UpdateItem or Query — those are Persistence's job.
+        - PolicyName: scudo-dev-mv-queue-put
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ dynamodb:PutItem ]
+                Resource: !GetAtt ReviewerQueueTable.Arn
       Tags: [{ Key: Project, Value: !Ref ProjectTag }]
 
   FargatePersistenceTaskRole:
@@ -428,6 +510,28 @@ Resources:
               - Effect: Allow
                 Action: [ s3:PutObject, s3:GetObject ]
                 Resource: !Sub ${FramesBucket.Arn}/canonical/*
+        # Verdict signing — Persistence reads the key to VERIFY seals before
+        # the I5 gate runs. Same secret as M&V; Persistence does not sign.
+        - PolicyName: scudo-dev-persist-signing-key
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ secretsmanager:GetSecretValue ]
+                Resource: !Ref VerdictSigningKey
+        # Reviewer queue — Persistence acts on items: write outcomes, update
+        # statuses, query the queue for HITL workflows.
+        - PolicyName: scudo-dev-persist-queue
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                Resource: !GetAtt ReviewerQueueTable.Arn
       Tags: [{ Key: Project, Value: !Ref ProjectTag }]
 
   # ──────── CloudWatch log group ────────
@@ -483,3 +587,15 @@ Outputs:
   AppLogGroupName:
     Value: !Ref AppLogGroup
     Export: { Name: scudo-dev-log-group }
+  VerdictSigningKeyArn:
+    Value: !Ref VerdictSigningKey
+    Export: { Name: scudo-dev-verdict-signing-key-arn }
+  VerdictSigningKeyName:
+    Value: scudo/dev/verdict-signing-key
+    Export: { Name: scudo-dev-verdict-signing-key-name }
+  ReviewerQueueTableName:
+    Value: !Ref ReviewerQueueTable
+    Export: { Name: scudo-dev-reviewer-queue-table-name }
+  ReviewerQueueTableArn:
+    Value: !GetAtt ReviewerQueueTable.Arn
+    Export: { Name: scudo-dev-reviewer-queue-table-arn }
