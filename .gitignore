@@ -57,3 +57,6 @@ backend/uploads/
 *credentials*
 *.crt
 .aws/
+
+# ─── Workflow tool worktrees (transient agent isolation copies) ─────────
+.claude/

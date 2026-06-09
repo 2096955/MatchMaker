@@ -53,6 +53,10 @@ Resources:
     Properties:
       LogGroupName: /aws/codebuild/scudo-dev-build
       RetentionInDays: 14
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
 
   # Service role: CodeBuild assumes this to do its work. Permissions are
   # tight: only CloudWatch logs + the single ECR repo we push to + the
@@ -104,6 +108,7 @@ Resources:
       Tags:
         - { Key: Project, Value: !Ref ProjectTag }
         - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
 
   BuildProject:
     Type: AWS::CodeBuild::Project

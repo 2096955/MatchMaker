@@ -12,9 +12,18 @@
 #   ECR_REGISTRY         954976331678.dkr.ecr.eu-west-2.amazonaws.com
 #   ECR_REPO             scudo-dev-backend
 #
-# Each command is wrapped in single quotes at the YAML level. Embedded
-# colons in shell strings would otherwise be parsed as YAML map separators
-# by CodeBuild's buildspec parser, even when inside shell double-quotes.
+# YAML hygiene notes:
+#   - Each command is wrapped in single quotes at the YAML level. Embedded
+#     colons in shell strings would otherwise be parsed as YAML map
+#     separators by CodeBuild's buildspec parser, even when inside shell
+#     double-quotes.
+#   - 'set -o pipefail' is INLINED on the same shell-line as the pipeline
+#     it guards, because CodeBuild executes each commands list item in a
+#     separate shell invocation. Placing pipefail on its own line wouldn't
+#     carry over.
+#   - Push retries explicitly track success via pushed=0, NOT via
+#     '&& break || ...'. sleep returns 0, so the latter masks failure
+#     and the phase would succeed after 3 silent failures.
 
 version: 0.2
 
@@ -25,24 +34,26 @@ phases:
   pre_build:
     commands:
       - 'echo === Login to ECR ==='
-      - 'aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"'
+      - 'set -o pipefail; aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"'
       - 'REPO_URI="$ECR_REGISTRY/$ECR_REPO"'
       - 'SHORT_SHA="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"'
       - 'if [ -z "$SHORT_SHA" ]; then SHORT_SHA="manual-$(date -u +%Y%m%d-%H%M%S)"; fi'
       - 'IMAGE_TAG="$SHORT_SHA"'
       - 'echo Repo URI is "$REPO_URI"'
       - 'echo Image tag is "$IMAGE_TAG" plus latest'
+      - 'echo === warming docker layer cache from previous latest ==='
+      - 'docker pull "$REPO_URI:latest" || true'
 
   build:
     commands:
       - 'echo === docker build ==='
-      - 'docker build -t "$REPO_URI:$IMAGE_TAG" -t "$REPO_URI:latest" -f backend/Dockerfile .'
+      - 'docker build --cache-from "$REPO_URI:latest" -t "$REPO_URI:$IMAGE_TAG" -t "$REPO_URI:latest" -f backend/Dockerfile .'
 
   post_build:
     commands:
       - 'echo === docker push ==='
-      - 'docker push "$REPO_URI:$IMAGE_TAG"'
-      - 'docker push "$REPO_URI:latest"'
+      - 'pushed=0; for attempt in 1 2 3; do if docker push "$REPO_URI:$IMAGE_TAG"; then pushed=1; break; fi; echo "push SHA attempt $attempt failed; sleeping"; sleep $((attempt * 5)); done; [ "$pushed" = 1 ] || { echo "all 3 SHA push attempts failed" >&2; exit 1; }'
+      - 'pushed=0; for attempt in 1 2 3; do if docker push "$REPO_URI:latest"; then pushed=1; break; fi; echo "push latest attempt $attempt failed; sleeping"; sleep $((attempt * 5)); done; [ "$pushed" = 1 ] || { echo "all 3 latest push attempts failed" >&2; exit 1; }'
       - 'printf ''[{"name":"backend","imageUri":"%s"}]'' "$REPO_URI:$IMAGE_TAG" > imagedefinitions.json'
       - 'echo build complete'
 
