@@ -40,6 +40,9 @@ Parameters:
   PublicSubnetCidr:
     Type: String
     Default: 10.0.0.0/24
+  PublicSubnetBCidr:
+    Type: String
+    Default: 10.0.1.0/24
   PrivateSubnetACidr:
     Type: String
     Default: 10.0.10.0/24
@@ -86,6 +89,19 @@ Resources:
         - { Key: Name, Value: scudo-dev-public-a }
         - { Key: Project, Value: !Ref ProjectTag }
 
+  # Second public subnet in a different AZ — the ALB requires >=2 subnets
+  # across distinct AZs even when only one is actively serving the listener.
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - { Key: Name, Value: scudo-dev-public-b }
+        - { Key: Project, Value: !Ref ProjectTag }
+
   PrivateSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
@@ -124,6 +140,12 @@ Resources:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
       RouteTableId: !Ref PublicRouteTable
 
   PrivateRouteTable:
@@ -548,6 +570,9 @@ Outputs:
   PublicSubnetId:
     Value: !Ref PublicSubnet
     Export: { Name: scudo-dev-public-subnet-id }
+  PublicSubnetIds:
+    Value: !Join [',', [ !Ref PublicSubnet, !Ref PublicSubnetB ]]
+    Export: { Name: scudo-dev-public-subnet-ids }
   PrivateSubnetIds:
     Value: !Join [',', [ !Ref PrivateSubnetA, !Ref PrivateSubnetB ]]
     Export: { Name: scudo-dev-private-subnet-ids }

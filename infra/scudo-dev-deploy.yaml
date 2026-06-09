@@ -198,8 +198,8 @@ Resources:
       Scheme: internet-facing
       Type: application
       IpAddressType: ipv4
-      Subnets:
-        - !ImportValue scudo-dev-public-subnet-id
+      # ALB requires >=2 subnets in different AZs (foundation exports both).
+      Subnets: !Split [',', !ImportValue scudo-dev-public-subnet-ids]
       SecurityGroups: [ !Ref AlbSecurityGroup ]
       LoadBalancerAttributes:
         # SSE streams: bump idle timeout from 60s default to 5 min.
