@@ -50,9 +50,7 @@ phases:
       # Emit an imagedefinitions.json artifact for downstream CodePipeline
       # integration later; harmless if not consumed.
       - printf '[{"name":"backend","imageUri":"%s"}]' "$REPO_URI:$IMAGE_TAG" > imagedefinitions.json
-      - echo "=== build complete ==="
-      - echo "Pushed $REPO_URI:$IMAGE_TAG and :latest"
-      - echo "Deploy with: aws cloudformation deploy --stack-name scudo-dev-deploy --template-file infra/scudo-dev-deploy.yaml --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ImageTag=$IMAGE_TAG"
+      - echo build complete
 
 artifacts:
   files:
