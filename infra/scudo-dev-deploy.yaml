@@ -1,0 +1,703 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: |
+  SCUDO Mapping MCP - dev deploy stack.
+
+  ECS Fargate cluster + 5 services (Flask, Ingestion MCP, Match-Verify MCP,
+  Persistence MCP, FalkorDB) + ALB + Cloud Map service discovery.
+
+  Imports foundation stack outputs (VPC, subnets, IAM roles, ECR repo, Secrets
+  Manager signing key, DynamoDB reviewer queue) so the trust gradient stays
+  IAM-enforced: M-V and Persistence task defs reference the signing key via
+  the Secrets block; Ingestion task def does NOT reference it; Ingestion task
+  role carries an explicit Deny on the secret ARN.
+
+  Account: 954976331678 (Cognizant cloudboost sandbox).
+  Region : eu-west-2.
+  Scope  : dev / demo loop. Not the JPMC production target.
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: SCUDO
+  EnvironmentTag:
+    Type: String
+    Default: dev
+  OwnerTag:
+    Type: String
+    Default: 2096955@cognizant.com
+  ImageTag:
+    Type: String
+    Default: latest
+    Description: ECR image tag for the backend image (built from backend/Dockerfile).
+  FalkorImage:
+    Type: String
+    Default: falkordb/falkordb:v4.10.4
+    Description: Pinned FalkorDB version (do NOT use :edge in deployed environments).
+  BedrockModelId:
+    Type: String
+    Default: eu.anthropic.claude-opus-4-8
+    Description: Inference profile for the M9 specialist (Match-Verify + Persistence).
+  AgentBackend:
+    Type: String
+    Default: scripted
+    AllowedValues: [ scripted, bedrock ]
+    Description: SCUDO_AGENT_BACKEND for the Flask service. 'scripted' = deterministic walk over the 4 MCP tools; 'bedrock' = live Opus 4.8 via Strands.
+  TaskCpu:
+    Type: String
+    Default: '256'
+    AllowedValues: [ '256', '512', '1024' ]
+    Description: CPU units for MCP tasks (256 = 0.25 vCPU).
+  TaskMemory:
+    Type: String
+    Default: '512'
+    AllowedValues: [ '512', '1024', '2048' ]
+    Description: Memory MB for MCP tasks.
+  FalkorTaskCpu:
+    Type: String
+    Default: '1024'
+  FalkorTaskMemory:
+    Type: String
+    Default: '2048'
+
+Resources:
+
+  # ------------------------------------------------------------------------
+  # Cluster + Service Discovery
+  # ------------------------------------------------------------------------
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: scudo-dev
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+  # Private DNS for in-VPC service-to-service discovery. M-V and Persistence
+  # resolve falkor.scudo.local to the Falkor task's ENI IP.
+  ServiceDiscoveryNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: scudo.local
+      Description: SCUDO dev private DNS namespace
+      Vpc: !ImportValue scudo-dev-vpc-id
+      Properties:
+        DnsProperties:
+          SOA:
+            TTL: 60
+
+  FalkorServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: falkor
+      NamespaceId: !Ref ServiceDiscoveryNamespace
+      DnsConfig:
+        DnsRecords:
+          - { Type: A, TTL: 10 }
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ------------------------------------------------------------------------
+  # IAM amendment: execution role needs secretsmanager:GetSecretValue
+  # (only when a task def actually includes the secret in its Secrets block;
+  # Ingestion task def deliberately omits it)
+  # ------------------------------------------------------------------------
+  ExecutionRoleSecretsPullPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: scudo-dev-exec-pull-signing-key
+      Roles:
+        - !Select [1, !Split ['/', !ImportValue scudo-dev-fargate-execution-role]]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !ImportValue scudo-dev-verdict-signing-key-arn
+
+  # ------------------------------------------------------------------------
+  # Security groups
+  # ------------------------------------------------------------------------
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SCUDO dev ALB - HTTP from internet, egress all
+      VpcId: !ImportValue scudo-dev-vpc-id
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: HTTP }
+      Tags: [{ Key: Name, Value: scudo-dev-alb-sg }]
+
+  # ALB must reach Fargate tasks on the 4 service ports.
+  AlbToFlaskIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !ImportValue scudo-dev-fargate-sg-id
+      IpProtocol: tcp
+      FromPort: 5000
+      ToPort: 5000
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Description: ALB -> Flask
+
+  AlbToIngestionIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !ImportValue scudo-dev-fargate-sg-id
+      IpProtocol: tcp
+      FromPort: 8001
+      ToPort: 8001
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Description: ALB -> Ingestion MCP
+
+  AlbToMatchVerifyIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !ImportValue scudo-dev-fargate-sg-id
+      IpProtocol: tcp
+      FromPort: 8002
+      ToPort: 8002
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Description: ALB -> Match-Verify MCP
+
+  AlbToPersistenceIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !ImportValue scudo-dev-fargate-sg-id
+      IpProtocol: tcp
+      FromPort: 8003
+      ToPort: 8003
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Description: ALB -> Persistence MCP
+
+  # Falkor: only M-V and Persistence reach it. Since both run in the shared
+  # FargateSG, allow 6379 from FargateSG. (Stricter per-service SGs are a
+  # JPMC-prod follow-up; for dev the SG-from-FargateSG model is sufficient.)
+  FalkorSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: FalkorDB - 6379 from Fargate tasks only
+      VpcId: !ImportValue scudo-dev-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !ImportValue scudo-dev-fargate-sg-id
+          Description: Fargate tasks -> Falkor
+      Tags: [{ Key: Name, Value: scudo-dev-falkor-sg }]
+
+  # ------------------------------------------------------------------------
+  # ALB + listener + target groups + listener rules
+  # ------------------------------------------------------------------------
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: scudo-dev-alb
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      Subnets:
+        - !ImportValue scudo-dev-public-subnet-id
+      SecurityGroups: [ !Ref AlbSecurityGroup ]
+      LoadBalancerAttributes:
+        # SSE streams: bump idle timeout from 60s default to 5 min.
+        - { Key: idle_timeout.timeout_seconds, Value: '300' }
+        - { Key: deletion_protection.enabled, Value: 'false' }
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+  FlaskTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: scudo-dev-flask-tg
+      VpcId: !ImportValue scudo-dev-vpc-id
+      Port: 5000
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /api/mapping/vendors
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-499' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+        - { Key: stickiness.enabled, Value: 'true' }
+        - { Key: stickiness.type, Value: lb_cookie }
+
+  IngestionMcpTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: scudo-dev-ingest-tg
+      VpcId: !ImportValue scudo-dev-vpc-id
+      Port: 8001
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-499' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+
+  MatchVerifyMcpTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: scudo-dev-match-tg
+      VpcId: !ImportValue scudo-dev-vpc-id
+      Port: 8002
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-499' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+
+  PersistenceMcpTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: scudo-dev-persist-tg
+      VpcId: !ImportValue scudo-dev-vpc-id
+      Port: 8003
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-499' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+
+  # Default action -> Flask; explicit rules route /mcp/<tier>/* by path.
+  AlbHttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FlaskTargetGroup
+
+  IngestionListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref AlbHttpListener
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          Values: [ /mcp/ingest/*, /mcp/ingest ]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref IngestionMcpTargetGroup
+
+  MatchVerifyListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref AlbHttpListener
+      Priority: 20
+      Conditions:
+        - Field: path-pattern
+          Values: [ /mcp/match/*, /mcp/match ]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref MatchVerifyMcpTargetGroup
+
+  PersistenceListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref AlbHttpListener
+      Priority: 30
+      Conditions:
+        - Field: path-pattern
+          Values: [ /mcp/persist/*, /mcp/persist ]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref PersistenceMcpTargetGroup
+
+  # ------------------------------------------------------------------------
+  # Task definitions
+  # ------------------------------------------------------------------------
+
+  # FalkorDB: graph database, no AWS access needed at runtime (just network).
+  FalkorTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: scudo-dev-falkor
+      Cpu: !Ref FalkorTaskCpu
+      Memory: !Ref FalkorTaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [ FARGATE ]
+      ExecutionRoleArn: !ImportValue scudo-dev-fargate-execution-role
+      # Task role: no AWS perms needed. Reuse Ingestion (most-restrictive).
+      TaskRoleArn: !ImportValue scudo-dev-fargate-ingestion-task-role
+      ContainerDefinitions:
+        - Name: falkor
+          Image: !Ref FalkorImage
+          Essential: true
+          PortMappings:
+            - { ContainerPort: 6379, Protocol: tcp }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !ImportValue scudo-dev-log-group
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: falkor
+
+  FlaskTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: scudo-dev-flask
+      Cpu: '512'
+      Memory: '1024'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [ FARGATE ]
+      ExecutionRoleArn: !ImportValue scudo-dev-fargate-execution-role
+      TaskRoleArn: !ImportValue scudo-dev-fargate-ingestion-task-role
+      ContainerDefinitions:
+        - Name: flask
+          Image: !Sub
+            - '${RepoUri}:${ImageTag}'
+            - RepoUri: !ImportValue scudo-dev-backend-ecr-uri
+          Essential: true
+          PortMappings:
+            - { ContainerPort: 5000, Protocol: tcp }
+          Command:
+            - gunicorn
+            - '-b'
+            - '0.0.0.0:5000'
+            - '-k'
+            - gthread
+            - '--threads'
+            - '4'
+            - '--timeout'
+            - '300'
+            - '--graceful-timeout'
+            - '30'
+            - '--access-logfile'
+            - '-'
+            - '--error-logfile'
+            - '-'
+            - 'app:app'
+          Environment:
+            - { Name: AWS_REGION, Value: !Ref AWS::Region }
+            - { Name: STORE_BACKEND, Value: falkordb }
+            - { Name: FALKORDB_URL, Value: 'falkordb://falkor.scudo.local:6379' }
+            - { Name: GRAPH_NAME, Value: scudo_mapping }
+            - { Name: FRAME_SOURCE, Value: mock }
+            - { Name: CONFIDENCE_FLOOR, Value: '0.80' }
+            - { Name: BORDERLINE_HALF_WIDTH, Value: '0.05' }
+            - { Name: S3_WORKING_SET_BUCKET, Value: !ImportValue scudo-dev-frames-bucket }
+            - { Name: SCUDO_CANONICAL_BUNDLE_KEY, Value: canonical/bundle-latest.json }
+            - { Name: SCUDO_AGENT_BACKEND, Value: !Ref AgentBackend }
+            - { Name: SCUDO_AUTH_ALLOW_DEV, Value: '1' }
+            - { Name: SCUDO_AUTH_DEV_PRINCIPAL, Value: !Ref OwnerTag }
+            # Three seams (#18) - env-driven, code reads them when they land.
+            - { Name: SCUDO_VENDOR_ADAPTERS, Value: 'lseg,bloomberg,sp_global,ice,factset' }
+            - { Name: SCUDO_TAXONOMY_LOADER, Value: cdao }
+            - { Name: SCUDO_PERSIST_TARGET, Value: falkordb }
+          # NB: Flask does NOT carry the signing key. It's a UI/route layer.
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !ImportValue scudo-dev-log-group
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: flask
+
+  IngestionTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: scudo-dev-ingestion
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [ FARGATE ]
+      ExecutionRoleArn: !ImportValue scudo-dev-fargate-execution-role
+      TaskRoleArn: !ImportValue scudo-dev-fargate-ingestion-task-role
+      ContainerDefinitions:
+        - Name: ingestion-mcp
+          Image: !Sub
+            - '${RepoUri}:${ImageTag}'
+            - RepoUri: !ImportValue scudo-dev-backend-ecr-uri
+          Essential: true
+          PortMappings:
+            - { ContainerPort: 8001, Protocol: tcp }
+          Command:
+            - python
+            - '-m'
+            - scudo_mapping_mcp.ingestion_mcp
+          Environment:
+            - { Name: AWS_REGION, Value: !Ref AWS::Region }
+            - { Name: MCP_HOST, Value: '0.0.0.0' }
+            - { Name: MCP_PORT, Value: '8001' }
+            - { Name: STORE_BACKEND, Value: falkordb }
+            - { Name: FALKORDB_URL, Value: 'falkordb://falkor.scudo.local:6379' }
+            - { Name: GRAPH_NAME, Value: scudo_mapping }
+            - { Name: FRAME_SOURCE, Value: mock }
+            - { Name: S3_WORKING_SET_BUCKET, Value: !ImportValue scudo-dev-frames-bucket }
+            - { Name: SCUDO_CANONICAL_BUNDLE_KEY, Value: canonical/bundle-latest.json }
+          # CRITICAL: NO Secrets block. The signing key value never reaches
+          # the Ingestion container. Combined with the explicit IAM Deny on
+          # the Ingestion task role, this is the trust gradient enforced by
+          # both task-def-level and IAM-level discipline.
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !ImportValue scudo-dev-log-group
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ingestion
+
+  MatchVerifyTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: scudo-dev-match-verify
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [ FARGATE ]
+      ExecutionRoleArn: !ImportValue scudo-dev-fargate-execution-role
+      TaskRoleArn: !ImportValue scudo-dev-fargate-match-verify-task-role
+      ContainerDefinitions:
+        - Name: match-verify-mcp
+          Image: !Sub
+            - '${RepoUri}:${ImageTag}'
+            - RepoUri: !ImportValue scudo-dev-backend-ecr-uri
+          Essential: true
+          PortMappings:
+            - { ContainerPort: 8002, Protocol: tcp }
+          Command:
+            - python
+            - '-m'
+            - scudo_mapping_mcp.match_verify_mcp
+          Environment:
+            - { Name: AWS_REGION, Value: !Ref AWS::Region }
+            - { Name: MCP_HOST, Value: '0.0.0.0' }
+            - { Name: MCP_PORT, Value: '8002' }
+            - { Name: STORE_BACKEND, Value: falkordb }
+            - { Name: FALKORDB_URL, Value: 'falkordb://falkor.scudo.local:6379' }
+            - { Name: GRAPH_NAME, Value: scudo_mapping }
+            - { Name: FRAME_SOURCE, Value: mock }
+            - { Name: CONFIDENCE_FLOOR, Value: '0.80' }
+            - { Name: BORDERLINE_HALF_WIDTH, Value: '0.05' }
+            - { Name: S3_WORKING_SET_BUCKET, Value: !ImportValue scudo-dev-frames-bucket }
+            - { Name: SCUDO_CANONICAL_BUNDLE_KEY, Value: canonical/bundle-latest.json }
+            - { Name: SCUDO_BEDROCK_MODEL_ID, Value: !Ref BedrockModelId }
+            - { Name: BEDROCK_REGION, Value: !Ref AWS::Region }
+            - { Name: SCUDO_REVIEWER_QUEUE_TABLE, Value: !ImportValue scudo-dev-reviewer-queue-table-name }
+          # SIGNING KEY: M-V signs result.band into the seal (v=2). Pulled by
+          # the execution role from Secrets Manager, injected as env var into
+          # this container only.
+          Secrets:
+            - Name: SCUDO_VERDICT_SIGNING_KEY
+              ValueFrom: !Sub
+                - '${KeyArn}:value::'
+                - KeyArn: !ImportValue scudo-dev-verdict-signing-key-arn
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !ImportValue scudo-dev-log-group
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: match-verify
+
+  PersistenceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: scudo-dev-persistence
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [ FARGATE ]
+      ExecutionRoleArn: !ImportValue scudo-dev-fargate-execution-role
+      TaskRoleArn: !ImportValue scudo-dev-fargate-persistence-task-role
+      ContainerDefinitions:
+        - Name: persistence-mcp
+          Image: !Sub
+            - '${RepoUri}:${ImageTag}'
+            - RepoUri: !ImportValue scudo-dev-backend-ecr-uri
+          Essential: true
+          PortMappings:
+            - { ContainerPort: 8003, Protocol: tcp }
+          Command:
+            - python
+            - '-m'
+            - scudo_mapping_mcp.persistence_mcp
+          Environment:
+            - { Name: AWS_REGION, Value: !Ref AWS::Region }
+            - { Name: MCP_HOST, Value: '0.0.0.0' }
+            - { Name: MCP_PORT, Value: '8003' }
+            - { Name: STORE_BACKEND, Value: falkordb }
+            - { Name: FALKORDB_URL, Value: 'falkordb://falkor.scudo.local:6379' }
+            - { Name: GRAPH_NAME, Value: scudo_mapping }
+            - { Name: FRAME_SOURCE, Value: mock }
+            - { Name: CONFIDENCE_FLOOR, Value: '0.80' }
+            - { Name: BORDERLINE_HALF_WIDTH, Value: '0.05' }
+            - { Name: S3_WORKING_SET_BUCKET, Value: !ImportValue scudo-dev-frames-bucket }
+            - { Name: SCUDO_CANONICAL_BUNDLE_KEY, Value: canonical/bundle-latest.json }
+            - { Name: SCUDO_BEDROCK_MODEL_ID, Value: !Ref BedrockModelId }
+            - { Name: BEDROCK_REGION, Value: !Ref AWS::Region }
+            - { Name: SCUDO_REVIEWER_QUEUE_TABLE, Value: !ImportValue scudo-dev-reviewer-queue-table-name }
+          # SIGNING KEY: Persistence verifies the seal before the I5 gate runs.
+          # Same secret as M-V, different role doing the read.
+          Secrets:
+            - Name: SCUDO_VERDICT_SIGNING_KEY
+              ValueFrom: !Sub
+                - '${KeyArn}:value::'
+                - KeyArn: !ImportValue scudo-dev-verdict-signing-key-arn
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !ImportValue scudo-dev-log-group
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: persistence
+
+  # ------------------------------------------------------------------------
+  # Services
+  # ------------------------------------------------------------------------
+  FalkorService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: scudo-dev-falkor
+      Cluster: !Ref EcsCluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      TaskDefinition: !Ref FalkorTaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ','
+            - !ImportValue scudo-dev-private-subnet-ids
+          SecurityGroups: [ !Ref FalkorSecurityGroup ]
+      ServiceRegistries:
+        - RegistryArn: !GetAtt FalkorServiceDiscovery.Arn
+
+  FlaskService:
+    Type: AWS::ECS::Service
+    DependsOn: AlbHttpListener
+    Properties:
+      ServiceName: scudo-dev-flask
+      Cluster: !Ref EcsCluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      TaskDefinition: !Ref FlaskTaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ','
+            - !ImportValue scudo-dev-private-subnet-ids
+          SecurityGroups: [ !ImportValue scudo-dev-fargate-sg-id ]
+      LoadBalancers:
+        - TargetGroupArn: !Ref FlaskTargetGroup
+          ContainerName: flask
+          ContainerPort: 5000
+      HealthCheckGracePeriodSeconds: 60
+
+  IngestionService:
+    Type: AWS::ECS::Service
+    DependsOn: IngestionListenerRule
+    Properties:
+      ServiceName: scudo-dev-ingestion
+      Cluster: !Ref EcsCluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      TaskDefinition: !Ref IngestionTaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ','
+            - !ImportValue scudo-dev-private-subnet-ids
+          SecurityGroups: [ !ImportValue scudo-dev-fargate-sg-id ]
+      LoadBalancers:
+        - TargetGroupArn: !Ref IngestionMcpTargetGroup
+          ContainerName: ingestion-mcp
+          ContainerPort: 8001
+      HealthCheckGracePeriodSeconds: 60
+
+  MatchVerifyService:
+    Type: AWS::ECS::Service
+    DependsOn: MatchVerifyListenerRule
+    Properties:
+      ServiceName: scudo-dev-match-verify
+      Cluster: !Ref EcsCluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      TaskDefinition: !Ref MatchVerifyTaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ','
+            - !ImportValue scudo-dev-private-subnet-ids
+          SecurityGroups: [ !ImportValue scudo-dev-fargate-sg-id ]
+      LoadBalancers:
+        - TargetGroupArn: !Ref MatchVerifyMcpTargetGroup
+          ContainerName: match-verify-mcp
+          ContainerPort: 8002
+      HealthCheckGracePeriodSeconds: 60
+
+  PersistenceService:
+    Type: AWS::ECS::Service
+    DependsOn: PersistenceListenerRule
+    Properties:
+      ServiceName: scudo-dev-persistence
+      Cluster: !Ref EcsCluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      TaskDefinition: !Ref PersistenceTaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ','
+            - !ImportValue scudo-dev-private-subnet-ids
+          SecurityGroups: [ !ImportValue scudo-dev-fargate-sg-id ]
+      LoadBalancers:
+        - TargetGroupArn: !Ref PersistenceMcpTargetGroup
+          ContainerName: persistence-mcp
+          ContainerPort: 8003
+      HealthCheckGracePeriodSeconds: 60
+
+Outputs:
+  AlbDnsName:
+    Value: !GetAtt Alb.DNSName
+    Export: { Name: scudo-dev-alb-dns }
+  AlbArn:
+    Value: !Ref Alb
+    Export: { Name: scudo-dev-alb-arn }
+  EcsClusterArn:
+    Value: !GetAtt EcsCluster.Arn
+    Export: { Name: scudo-dev-ecs-cluster-arn }
+  ServiceDiscoveryNamespaceId:
+    Value: !Ref ServiceDiscoveryNamespace
+    Export: { Name: scudo-dev-service-discovery-namespace }
+  FalkorEndpoint:
+    Value: 'falkordb://falkor.scudo.local:6379'
+    Export: { Name: scudo-dev-falkor-endpoint }
