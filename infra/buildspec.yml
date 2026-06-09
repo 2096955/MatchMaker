@@ -1,0 +1,60 @@
+# SCUDO Mapping MCP - CodeBuild buildspec
+#
+# Builds backend/Dockerfile (single image, four entrypoints) and pushes to
+# the foundation-provisioned ECR repo scudo-dev-backend with two tags:
+# the short SHA of the source commit (immutable, pin from task defs in
+# prod) and `latest` (used by the dev deploy stack).
+#
+# Trigger: aws codebuild start-build --project-name scudo-dev-build --region eu-west-2
+#
+# Env vars injected by the CodeBuild project (see scudo-dev-build.yaml):
+#   AWS_DEFAULT_REGION   eu-west-2
+#   ECR_REGISTRY         954976331678.dkr.ecr.eu-west-2.amazonaws.com
+#   ECR_REPO             scudo-dev-backend
+
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  pre_build:
+    commands:
+      - echo "=== Login to ECR ==="
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION"
+          | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+      - REPO_URI="$ECR_REGISTRY/$ECR_REPO"
+      # Short SHA from CodeBuild's resolved source version (falls back to a
+      # date stamp if a manual build run lacks a resolved version).
+      - SHORT_SHA="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"
+      - if [ -z "$SHORT_SHA" ]; then SHORT_SHA="manual-$(date -u +%Y%m%d-%H%M%S)"; fi
+      - IMAGE_TAG="$SHORT_SHA"
+      - echo "Repo URI : $REPO_URI"
+      - echo "Image tag: $IMAGE_TAG (+ latest)"
+
+  build:
+    commands:
+      - echo "=== docker build ==="
+      - cd "$CODEBUILD_SRC_DIR"
+      - docker build
+          -t "$REPO_URI:$IMAGE_TAG"
+          -t "$REPO_URI:latest"
+          -f backend/Dockerfile
+          .
+
+  post_build:
+    commands:
+      - echo "=== docker push ==="
+      - docker push "$REPO_URI:$IMAGE_TAG"
+      - docker push "$REPO_URI:latest"
+      # Emit an imagedefinitions.json artifact for downstream CodePipeline
+      # integration later; harmless if not consumed.
+      - printf '[{"name":"backend","imageUri":"%s"}]' "$REPO_URI:$IMAGE_TAG" > imagedefinitions.json
+      - echo "=== build complete ==="
+      - echo "Pushed $REPO_URI:$IMAGE_TAG and :latest"
+      - echo "Deploy with: aws cloudformation deploy --stack-name scudo-dev-deploy --template-file infra/scudo-dev-deploy.yaml --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ImageTag=$IMAGE_TAG"
+
+artifacts:
+  files:
+    - imagedefinitions.json
+  discard-paths: yes

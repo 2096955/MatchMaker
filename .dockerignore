@@ -1,0 +1,64 @@
+# Keep the docker build context small.
+# Only backend/ ends up in the image (per backend/Dockerfile COPY backend/);
+# everything else here is excluded from the context tarball sent to the daemon.
+
+# ─── Python runtime artefacts ───────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+ENV/
+
+# ─── Node / frontend (not in the image) ─────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ─── Frontend tree itself — not in the backend image ────────────────────
+frontend/
+
+# ─── Docs / infra / sample data — not in the backend image ──────────────
+docs/
+infra/
+sample_data/
+landing_zone/
+
+# ─── Logs / runtime artefacts ───────────────────────────────────────────
+*.log
+backend/logs/
+backend/uploads/
+
+# ─── Local / operational AWS state ──────────────────────────────────────
+infra/scudo-dev-outputs.env
+.env
+.env.*
+
+# ─── Git + editor noise ─────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ─── Build / IaC artefacts that don't belong in the runtime image ───────
+Dockerfile
+backend/Dockerfile
+backend/scudo/
+backend/vendor_catalogue_mcp/
+*.SKILL.md
+*.md
+!backend/README.md
+README.md

@@ -1,0 +1,155 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: |
+  SCUDO Mapping MCP - CodeBuild project for cloud-side image builds.
+
+  Alternative to a local Docker install. Builds backend/Dockerfile and pushes
+  to the foundation-provisioned ECR repo scudo-dev-backend. Trigger:
+
+    aws codebuild start-build --project-name scudo-dev-build --region eu-west-2
+
+  ONE-TIME SETUP BEFORE FIRST BUILD (handles GitHub auth for private repos):
+  Either run, from the local CLI:
+
+    aws codebuild import-source-credentials \
+      --auth-type PERSONAL_ACCESS_TOKEN \
+      --server-type GITHUB \
+      --token <ghp_xxxxx>            # a GitHub PAT with repo:read
+
+  Or in the AWS Console: CodeBuild -> Settings -> Source providers ->
+  GitHub -> Connect (OAuth). After that the credential is account-wide
+  and reused by this project on every build.
+
+  If the MatchMaker repo is public, no GitHub credential is required.
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: SCUDO
+  EnvironmentTag:
+    Type: String
+    Default: dev
+  OwnerTag:
+    Type: String
+    Default: 2096955@cognizant.com
+  GitHubRepo:
+    Type: String
+    Default: https://github.com/2096955/MatchMaker.git
+    Description: HTTPS clone URL for the source repo.
+  GitHubBranch:
+    Type: String
+    Default: main
+    Description: Branch to build from.
+  BuildImage:
+    Type: String
+    Default: aws/codebuild/standard:7.0
+    Description: CodeBuild managed image. Newer = more modern docker + buildx.
+
+Resources:
+
+  # CloudWatch log group for CodeBuild output.
+  BuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/codebuild/scudo-dev-build
+      RetentionInDays: 14
+
+  # Service role: CodeBuild assumes this to do its work. Permissions are
+  # tight: only CloudWatch logs + the single ECR repo we push to + the
+  # one ECR token endpoint that requires Resource:* by API design.
+  BuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: scudo-dev-codebuild-service
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: scudo-dev-codebuild-logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/scudo-dev-build
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/scudo-dev-build:*
+        - PolicyName: scudo-dev-codebuild-ecr
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # ecr:GetAuthorizationToken is account-scoped by AWS design;
+              # the API does not support resource scoping for this action.
+              # It returns a transient login token, not a data read.
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              # Push + read scoped to the single repo we build.
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/scudo-dev-backend
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: scudo-dev-build
+      Description: Build backend/Dockerfile and push to ECR scudo-dev-backend.
+      ServiceRole: !GetAtt BuildServiceRole.Arn
+      Source:
+        Type: GITHUB
+        Location: !Ref GitHubRepo
+        BuildSpec: infra/buildspec.yml
+        GitCloneDepth: 1
+      SourceVersion: !Ref GitHubBranch
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: !Ref BuildImage
+        ComputeType: BUILD_GENERAL1_SMALL
+        # PrivilegedMode required to run `docker build` inside the CodeBuild container.
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - { Name: AWS_DEFAULT_REGION, Value: !Ref AWS::Region }
+          - { Name: ECR_REGISTRY, Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com' }
+          - { Name: ECR_REPO, Value: scudo-dev-backend }
+      Artifacts:
+        Type: NO_ARTIFACTS
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogGroup
+          StreamName: build
+      TimeoutInMinutes: 30
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
+
+Outputs:
+  BuildProjectName:
+    Value: !Ref BuildProject
+    Export: { Name: scudo-dev-build-project-name }
+  BuildProjectArn:
+    Value: !GetAtt BuildProject.Arn
+    Export: { Name: scudo-dev-build-project-arn }
+  BuildServiceRoleArn:
+    Value: !GetAtt BuildServiceRole.Arn
+    Export: { Name: scudo-dev-build-service-role-arn }
+  StartBuildCommand:
+    Value: !Sub aws codebuild start-build --project-name ${BuildProject} --region ${AWS::Region}
+    Description: Run this to trigger a build.
