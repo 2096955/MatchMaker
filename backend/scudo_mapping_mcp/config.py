@@ -5,6 +5,20 @@ The whole point of the seam is that NOTHING above the store layer knows which
 backend is live. That decision is made here, from the environment, and nowhere
 else. Set STORE_BACKEND=falkordb for local/dev, STORE_BACKEND=neptune for the
 Atlas cutover. The agent, the matcher and the MCP tools are identical either way.
+
+Three-seam vendor-agnostic contract (#18):
+    The repeatability seams from the matching strategy live as three env
+    vars, each surfacing as a Settings field below. Code SHOULD consult
+    Settings (never os.getenv directly) so the deploy task definitions in
+    infra/scudo-dev-deploy.yaml are actually load-bearing:
+
+      SCUDO_VENDOR_ADAPTERS  -> Settings.vendor_adapters
+      SCUDO_TAXONOMY_LOADER  -> Settings.taxonomy_loader
+      SCUDO_PERSIST_TARGET   -> Settings.persist_target
+
+    These three are the only contract points the matching strategy needs to
+    swap a client deployment: which vendor catalogues we normalise, which
+    classification ontology we load, and where the canonical write lands.
 """
 from __future__ import annotations
 
@@ -35,8 +49,52 @@ CONFIDENCE_FLOOR: float = 0.80
 BORDERLINE_HALF_WIDTH: float = 0.05
 
 
+_ALLOWED_TAXONOMY_LOADERS: tuple[str, ...] = ("cdao",)
+_ALLOWED_PERSIST_TARGETS: tuple[str, ...] = ("falkordb", "neptune", "none")
+
+
+def _default_vendor_adapters() -> tuple[str, ...]:
+    """Default vendor adapter list — derived from PRIORITY_VENDORS so the
+    in-scope vendor list and the wired adapters never drift apart.
+
+    The convention matches the deploy task def (SCUDO_VENDOR_ADAPTERS):
+    lower-cased, with spaces collapsed to underscores. So "S&P Global"
+    becomes "s&p_global"; "LSEG" becomes "lseg"; etc.
+    """
+    return tuple(v.lower().replace(" ", "_") for v in PRIORITY_VENDORS)
+
+
 @dataclass(frozen=True)
 class Settings:
+    """Frozen settings dataclass — single source of truth for runtime config.
+
+    Existing fields (store swap point):
+        store_backend:         "falkordb" | "neptune"
+        falkordb_url:          e.g. falkordb://localhost:6379
+        neptune_endpoint:      e.g. https://<cluster>.neptune.amazonaws.com:8182
+        graph_name:            logical graph / dataset name
+        frame_source:          "mock" | "s3"
+        s3_bucket:             vendor working-set bucket (prod / M8)
+        s3_prefix:             optional sub-prefix (e.g. "env/uat/")
+        confidence_floor:      below this similarity → escalate
+        borderline_half_width: cost-ladder band around the floor
+
+    Three-seam vendor-agnostic contract (#18):
+        vendor_adapters: tuple[str, ...]
+            Which vendor catalogue normalisers are wired. Read from
+            SCUDO_VENDOR_ADAPTERS (comma-separated, e.g.
+            "lseg,bloomberg,sp_global,ice,factset"). Defaults to
+            PRIORITY_VENDORS lowercased + "_" for spaces, so the default
+            tracks the in-scope vendor list automatically.
+        taxonomy_loader: str
+            Which classification ontology is loaded. Read from
+            SCUDO_TAXONOMY_LOADER. Defaults to "cdao". Allowed values
+            today: "cdao" only (will expand for other clients later).
+        persist_target: str
+            Where the canonical write goes. Read from SCUDO_PERSIST_TARGET.
+            Defaults to "falkordb" (matches store_backend in dev).
+            Allowed values: "falkordb" | "neptune" | "none".
+    """
     store_backend: str            # "falkordb" | "neptune"
     falkordb_url: str             # e.g. falkordb://localhost:6379  (or falkordb:// for default local)
     neptune_endpoint: str         # e.g. https://<cluster>.neptune.amazonaws.com:8182
@@ -46,6 +104,10 @@ class Settings:
     s3_prefix: str                # optional sub-prefix (e.g. "env/uat/") — joined as f"{s3_prefix}{vendor}/{product_id}.json"
     confidence_floor: float
     borderline_half_width: float  # cost-ladder band width around the floor
+    # Three-seam vendor-agnostic contract — see module docstring (#18).
+    vendor_adapters: tuple[str, ...]  # SCUDO_VENDOR_ADAPTERS
+    taxonomy_loader: str              # SCUDO_TAXONOMY_LOADER — "cdao" (only allowed today)
+    persist_target: str               # SCUDO_PERSIST_TARGET — "falkordb" | "neptune" | "none"
 
     @staticmethod
     def from_env() -> "Settings":
@@ -54,8 +116,42 @@ class Settings:
         prefix = os.getenv("S3_PREFIX", "").strip()
         if prefix and not prefix.endswith("/"):
             prefix = prefix + "/"
+
+        # Store backend (existing seam) — needed below to default persist_target.
+        store_backend = os.getenv("STORE_BACKEND", "falkordb").lower()
+
+        # --- Three-seam contract (#18) ------------------------------------
+        # vendor_adapters: comma-separated; empty entries trimmed; lowercased.
+        raw_adapters = os.getenv("SCUDO_VENDOR_ADAPTERS", "").strip()
+        if raw_adapters:
+            vendor_adapters = tuple(
+                tok.strip().lower()
+                for tok in raw_adapters.split(",")
+                if tok.strip()
+            )
+        else:
+            vendor_adapters = _default_vendor_adapters()
+
+        # taxonomy_loader: case-insensitive; validated against allow-list.
+        taxonomy_loader = os.getenv("SCUDO_TAXONOMY_LOADER", "cdao").strip().lower()
+        if taxonomy_loader not in _ALLOWED_TAXONOMY_LOADERS:
+            raise ValueError(
+                f"SCUDO_TAXONOMY_LOADER={taxonomy_loader!r} not in "
+                f"{_ALLOWED_TAXONOMY_LOADERS!r}"
+            )
+
+        # persist_target: defaults to store_backend so dev stays coherent.
+        persist_target = os.getenv(
+            "SCUDO_PERSIST_TARGET", store_backend,
+        ).strip().lower()
+        if persist_target not in _ALLOWED_PERSIST_TARGETS:
+            raise ValueError(
+                f"SCUDO_PERSIST_TARGET={persist_target!r} not in "
+                f"{_ALLOWED_PERSIST_TARGETS!r}"
+            )
+
         return Settings(
-            store_backend=os.getenv("STORE_BACKEND", "falkordb").lower(),
+            store_backend=store_backend,
             falkordb_url=os.getenv("FALKORDB_URL", "falkordb://localhost:6379"),
             neptune_endpoint=os.getenv("NEPTUNE_ENDPOINT", ""),
             graph_name=os.getenv("GRAPH_NAME", "scudo_mapping"),
@@ -66,6 +162,9 @@ class Settings:
             borderline_half_width=float(
                 os.getenv("BORDERLINE_HALF_WIDTH", str(BORDERLINE_HALF_WIDTH)),
             ),
+            vendor_adapters=vendor_adapters,
+            taxonomy_loader=taxonomy_loader,
+            persist_target=persist_target,
         )
 
 

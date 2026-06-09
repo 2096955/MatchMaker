@@ -2104,6 +2104,95 @@ def _():
         _hydrate_teardown(saved)
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# THREE-SEAM vendor-agnostic contract (#18) — pin the env vars wired by the
+# deploy task def (SCUDO_VENDOR_ADAPTERS / SCUDO_TAXONOMY_LOADER /
+# SCUDO_PERSIST_TARGET) so code actually consumes them, not just CFN.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _with_env(**overrides):
+    """Context-managerless save/restore for os.environ. Returns the prior
+    values dict so the caller restores them in a try/finally."""
+    saved: dict[str, str | None] = {}
+    for k, v in overrides.items():
+        saved[k] = os.environ.get(k)
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    return saved
+
+
+def _restore_env(saved):
+    for k, v in saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+
+
+@case("THREE_SEAM_vendor_adapters_default_matches_priority_vendors")
+def _():
+    """No env override -> vendor_adapters defaults to PRIORITY_VENDORS,
+    lowercased with spaces replaced by underscores. Default must track the
+    in-scope vendor list so the two never drift apart."""
+    saved = _with_env(SCUDO_VENDOR_ADAPTERS=None)
+    try:
+        s = config_mod.Settings.from_env()
+        expected = tuple(v.lower().replace(" ", "_") for v in PRIORITY_VENDORS)
+        assert s.vendor_adapters == expected, (s.vendor_adapters, expected)
+    finally:
+        _restore_env(saved)
+
+
+@case("THREE_SEAM_vendor_adapters_env_override")
+def _():
+    """SCUDO_VENDOR_ADAPTERS env override produces a DIFFERENT tuple from
+    the default — confirming the env var is actually consumed by code,
+    not silently ignored (#18 was opened because only the deploy task def
+    set these vars, with no reader on the Python side)."""
+    saved = _with_env(SCUDO_VENDOR_ADAPTERS="lseg,bloomberg")
+    try:
+        s = config_mod.Settings.from_env()
+        assert s.vendor_adapters == ("lseg", "bloomberg"), s.vendor_adapters
+        default = tuple(v.lower().replace(" ", "_") for v in PRIORITY_VENDORS)
+        assert s.vendor_adapters != default, (
+            "env override must change the tuple"
+        )
+    finally:
+        _restore_env(saved)
+
+
+@case("THREE_SEAM_taxonomy_loader_defaults_to_cdao")
+def _():
+    """No env override -> taxonomy_loader='cdao'. Only allowed value today;
+    locks the contract until other client ontologies are wired."""
+    saved = _with_env(SCUDO_TAXONOMY_LOADER=None)
+    try:
+        s = config_mod.Settings.from_env()
+        assert s.taxonomy_loader == "cdao", s.taxonomy_loader
+    finally:
+        _restore_env(saved)
+
+
+@case("THREE_SEAM_persist_target_defaults_to_store_backend")
+def _():
+    """No SCUDO_PERSIST_TARGET override -> persist_target falls back to
+    store_backend. Dev runs with falkordb for both, and the matching
+    strategy stays coherent (canonical write goes to the same store the
+    matcher reads from)."""
+    saved = _with_env(SCUDO_PERSIST_TARGET=None, STORE_BACKEND="falkordb")
+    try:
+        s = config_mod.Settings.from_env()
+        assert s.store_backend == "falkordb", s.store_backend
+        assert s.persist_target == s.store_backend, (
+            s.persist_target, s.store_backend,
+        )
+    finally:
+        _restore_env(saved)
+
+
 def main() -> int:
     for name, ok, detail in _results:
         if ok:
