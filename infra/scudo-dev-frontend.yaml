@@ -1,0 +1,171 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: |
+  SCUDO Mapping MCP - dev frontend stack.
+  S3 (private, OAC-restricted) + CloudFront with two origins:
+    - S3 origin serves the built SPA (default behaviour)
+    - ALB origin proxies /api/* and /mcp/* through to the backend stack
+
+  Account : 954976331678 (Cognizant cloudboost sandbox)
+  Region  : eu-west-2
+  Scope   : dev / demo loop. UK-only access, so PriceClass_100 is fine.
+
+  Depends on scudo-dev-deploy (imports scudo-dev-alb-dns). The ALB origin is
+  hit over plain HTTP on port 80 because the ALB listener in the deploy stack
+  is HTTP-only for dev; CloudFront still terminates HTTPS at the edge for the
+  browser, and viewer traffic is redirected to HTTPS unconditionally.
+
+  Cache behaviours for /api/* and /mcp/* deliberately disable caching and
+  forward all viewer headers/query/cookies so that agent SSE streams, auth
+  headers, and signed-payload bodies survive the round-trip untouched.
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: SCUDO
+  EnvironmentTag:
+    Type: String
+    Default: dev
+  OwnerTag:
+    Type: String
+    Default: 2096955@cognizant.com
+
+Resources:
+
+  # ──────── S3 bucket (private, OAC-only) ────────
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub scudo-dev-frontend-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env,     Value: !Ref EnvironmentTag }
+        - { Key: Owner,   Value: !Ref OwnerTag }
+
+  # ──────── CloudFront Origin Access Control (modern OAC, not OAI) ────────
+  FrontendOac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub scudo-dev-frontend-oac-${AWS::AccountId}
+        Description: OAC for SCUDO dev frontend S3 origin
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # ──────── Bucket policy: only this distribution's OAC can GetObject ────────
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOacRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${FrontendBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+  # ──────── CloudFront distribution ────────
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: SCUDO dev frontend - SPA on S3 with ALB passthrough for /api and /mcp
+        PriceClass: PriceClass_100
+        HttpVersion: http2and3
+        DefaultRootObject: index.html
+        Origins:
+          # S3 origin (static SPA) - default behaviour
+          - Id: s3-frontend
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginAccessControlId: !GetAtt FrontendOac.Id
+          # ALB origin (backend) - proxied for /api/* and /mcp/*
+          - Id: alb-backend
+            DomainName: !ImportValue scudo-dev-alb-dns
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+              HTTPPort: 80
+              OriginSSLProtocols: [ TLSv1.2 ]
+        DefaultCacheBehavior:
+          TargetOriginId: s3-frontend
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [ GET, HEAD, OPTIONS ]
+          CachedMethods:  [ GET, HEAD, OPTIONS ]
+          Compress: true
+          # Managed-CachingOptimized
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: alb-backend
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [ GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE ]
+            CachedMethods:  [ GET, HEAD, OPTIONS ]
+            Compress: false
+            # Managed-CachingDisabled
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            # Managed-AllViewer (forward all headers/query/cookies)
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          - PathPattern: /mcp/*
+            TargetOriginId: alb-backend
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [ GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE ]
+            CachedMethods:  [ GET, HEAD, OPTIONS ]
+            Compress: false
+            # Managed-CachingDisabled
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            # Managed-AllViewer (forward all headers/query/cookies)
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+        CustomErrorResponses:
+          # SPA routing: any 404 from S3 resolves to index.html with a 200,
+          # so client-side router can take over the path.
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env,     Value: !Ref EnvironmentTag }
+        - { Key: Owner,   Value: !Ref OwnerTag }
+
+Outputs:
+  FrontendBucketName:
+    Value: !Ref FrontendBucket
+    Export: { Name: scudo-dev-frontend-bucket-name }
+  FrontendBucketArn:
+    Value: !GetAtt FrontendBucket.Arn
+    Export: { Name: scudo-dev-frontend-bucket-arn }
+  CloudFrontDistributionId:
+    Value: !Ref CloudFrontDistribution
+    Export: { Name: scudo-dev-frontend-distribution-id }
+  CloudFrontDistributionDomain:
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export: { Name: scudo-dev-frontend-distribution-domain }
+  DeployFrontendCommand:
+    Description: One-liner to sync a built dist/ to S3 and bust the CloudFront cache
+    Value: !Sub aws s3 sync frontend/dist/ s3://${FrontendBucket} --delete && aws cloudfront create-invalidation --distribution-id ${CloudFrontDistribution} --paths /*
