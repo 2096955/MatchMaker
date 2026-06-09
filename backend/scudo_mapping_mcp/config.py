@@ -57,11 +57,29 @@ def _default_vendor_adapters() -> tuple[str, ...]:
     """Default vendor adapter list — derived from PRIORITY_VENDORS so the
     in-scope vendor list and the wired adapters never drift apart.
 
-    The convention matches the deploy task def (SCUDO_VENDOR_ADAPTERS):
-    lower-cased, with spaces collapsed to underscores. So "S&P Global"
-    becomes "s&p_global"; "LSEG" becomes "lseg"; etc.
+    Normalisation matches what the deploy task def emits in
+    SCUDO_VENDOR_ADAPTERS: lower-case, spaces collapsed to underscores,
+    every other non-alphanumeric character stripped. So:
+
+      "LSEG"        -> "lseg"
+      "S&P Global"  -> "sp_global"   (& stripped, space -> _)
+      "Bloomberg"   -> "bloomberg"
+      "ICE"         -> "ice"
+      "FactSet"     -> "factset"
+
+    The strip-non-alphanumeric is load-bearing: without it, "S&P Global"
+    would be "s&p_global" — and silently disagree with the `sp_global`
+    literal in infra/scudo-dev-deploy.yaml. That is the exact dev-vs-ECS
+    drift this seam was opened to eliminate; the smoke gate pins the
+    resulting tuple by literal, NOT by re-running the same broken rule.
     """
-    return tuple(v.lower().replace(" ", "_") for v in PRIORITY_VENDORS)
+    import re
+    out: list[str] = []
+    for v in PRIORITY_VENDORS:
+        s = v.lower().replace(" ", "_")
+        s = re.sub(r"[^a-z0-9_]", "", s)
+        out.append(s)
+    return tuple(out)
 
 
 @dataclass(frozen=True)

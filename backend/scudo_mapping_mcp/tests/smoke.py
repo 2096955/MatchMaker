@@ -2134,14 +2134,27 @@ def _restore_env(saved):
 
 @case("THREE_SEAM_vendor_adapters_default_matches_priority_vendors")
 def _():
-    """No env override -> vendor_adapters defaults to PRIORITY_VENDORS,
-    lowercased with spaces replaced by underscores. Default must track the
-    in-scope vendor list so the two never drift apart."""
+    """No env override -> vendor_adapters defaults to PRIORITY_VENDORS
+    normalised the SAME way the deploy task def's SCUDO_VENDOR_ADAPTERS
+    literal is written. Pin the exact tuple by LITERAL — re-computing
+    'expected' with the same transform the helper uses would let a buggy
+    helper agree with a buggy expected and silently drift. That's exactly
+    what happened in the first cut of this gate (s&p_global vs sp_global).
+
+    Normalisation: lower-case, spaces -> '_', strip non-alphanumeric.
+    'S&P Global' -> 'sp_global' (matches infra/scudo-dev-deploy.yaml).
+    """
     saved = _with_env(SCUDO_VENDOR_ADAPTERS=None)
     try:
         s = config_mod.Settings.from_env()
-        expected = tuple(v.lower().replace(" ", "_") for v in PRIORITY_VENDORS)
-        assert s.vendor_adapters == expected, (s.vendor_adapters, expected)
+        # Hard literal pin — DO NOT derive from the helper.
+        assert s.vendor_adapters == ('lseg', 'sp_global', 'bloomberg', 'ice', 'factset'), \
+            s.vendor_adapters
+        # Belt + braces: order preserved, count matches.
+        assert len(s.vendor_adapters) == len(PRIORITY_VENDORS)
+        # And specifically: 'sp_global' (no ampersand) is the canonical form.
+        assert 'sp_global' in s.vendor_adapters
+        assert 's&p_global' not in s.vendor_adapters
     finally:
         _restore_env(saved)
 
