@@ -10,13 +10,31 @@ leaks above this line.
 Every operation enforces depth / breadth / cardinality limits at the boundary.
 The caller cannot ask for a 6-hop traversal or 10,000 rows; the store clamps it.
 This is "appropriate context, not maximum context" applied to graph retrieval.
+
+DIAGRAM 2 — what the seam owns:
+  Structural pass = negative-precedent drop + rank-signal tilt (today)
+                  + optional ``candidate_filter`` callable (forward seam)
+                  + distance check (NOT YET — pending anchor data)
+  Dense           = ``RetrievalStore.bm25_scores`` consumers' counterpart;
+                    today a Jaro-Winkler stand-in inside FalkorDBStore.
+                    Production target: GraphRAG Toolkit vector index.
+  Lexical         = ``bm25_scores`` (pure-Python BM25). Production target:
+                    LlamaIndex BM25Retriever.
+  Fusion          = ``reciprocal_rank_fusion`` over [dense_ranks, lexical_ranks].
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Callable, Optional
 
 from ..models import Candidate, MappingResult, Subgraph, TaxonomyNode, VendorProductRef
+
+# Per-candidate filter callable signature. Returning False drops the
+# candidate from the retrieved set BEFORE ranking is finalised. The
+# matcher (matching.py) provides this filter; the store applies it.
+# This keeps validation logic out of the store and makes the seam
+# stay validation-agnostic.
+CandidateFilter = Callable[[Candidate], bool]
 
 # Hard ceilings enforced regardless of what the caller passes.
 MAX_RESULTS_CEIL = 25
@@ -121,9 +139,31 @@ class RetrievalStore(ABC):
 
     @abstractmethod
     def find_similar_products(
-        self, ref: VendorProductRef, max_results: int = 10, min_similarity: float = 0.0
+        self,
+        ref: VendorProductRef,
+        max_results: int = 10,
+        min_similarity: float = 0.0,
+        *,
+        candidate_filter: Optional[CandidateFilter] = None,
     ) -> list[Candidate]:
-        """Top-N candidate CDAO nodes for a vendor product. Read-only."""
+        """Top-N candidate CDAO nodes for a vendor product. Read-only.
+
+        IMPLEMENTATIONS MUST apply, in this order, before returning:
+          (a) Negative-precedent drop — exclude any node the human has
+              previously rejected for ``(ref.vendor, ref.product_id)``.
+          (b) ``candidate_filter(c)`` if provided — drop any candidate
+              for which it returns False. This is where the matcher's
+              per-candidate validation filters (``candidate_passes_scope``,
+              ``candidate_passes_data_class``) plug in.
+
+        Together with the dense + lexical fusion and the rank-signal tilt,
+        these constitute the "structural check" half of Diagram 2.
+
+        ``identifier_resolves`` is NOT applied here — it is a product-level
+        sanity check that lives at the matcher's gate (a failure means the
+        store returned a node it cannot resolve, which is a data-integrity
+        issue, not a per-candidate one).
+        """
 
     @abstractmethod
     def get_ontology_neighbourhood(

@@ -1,15 +1,39 @@
 """
 The matcher — a strict COST LADDER.
 
+ARCHITECTURE — see Diagram 1 (main flow) and Diagram 2 (Falkor internals).
+
 The ladder is FIRST-MATCH-WINS, ordered from cheapest to most expensive.
 Each rung that can settle the case ends the pipeline; the LLM only runs on
 the narrow window of cases it can plausibly help with.
 
   Rung 1 — Scope gate          (deterministic; no retrieval, no model)
   Rung 2 — Precedent reuse     (graph lookup; a confirmed prior decision wins)
-  Rung 3 — Falkor match+check  (dense + lexical fusion + structural tilt)
+  Rung 3 — Falkor match+check  (Diagram 2: dense + lexical via RRF,
+                                negative-precedent drop + rank-signal tilt
+                                inside the seam — NOT in this file)
   Rung 4 — Opus LLM specialist (ONLY for borderline candidates — see Gate)
   Rung 5 — Gate                (three bands: pass | borderline | fail)
+
+WARM-UP PHASE (current state). Two data dependencies are inert today:
+  - No CDAO class tags  -> validations.data_class_match is pass-by-default.
+  - No precedent volume -> rank-signal tilt at zero, no anchor for any
+                           future structural distance check.
+These tighten automatically as the reviewer queue produces precedents and
+class tags land — no code change needed.
+
+WHERE LIVES WHAT (the load-bearing facts):
+  - Scope gate              -> frames.check_scope                  (rung 1)
+  - Precedent reuse         -> store.get_precedent_mapping         (rung 2)
+  - Dense / lexical fusion  -> store.find_similar_products         (rung 3)
+  - Negative-precedent drop -> store.find_similar_products         (rung 3)
+  - Rank-signal tilt        -> store.find_similar_products         (rung 3)
+  - Distance check          -> NOT IMPLEMENTED — deferred until an
+                               anchor exists (precedent neighbourhood
+                               or per-vendor class baseline)
+  - Specialist (borderline) -> ``specialist`` kwarg here            (rung 4)
+  - Floor + band            -> this file, gated against settings    (rung 5)
+  - Required validations    -> validations.required_failures        (rung 5)
 
 THREE VERDICT BANDS at the Gate (Rung 5):
 
@@ -170,18 +194,14 @@ def map_vendor_product(
             precedent.source_file_audit_id = source_file_audit_id
         return precedent
 
-    # Rung 3 — Falkor match+check. The store's find_similar_products
-    # internally fuses the dense arm (Jaro-Winkler stand-in for embeddings)
-    # with a BM25 lexical sidecar via RRF, then applies the structural
-    # rank-signal tilt to the sort key (NOT the similarity).
+    # Rung 3 — Falkor match+check (Diagram 2). The store's
+    # find_similar_products fuses the dense arm (Jaro-Winkler stand-in for
+    # embeddings) with a BM25 lexical sidecar via RRF, applies the
+    # structural pass (negative-precedent drop + rank-signal tilt on the
+    # sort key, NOT the similarity), and returns the top-N. The matcher
+    # no longer post-filters by negative precedents — that moved into the
+    # seam so the diagram and code agree on layering.
     candidates = store.find_similar_products(ref, max_results=max_candidates)
-
-    # 3a. Subtract nodes the human has already rejected for this exact pair
-    #     (Section 10a — negative precedent). Stops the same dead-end from
-    #     re-appearing run after run.
-    rejected = set(store.get_negative_precedents(ref.vendor, ref.product_id))
-    if rejected:
-        candidates = [c for c in candidates if c.node.iri not in rejected]
 
     if not candidates:
         return MappingResult(
@@ -190,10 +210,9 @@ def map_vendor_product(
             candidates=[], confidence=0.0,
             band="n/a",
             rationale=(
-                "No candidate above the similarity threshold (after rejected-node "
-                "filter); needs a human."
-                if rejected else
-                "No candidate above the similarity threshold; needs a human."
+                "No candidate survived retrieval (no nodes above similarity "
+                "floor after the structural pass — negative precedents and "
+                "rank-signal tilt applied inside the seam); needs a human."
             ),
             field_normalisation=rules,
             validations=run_validations(

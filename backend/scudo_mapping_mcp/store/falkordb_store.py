@@ -1,15 +1,45 @@
 """
 FalkorDB backend — the local / prototype store.
 
+PRODUCTION SWAP-POINTS (per Diagram 2):
+
+  Dense arm    -> AWS GraphRAG Toolkit (FalkorDB vector index via
+                  ``CALL db.idx.vector.queryNodes``) — Titan / OpenSearch
+                  embeddings. TODAY: pure-Python Jaro-Winkler over the
+                  taxonomy label is the deliberate STAND-IN. The swap is
+                  NOT drop-in: ``Candidate.similarity`` is the dense
+                  score and the 0.80 floor is calibrated against
+                  Jaro-Winkler's character similarity distribution. Going
+                  to embeddings re-anchors the quantity the floor measures,
+                  so the floor + band widths must be re-derived against a
+                  golden set in the SAME change — calibration is coupled
+                  to the dense arm and cannot be finished before it.
+
+  Lexical arm  -> LlamaIndex ``BM25Retriever`` (or FalkorDB-native
+                  full-text index). TODAY: the pure-Python BM25 on
+                  ``RetrievalStore.bm25_scores`` is the deliberate
+                  stand-in; functionally equivalent at demo scale, no
+                  external dependency.
+
+  Structural   -> Distance check via SciPy sparse adjacency over the
+                  taxonomy (BFS / shortest-path against an anchor
+                  derived from precedent neighbourhood or vendor class
+                  baseline). NOT IMPLEMENTED — deferred until an anchor
+                  exists (warm-up phase: no precedents yet, no class
+                  tags). Negative-precedent drop and rank-signal tilt
+                  ship today.
+
 Note on the AWS GraphRAG Toolkit: its FalkorDB graph store currently supports
 semantic (vector) search only, NOT traversal-based search. Our bounded surface
-needs real graph walks (get_taxonomy_node, get_ontology_neighbourhood), so this
-implementation talks to FalkorDB *natively* via Cypher rather than through the
-toolkit adapter. You can additionally wire the toolkit's vector path for
-semantic candidate retrieval at scale; here we keep similarity deterministic and
-dependency-free (pure-Python Jaro-Winkler over fetched labels) so the demo runs
-with nothing but a FalkorDB container. Upgrade path: FalkorDB's vector index
-(CALL db.idx.vector.queryNodes) once embeddings exist.
+needs real graph walks (get_taxonomy_node, get_ontology_neighbourhood), so
+this implementation talks to FalkorDB *natively* via Cypher and will continue
+to do so. The toolkit slots into the dense arm only.
+
+INTEGRATION TEST DEBT: the fusion path here (dense + lexical + RRF +
+structural) is unit-tested at the seam (`bm25_scores`,
+`reciprocal_rank_fusion`) and end-to-end through the FakeStore which does NOT
+fuse. There is no test against a real FalkorDB container; the first time the
+real backend exercises this code path is at integration. This is a known gap.
 """
 from __future__ import annotations
 
@@ -148,10 +178,16 @@ class FalkorDBStore(RetrievalStore):
         )
 
     def find_similar_products(
-        self, ref: VendorProductRef, max_results: int = 10, min_similarity: float = 0.0
+        self,
+        ref: VendorProductRef,
+        max_results: int = 10,
+        min_similarity: float = 0.0,
+        *,
+        candidate_filter=None,
     ) -> list[Candidate]:
         """Falkor match-and-check: dense (Jaro-Winkler) + lexical (BM25) +
-        structural (rank-signal tilt).
+        structural (negative-precedent drop, optional candidate_filter,
+        rank-signal tilt). See Diagram 2.
 
         DESIGN: dense stays AUTHORITATIVE for ``Candidate.similarity``.
         BM25 is a SORT-only sidecar. The 0.80 floor was calibrated against
@@ -178,11 +214,20 @@ class FalkorDBStore(RetrievalStore):
             return []
         query_text = f"{ref.name} {ref.description}".strip() or ref.product_id
 
+        # Structural filter (a) — negative-precedent drop. Done up front so
+        # rejected nodes never enter the scoring loop, which would only
+        # waste compute. The matcher used to apply this AFTER retrieval;
+        # owning it on the seam matches Diagram 2 (negative-precedents are
+        # part of the structural box) and saves the scoring work.
+        rejected = set(self.get_negative_precedents(ref.vendor, ref.product_id))
+
         # Arm 1 — dense (Jaro-Winkler) over labels. AUTHORITATIVE similarity.
         dense_scores: dict[str, float] = {}
         labels: dict[str, str] = {}
         parents: dict[str, Optional[str]] = {}
         for iri, label, parent in rows:
+            if iri in rejected:
+                continue
             labels[iri] = label or ""
             parents[iri] = parent or None
             dense_scores[iri] = _jaro_winkler(query_text, label or "")
@@ -214,22 +259,28 @@ class FalkorDBStore(RetrievalStore):
             similarity = dense_scores[iri]
             if similarity < min_similarity:
                 continue
+            candidate = Candidate(
+                node=TaxonomyNode(
+                    iri=iri, label=labels[iri],
+                    parent_iri=parents[iri],
+                ),
+                similarity=round(similarity, 4),
+            )
+            # Structural filter (b) — per-candidate filter from the matcher.
+            # The matcher composes this from
+            # validations.candidate_passes_scope and
+            # validations.candidate_passes_data_class. Both are pass-by-default
+            # in the warm-up phase (no per-(vendor, node) scope rules and no
+            # class tags yet); the filter drops nothing until that data lands.
+            if candidate_filter is not None and not candidate_filter(candidate):
+                continue
             rank_score = fused_rank_score.get(iri, 0.0)
             # Scale boost into RRF's range so a strong rank signal nudges
             # the sort order without obliterating fusion's contribution.
             raw_boost = self.compute_rank_boost(boosts, iri)
             scaled_boost = raw_boost * rrf_top
             sort_key = rank_score + scaled_boost
-            scored.append((
-                Candidate(
-                    node=TaxonomyNode(
-                        iri=iri, label=labels[iri],
-                        parent_iri=parents[iri],
-                    ),
-                    similarity=round(similarity, 4),
-                ),
-                sort_key,
-            ))
+            scored.append((candidate, sort_key))
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return [c for c, _ in scored[:limit]]
 

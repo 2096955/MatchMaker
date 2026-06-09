@@ -201,24 +201,31 @@ class FakeStore(RetrievalStore):
     def get_taxonomy_node(self, node_iri: str) -> Optional[TaxonomyNode]:
         return self._nodes.get(node_iri)
 
-    def find_similar_products(self, ref, max_results=10, min_similarity=0.0):
+    def find_similar_products(self, ref, max_results=10, min_similarity=0.0,
+                              *, candidate_filter=None):
         limit = self.clamp_results(max_results)
         sig = self.vendor_signature(ref.vendor, ref.name, ref.product_id)
         boosts = self.rank_signals_for(sig)
+        # Mirror FalkorDBStore: apply structural filter (a) negative-precedent
+        # drop and structural filter (b) candidate_filter inside the seam,
+        # per Diagram 2.
+        rejected = set(self.get_negative_precedents(ref.vendor, ref.product_id))
         # Same separation as FalkorDBStore: boost tilts SORT only;
         # Candidate.similarity stays the raw oracle score so the 0.80 floor
         # sees the unmodified value.
         scored: list[tuple[Candidate, float]] = []
         for iri, node in self._nodes.items():
+            if iri in rejected:
+                continue
             base = self._scores.get(iri, 0.5)
             if base < min_similarity:
                 continue
+            cand = Candidate(node=node, similarity=round(base, 4))
+            if candidate_filter is not None and not candidate_filter(cand):
+                continue
             boost = self.compute_rank_boost(boosts, iri)
             sort_key = min(1.0, base + boost)
-            scored.append((
-                Candidate(node=node, similarity=round(base, 4)),
-                sort_key,
-            ))
+            scored.append((cand, sort_key))
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return [c for c, _ in scored[:limit]]
 

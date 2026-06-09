@@ -588,3 +588,128 @@ flowchart TD
 - **Persistence MCP** — persist target
 
 Vendor is an argument to every tool; the same servers handle any vendor.
+
+---
+
+## Appendix B — Mapping Decision Flow
+
+End-to-end decision flow for a single vendor product, from scope check through to either auto-mapping (persist to Neptune), reuse of a human-approved precedent, or routing to the reviewer queue. Deterministic steps fail-closed; the LLM specialist only runs on ambiguous cases.
+
+```mermaid
+flowchart TD
+    Vendor[Vendor product<br/>normalised by Ingestion]
+
+    Scope{{Scope gate<br/>fail-closed}}
+    OutOfScope[Out of scope<br/>not mapped]
+
+    Precedent{{Precedent check<br/>confirmed mapping?}}
+    Reuse[Reuse mapping<br/>human-approved]
+
+    Falkor[Falkor match + check<br/>retrieve + structural check]
+    LLM[LLM specialist<br/>ambiguous cases only]
+    Validations[Validations<br/>5 checks]
+
+    Gate{{Gate: floor + verifier<br/>>=0.80 + passing verdict}}
+    AutoMapped[Auto-mapped<br/>persist -> Neptune]
+
+    Reviewer[Reviewer queue<br/>needs review]
+
+    Vendor --> Scope
+    Scope -- in scope --> Precedent
+    Scope --> OutOfScope
+
+    Precedent -- none --> Falkor
+    Precedent --> Reuse
+
+    Falkor -- candidate --> LLM
+    Falkor -- no survivors --> Reviewer
+
+    LLM --> Validations
+    Validations -- pass --> Gate
+    Validations -- "required fail / else" --> Reviewer
+
+    Gate -- ">=0.80 + verified" --> AutoMapped
+    Gate --> Reviewer
+
+    Reviewer -. approved -> precedent .-> Precedent
+
+    classDef deterministic fill:#d9efe4,stroke:#2f8f6f,color:#0d4f3c;
+    classDef llm fill:#e1dcf5,stroke:#6a55b5,color:#2d2270;
+    classDef gate fill:#f6dcc1,stroke:#c47a2a,color:#5a3210;
+    classDef mapped fill:#e0f0d5,stroke:#5a8f3a,color:#274a14;
+    classDef neutral fill:#ece8e0,stroke:#7d7464,color:#3d362a;
+
+    class Scope,Precedent,Falkor,Validations deterministic;
+    class LLM llm;
+    class Gate gate;
+    class Reuse,AutoMapped mapped;
+    class Vendor,OutOfScope,Reviewer neutral;
+```
+
+### Legend
+
+| Style | Meaning |
+|---|---|
+| Deterministic (green) | Fail-closed deterministic checks: Scope, Precedent, Falkor, Validations |
+| LLM (purple) | LLM specialist — invoked only on ambiguous cases |
+| Gate (orange) | Floor + verifier gate (>=0.80 confidence and passing verdict required) |
+| Mapped (light green) | Terminal mapped states: reused precedent or auto-mapped to Neptune |
+
+Approved reviewer-queue items feed back as precedents, so subsequent identical products short-circuit at the Precedent check.
+
+---
+
+## Appendix C — Inside the Falkor Match + Check
+
+Internal structure of the **Falkor match + check** step from Appendix B. Two retrievers run in parallel (dense semantic via GraphRAG Toolkit, lexical via BM25/LlamaIndex), fused by reciprocal rank, then filtered by a deterministic structural check over the taxonomy graph.
+
+```mermaid
+flowchart TD
+    Vendor[Vendor product<br/>name · id · description]
+
+    GraphRAG[GraphRAG Toolkit<br/>dense · authoritative]
+    BM25[BM25 -LlamaIndex-<br/>lexical · IDs, acronyms]
+
+    RRF[Reciprocal rank fusion<br/>-> Top-N candidates]
+
+    subgraph Structural [Structural check — SciPy sparse over taxonomy adjacency -deterministic-]
+        Distance[Distance check<br/>plausible neighbourhood]
+        NegPrec[- Negative precedents<br/>drop rejected nodes]
+        PosPrec[+ Precedent boost<br/><=0.10, from edges]
+    end
+
+    Survivors[Surviving candidates<br/>ranked -> on to validations]
+    NoSurvivors[No survivors<br/>-> review]
+
+    Vendor --> GraphRAG
+    Vendor --> BM25
+    GraphRAG --> RRF
+    BM25 --> RRF
+    RRF --> Structural
+    Structural --> Survivors
+    Structural --> NoSurvivors
+
+    classDef dense fill:#d6e4f2,stroke:#3b6fa8,color:#173155;
+    classDef lexical fill:#d9efe4,stroke:#2f8f6f,color:#0d4f3c;
+    classDef fusion fill:#f4d6cf,stroke:#b9523c,color:#4a160a;
+    classDef ok fill:#e0f0d5,stroke:#5a8f3a,color:#274a14;
+    classDef warn fill:#f6dcc1,stroke:#c47a2a,color:#5a3210;
+    classDef neutral fill:#ece8e0,stroke:#7d7464,color:#3d362a;
+
+    class GraphRAG dense;
+    class BM25 lexical;
+    class RRF fusion;
+    class Survivors ok;
+    class NoSurvivors warn;
+    class Vendor neutral;
+```
+
+### Structural check components
+
+| Component | Purpose |
+|---|---|
+| **Distance check** | Filters to candidates in a plausible taxonomy neighbourhood |
+| **Negative precedents** | Drops nodes previously rejected by a reviewer |
+| **Precedent boost** | Adds <=0.10 score from approved-precedent edges |
+
+Cross-check: the structural ranking is also compared against the downstream LLM specialist's output — disagreement between the two **caps the confidence score** before the gate.
