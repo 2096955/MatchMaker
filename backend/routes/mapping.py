@@ -35,6 +35,7 @@ from scudo_mapping_mcp.bundle import export_bundle, import_bundle
 from scudo_mapping_mcp.config import PRIORITY_VENDORS
 from scudo_mapping_mcp.feedback import apply_decision
 from scudo_mapping_mcp.frames import FrameDataError, _read_vendor_frame, all_frames
+from scudo_mapping_mcp.hydrate import HydrationError, hydrate
 from scudo_mapping_mcp.ingest import ingest_bytes, seed_taxonomy
 from scudo_mapping_mcp.matching import map_vendor_product
 from scudo_mapping_mcp.models import MappingBundle, VendorProductRef
@@ -59,8 +60,28 @@ def _ensure_seeded():
     except Exception as e:  # noqa: BLE001 — best-effort, store may not be up
         ui_logger.warning('CDAO taxonomy seed skipped',
                           error=f'{type(e).__name__}: {e}')
-    finally:
         _seeded = True
+        return
+    # Replay the M6 canonical bundle into FalkorDB so confirmed precedents are
+    # available on boot — the resilience pin from the matching strategy:
+    # stale or empty FalkorDB serves confident-but-wrong matches. Best-effort
+    # here (we never block Flask startup); the deploy stack can layer a strict
+    # /health probe on top for the production posture.
+    try:
+        result = hydrate(strict=False)
+        if result.skipped_no_bundle:
+            ui_logger.warning('hydration skipped (no canonical bundle)')
+        else:
+            ui_logger.info('hydration applied',
+                           applied=result.applied,
+                           skipped_unknown_node=result.skipped_unknown_node,
+                           skipped_out_of_scope=result.skipped_out_of_scope,
+                           bundle_version=result.bundle_version,
+                           taxonomy_version=result.bundle_taxonomy_version)
+    except HydrationError as e:
+        ui_logger.error('hydration failed (proceeding empty)',
+                        error=f'{type(e).__name__}: {e}')
+    _seeded = True
 
 
 @mapping_bp.before_request

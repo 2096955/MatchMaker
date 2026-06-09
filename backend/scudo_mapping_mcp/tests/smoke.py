@@ -1565,14 +1565,10 @@ def _():
     def spy(ref, cands):  # noqa: ANN001
         calls.append(ref)
         return None
-    set_specialist_scorer(spy)
-    try:
-        r = map_vendor_product(VendorProductRef(
-            vendor=IN_SCOPE_VENDOR, product_id="LADDER-PASS",
-            name="Equity Prices Real Time",
-        ))
-    finally:
-        set_specialist_scorer(None)
+    r = map_vendor_product(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="LADDER-PASS",
+        name="Equity Prices Real Time",
+    ), specialist=spy)
 
     assert r.status == MappingStatus.AUTO_MAPPED, r.status
     assert r.band == "pass", r.band
@@ -1593,14 +1589,10 @@ def _():
     def spy(ref, cands):  # noqa: ANN001
         calls.append(ref)
         return None  # abstain
-    set_specialist_scorer(spy)
-    try:
-        r = map_vendor_product(VendorProductRef(
-            vendor=IN_SCOPE_VENDOR, product_id="LADDER-BORDER",
-            name="Equity Prices Real Time",
-        ))
-    finally:
-        set_specialist_scorer(None)
+    r = map_vendor_product(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="LADDER-BORDER",
+        name="Equity Prices Real Time",
+    ), specialist=spy)
 
     assert r.band == "borderline", r.band
     assert len(calls) == 1, (
@@ -1620,14 +1612,10 @@ def _():
     def spy(ref, cands):  # noqa: ANN001
         calls.append(ref)
         return None
-    set_specialist_scorer(spy)
-    try:
-        r = map_vendor_product(VendorProductRef(
-            vendor=IN_SCOPE_VENDOR, product_id="LADDER-FAIL",
-            name="random gibberish",
-        ))
-    finally:
-        set_specialist_scorer(None)
+    r = map_vendor_product(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="LADDER-FAIL",
+        name="random gibberish",
+    ), specialist=spy)
 
     assert r.status == MappingStatus.NEEDS_REVIEW, r.status
     assert r.band == "fail", r.band
@@ -1640,29 +1628,24 @@ def _():
 def _():
     """Specialist picks a different node from the sparse ranker — confidence
     is capped below the floor and the case lands in NEEDS_REVIEW. The
-    disagreement, not the number, decides."""
+    disagreement, not the number, decides. The primary mapped node stays
+    anchored to the sparse ranker's pick (so it matches candidates[0]),
+    and the specialist's alternative is preserved on the result so the
+    reviewer sees BOTH picks (no information loss)."""
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.82)   # sparse ranker would pick this
     fake.set_score(EQUITIES_IRI, 0.81)    # specialist will pick this instead
     fake.set_score(FX_IRI, 0.10)
 
     def disagreeing_specialist(ref, candidates):  # noqa: ANN001
-        # Sparse ranker's top is EQ_PRICES; specialist picks EQUITIES at
-        # claimed-high confidence. The matcher must IGNORE the claim and
-        # cap below floor because the two arms disagree.
         return Candidate(
             node=TaxonomyNode(iri=EQUITIES_IRI, label="Equities"),
-            similarity=0.99,
+            similarity=0.99,  # hallucinated; matcher must ignore
         )
-
-    set_specialist_scorer(disagreeing_specialist)
-    try:
-        r = map_vendor_product(VendorProductRef(
-            vendor=IN_SCOPE_VENDOR, product_id="LADDER-DISAGREE",
-            name="Equity Prices Real Time",
-        ))
-    finally:
-        set_specialist_scorer(None)
+    r = map_vendor_product(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="LADDER-DISAGREE",
+        name="Equity Prices Real Time",
+    ), specialist=disagreeing_specialist)
 
     assert r.band == "borderline", r.band
     assert r.status == MappingStatus.NEEDS_REVIEW, (
@@ -1671,41 +1654,70 @@ def _():
     assert r.confidence < config_mod.settings.confidence_floor, (
         f"confidence must be capped below floor; got {r.confidence}"
     )
-    # Reviewer sees the specialist's pick — it carries more semantic
-    # information than the sparse ranker's.
-    assert r.mapped_node_iri == EQUITIES_IRI, r.mapped_node_iri
+    # Primary stays anchored to the sparse ranker's pick — same as candidates[0]
+    assert r.mapped_node_iri == EQ_PRICES_IRI, r.mapped_node_iri
+    assert r.candidates[0].node.iri == r.mapped_node_iri
+    # The specialist's alternative is preserved on the result so the
+    # reviewer queue carries BOTH picks. No information loss.
+    assert r.alternative_mapped_node_iri == EQUITIES_IRI, r.alternative_mapped_node_iri
 
 
-@case("LADDER_specialist_concurrence_in_borderline_can_auto_map")
+@case("LADDER_specialist_concurrence_caps_at_min_of_dense_and_specialist")
 def _():
-    """Borderline + specialist agrees on the sparse ranker's top pick at a
-    confidence above the floor -> AUTO_MAPPED. This is the 'borderline
-    retry succeeds' path the diagram calls out."""
+    """Borderline + specialist concurs at HIGHER confidence — the matcher
+    must NOT trust the specialist's claim past the deterministic anchor
+    (I5). Confidence = min(dense, specialist), not specialist alone.
+    A hallucinating LLM returning 0.99 cannot push a 0.78 dense above the
+    floor."""
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.82)   # borderline
+    fake.set_score(EQ_PRICES_IRI, 0.82)   # borderline, above floor
     fake.set_score(EQUITIES_IRI, 0.30)
 
     def concurring_specialist(ref, candidates):  # noqa: ANN001
-        # Same node as best candidate, but reports higher confidence.
         return Candidate(
             node=TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices",
                               parent_iri=EQUITIES_IRI),
-            similarity=0.91,
+            similarity=0.99,  # specialist claims higher; matcher caps
         )
-
-    set_specialist_scorer(concurring_specialist)
-    try:
-        r = map_vendor_product(VendorProductRef(
-            vendor=IN_SCOPE_VENDOR, product_id="LADDER-CONCUR",
-            name="Equity Prices Real Time",
-        ))
-    finally:
-        set_specialist_scorer(None)
+    r = map_vendor_product(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="LADDER-CONCUR-CAP",
+        name="Equity Prices Real Time",
+    ), specialist=concurring_specialist)
 
     assert r.band == "borderline", r.band
     assert r.status == MappingStatus.AUTO_MAPPED, r.status
-    assert r.mapped_node_iri == EQ_PRICES_IRI
-    assert r.confidence >= config_mod.settings.confidence_floor
+    # Concurrence + dense above floor still auto-maps, but confidence is
+    # the DETERMINISTIC dense score, not the LLM's claim.
+    assert abs(r.confidence - 0.82) < 1e-6, (
+        f"confidence must be capped at min(0.82, 0.99) = 0.82; got {r.confidence}"
+    )
+
+
+@case("LADDER_specialist_concurrence_below_floor_cannot_be_lifted")
+def _():
+    """Borderline + dense BELOW floor + specialist concurs at HIGH
+    confidence -> matcher must NOT auto-map. The specialist cannot inflate
+    a sub-floor dense score (I5)."""
+    fake = _fresh_store()
+    fake.set_score(EQ_PRICES_IRI, 0.78)   # borderline, BELOW floor
+    fake.set_score(EQUITIES_IRI, 0.30)
+
+    def lying_specialist(ref, candidates):  # noqa: ANN001
+        return Candidate(
+            node=TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices",
+                              parent_iri=EQUITIES_IRI),
+            similarity=0.99,  # hallucinated; must be ignored for floor check
+        )
+    r = map_vendor_product(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="LADDER-LYING-LLM",
+        name="Equity Prices Real Time",
+    ), specialist=lying_specialist)
+
+    assert r.band == "borderline", r.band
+    assert r.status == MappingStatus.NEEDS_REVIEW, (
+        f"specialist must NOT lift a sub-floor dense score; got {r.status}"
+    )
+    assert r.confidence < config_mod.settings.confidence_floor
 
 
 @case("LADDER_required_validation_failure_skips_specialist")
@@ -1721,14 +1733,10 @@ def _():
     def spy(ref, cands):  # noqa: ANN001
         calls.append(ref)
         return None
-    set_specialist_scorer(spy)
-    try:
-        r = map_vendor_product(VendorProductRef(
-            vendor=IN_SCOPE_VENDOR, product_id="LADDER-REQFAIL",
-            name="Equity Prices Real Time",
-        ))
-    finally:
-        set_specialist_scorer(None)
+    r = map_vendor_product(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="LADDER-REQFAIL",
+        name="Equity Prices Real Time",
+    ), specialist=spy)
 
     assert r.band == "fail", r.band
     assert r.status == MappingStatus.NEEDS_REVIEW, r.status
@@ -1795,6 +1803,126 @@ def _():
 def _():
     """RRF_K is exposed on the seam so the matcher tunes it in one place."""
     assert RetrievalStore.RRF_K == 60
+
+
+@case("FUSION_bm25_preserves_dotted_identifier_as_one_token")
+def _():
+    """Tokeniser preserves periods inside tokens so RIC-style identifiers
+    (AAPL.O) and decimal numbers survive intact. A doc containing the
+    EXACT dotted identifier must outscore a doc that only has the stem."""
+    docs = [
+        ("exact_dotted", "instrument AAPL.O quote"),
+        ("stem_only", "instrument aapl quote"),
+        ("unrelated", "fixed income spreads"),
+    ]
+    scores = RetrievalStore.bm25_scores("AAPL.O", docs)
+    assert scores["exact_dotted"] > scores["stem_only"], scores
+    assert scores["unrelated"] == 0.0, scores
+
+
+@case("FUSION_tokeniser_strips_trailing_period")
+def _():
+    """A sentence-trailing period must NOT bind to the preceding token —
+    'price.' tokenises as 'price', not 'price.'."""
+    tokens = RetrievalStore._tokenise("Get the latest price.")
+    assert "price" in tokens, tokens
+    assert "price." not in tokens, tokens
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# VERDICT seal — band carriage + back-compat
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@case("VERDICT_seal_carries_band_v2")
+def _():
+    """New seals are v=2 and carry the band field."""
+    import base64, json
+    from .. import verdict as verdict_mod
+    _ensure_dev_signing_key()
+    seal = verdict_mod.sign(
+        vendor=IN_SCOPE_VENDOR, product_id="X",
+        mapped_node_iri="cdao:x", status="auto_mapped",
+        confidence=0.9, band="pass",
+    )
+    payload = json.loads(base64.b64decode(seal["payload_b64"]))
+    assert payload["v"] == 2, payload
+    assert payload["band"] == "pass", payload
+    # Round-trip verify reads the band back.
+    result = verdict_mod.verify(
+        seal, expected_vendor=IN_SCOPE_VENDOR, expected_product_id="X",
+    )
+    assert result.ok, result.reason
+    assert result.payload["band"] == "pass", result.payload
+
+
+@case("VERDICT_v1_seal_still_verifies_band_defaults_to_na")
+def _():
+    """Legacy v=1 seals (signed before band existed) must still verify.
+    Their band defaults to 'n/a' so persistence gates degrade gracefully."""
+    import base64, hashlib, hmac, json, time as _time
+    from .. import verdict as verdict_mod
+    _ensure_dev_signing_key()
+    # Synthesise a v=1 payload by hand (matches the old sign signature).
+    payload = {
+        "v": 1,
+        "input_hash": verdict_mod.input_hash(IN_SCOPE_VENDOR, "X"),
+        "mapped_node_iri": "cdao:x",
+        "status": "auto_mapped",
+        "confidence": 0.9,
+        "ts_ms": int(_time.time() * 1000),
+    }
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    key = verdict_mod._load_signing_key()
+    mac = hmac.new(key, canonical, hashlib.sha256).digest()
+    seal = {
+        "payload_b64": base64.b64encode(canonical).decode("ascii"),
+        "hmac_b64": base64.b64encode(mac).decode("ascii"),
+    }
+    result = verdict_mod.verify(
+        seal, expected_vendor=IN_SCOPE_VENDOR, expected_product_id="X",
+    )
+    assert result.ok, result.reason
+    assert result.payload["band"] == "n/a", result.payload
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# SPECIALIST — per-call DI does not leak across calls (thread-safety)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@case("SPECIALIST_per_call_DI_does_not_leak_across_calls")
+def _():
+    """A specialist passed to call A must NOT be invoked on call B that
+    omits the specialist kwarg. The seam is per-call DI — no module
+    state — so concurrent requests can't poison each other."""
+    fake = _fresh_store()
+    fake.set_score(EQ_PRICES_IRI, 0.82)
+    fake.set_score(EQUITIES_IRI, 0.30)
+
+    calls_a: list[VendorProductRef] = []
+    def spy_a(ref, cands):  # noqa: ANN001
+        calls_a.append(ref)
+        return None
+
+    # Call A: passes a spy.
+    map_vendor_product(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="PERCALL-A",
+        name="Equity Prices Real Time",
+    ), specialist=spy_a)
+    assert len(calls_a) == 1, len(calls_a)
+
+    # Call B: borderline range, omits specialist. Must NOT re-invoke spy_a.
+    map_vendor_product(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="PERCALL-B",
+        name="Equity Prices Real Time",
+    ))
+    assert len(calls_a) == 1, (
+        f"specialist must not leak across calls; spy was invoked "
+        f"{len(calls_a)} times across both calls"
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────

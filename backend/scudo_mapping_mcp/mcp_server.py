@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import PRIORITY_VENDORS
 from .frames import _read_vendor_frame
+from .hydrate import HydrationError, hydrate
 from .ingest import seed_taxonomy
 from .matching import map_vendor_product
 from .models import VendorProductRef
@@ -45,6 +46,20 @@ async def _lifespan(server: "FastMCP"):
         print(f"[scudo_mapping_mcp] seeded {n} CDAO taxonomy nodes")
     except Exception as e:  # noqa: BLE001
         print(f"[scudo_mapping_mcp] taxonomy seed skipped: {type(e).__name__}: {e}")
+    else:
+        # Replay the M6 canonical bundle so FalkorDB is hydrated before serving.
+        try:
+            result = hydrate(strict=False)
+            if result.skipped_no_bundle:
+                print("[scudo_mapping_mcp] hydration skipped (cold start: no canonical bundle yet)")
+            else:
+                print(
+                    f"[scudo_mapping_mcp] hydration applied "
+                    f"{result.applied}/{result.total} patterns "
+                    f"(bundle version={result.bundle_version})"
+                )
+        except HydrationError as e:
+            print(f"[scudo_mapping_mcp] hydration failed (proceeding empty): {type(e).__name__}: {e}")
     yield {}
 
 

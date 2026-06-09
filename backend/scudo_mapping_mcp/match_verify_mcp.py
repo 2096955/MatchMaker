@@ -57,6 +57,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import verdict as verdict_seal
 from .config import PRIORITY_VENDORS
 from .frames import _read_vendor_frame
+from .hydrate import HydrationError, hydrate
 from .ingest import seed_taxonomy
 from .matching import map_vendor_product
 from .models import VendorProductRef
@@ -80,6 +81,28 @@ async def _lifespan(server: "FastMCP"):
             f"[scudo_match_verify_mcp] taxonomy seed skipped: "
             f"{type(e).__name__}: {e}"
         )
+    else:
+        # Replay the M6 canonical bundle so Falkor's working graph is hydrated
+        # before this MCP serves match-and-check requests. Strategy resilience
+        # pin: stale or empty Falkor serves confident-but-wrong matches.
+        try:
+            result = hydrate(strict=False)
+            if result.skipped_no_bundle:
+                print(
+                    "[scudo_match_verify_mcp] hydration skipped "
+                    "(cold start: no canonical bundle yet)"
+                )
+            else:
+                print(
+                    f"[scudo_match_verify_mcp] hydration applied "
+                    f"{result.applied}/{result.total} patterns "
+                    f"(bundle version={result.bundle_version})"
+                )
+        except HydrationError as e:
+            print(
+                f"[scudo_match_verify_mcp] hydration failed (proceeding empty): "
+                f"{type(e).__name__}: {e}"
+            )
     yield {}
 
 
