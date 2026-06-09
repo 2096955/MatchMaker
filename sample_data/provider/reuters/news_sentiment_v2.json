@@ -1,0 +1,10 @@
+[
+  {"article_id": "RTR-001", "headline": "Fed signals rate pause amid cooling inflation", "sentiment": 0.62, "publish_date": "2024-01-02", "source": "Reuters Macro"},
+  {"article_id": "RTR-002", "headline": "Tech stocks rally on strong earnings outlook", "sentiment": 0.78, "publish_date": "2024-01-02", "source": "Reuters Markets"},
+  {"article_id": "RTR-003", "headline": "Oil prices drop on demand concerns from China", "sentiment": -0.45, "publish_date": "2024-01-03", "source": "Reuters Commodities"},
+  {"article_id": "RTR-004", "headline": "Euro zone manufacturing contracts for 7th month", "sentiment": -0.61, "publish_date": "2024-01-03", "source": "Reuters Europe"},
+  {"article_id": "RTR-005", "headline": "S&P 500 closes at 14-month high", "sentiment": 0.84, "publish_date": "2024-01-04", "source": "Reuters Markets"},
+  {"article_id": "RTR-006", "headline": "Treasury yields ease as jobs data softens", "sentiment": 0.31, "publish_date": "2024-01-04", "source": "Reuters Macro"},
+  {"article_id": "RTR-007", "headline": "Emerging markets face headwinds from dollar strength", "sentiment": -0.38, "publish_date": "2024-01-05", "source": "Reuters EM"},
+  {"article_id": "RTR-008", "headline": "Apple unveils new AI features for iPhone lineup", "sentiment": 0.72, "publish_date": "2024-01-05", "source": "Reuters Tech"}
+]

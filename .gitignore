@@ -1,0 +1,59 @@
+# ─── Python ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+ENV/
+
+# ─── Node / frontend ────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# ─── Editors / OS ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ─── Logs / runtime artefacts ───────────────────────────────────────────
+*.log
+backend/logs/
+backend/uploads/
+*.tmp
+*.bak
+
+# ─── Local / operational AWS state (regeneratable from CFN outputs) ─────
+infra/scudo-dev-outputs.env
+infra/*.env.local
+.env
+.env.*
+!.env.example
+
+# ─── Vendor data staging (out-of-scope for source control) ──────────────
+landing_zone/
+backend/uploads/
+
+# ─── Local secrets / credentials ────────────────────────────────────────
+*.pem
+*.key
+*credentials*
+*.crt
+.aws/

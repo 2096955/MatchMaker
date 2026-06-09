@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<credit_ratings>
+  <record>
+    <issuer_id>SPG-1001</issuer_id>
+    <issuer_name>Apple Inc</issuer_name>
+    <rating>AA+</rating>
+    <effective_date>2024-01-02</effective_date>
+    <rating_action>Affirmed</rating_action>
+  </record>
+  <record>
+    <issuer_id>SPG-1002</issuer_id>
+    <issuer_name>Microsoft Corporation</issuer_name>
+    <rating>AAA</rating>
+    <effective_date>2024-01-02</effective_date>
+    <rating_action>Affirmed</rating_action>
+  </record>
+  <record>
+    <issuer_id>SPG-1003</issuer_id>
+    <issuer_name>Amazon.com Inc</issuer_name>
+    <rating>AA</rating>
+    <effective_date>2024-01-02</effective_date>
+    <rating_action>Upgraded</rating_action>
+  </record>
+  <record>
+    <issuer_id>SPG-1004</issuer_id>
+    <issuer_name>Tesla Inc</issuer_name>
+    <rating>BB+</rating>
+    <effective_date>2024-01-03</effective_date>
+    <rating_action>Downgraded</rating_action>
+  </record>
+  <record>
+    <issuer_id>SPG-1005</issuer_id>
+    <issuer_name>JPMorgan Chase</issuer_name>
+    <rating>A+</rating>
+    <effective_date>2024-01-03</effective_date>
+    <rating_action>Affirmed</rating_action>
+  </record>
+  <record>
+    <issuer_id>SPG-1006</issuer_id>
+    <issuer_name>Alphabet Inc</issuer_name>
+    <rating>AA+</rating>
+    <effective_date>2024-01-04</effective_date>
+    <rating_action>Upgraded</rating_action>
+  </record>
+</credit_ratings>

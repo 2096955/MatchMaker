@@ -1,0 +1,485 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: |
+  SCUDO Mapping MCP - dev foundation stack.
+  VPC + Neptune cluster + S3 frames bucket + ECR + Fargate IAM roles + log group.
+
+  Account : 954976331678 (Cognizant cloudboost sandbox)
+  Region  : eu-west-2
+  Scope   : dev / demo loop. NOT the JPMC production target - that lands in
+            JPMC's own AWS account via their own provisioning path.
+
+  Network shape: VPC with one public subnet (for the ALB the next stack adds)
+  and two private subnets across AZs (Neptune + Fargate). No NAT gateway -
+  Fargate egress to AWS APIs goes via VPC endpoints (S3 gateway, ECR api/dkr
+  interface, CloudWatch logs interface). Add a Bedrock endpoint later when M9
+  wires the LLM scorer.
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: SCUDO
+  EnvironmentTag:
+    Type: String
+    Default: dev
+  OwnerTag:
+    Type: String
+    Default: 2096955@cognizant.com
+  NeptuneInstanceClass:
+    Type: String
+    Default: db.t4g.medium
+    AllowedValues:
+      - db.t4g.medium
+      - db.t3.medium
+      - db.r6g.large
+      - db.r6g.xlarge
+    Description: db.t4g.medium ~ $0.10/hr; db.r6g.large ~ $0.43/hr. Stop when idle.
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.0.0/24
+  PrivateSubnetACidr:
+    Type: String
+    Default: 10.0.10.0/24
+  PrivateSubnetBCidr:
+    Type: String
+    Default: 10.0.11.0/24
+
+Resources:
+
+  # ──────── VPC + subnets + routing ────────
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - { Key: Name, Value: scudo-dev-vpc }
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
+
+  Igw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - { Key: Name, Value: scudo-dev-igw }
+        - { Key: Project, Value: !Ref ProjectTag }
+
+  IgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref Igw
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - { Key: Name, Value: scudo-dev-public-a }
+        - { Key: Project, Value: !Ref ProjectTag }
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - { Key: Name, Value: scudo-dev-private-a }
+        - { Key: Project, Value: !Ref ProjectTag }
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - { Key: Name, Value: scudo-dev-private-b }
+        - { Key: Project, Value: !Ref ProjectTag }
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: scudo-dev-public-rt }]
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IgwAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Igw
+
+  PublicSubnetRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: scudo-dev-private-rt }]
+
+  PrivateSubnetARouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ──────── VPC endpoints (no NAT) ────────
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds: [ !Ref PrivateRouteTable ]
+
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTPS from in-VPC to interface endpoints
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref VpcCidr
+      Tags: [{ Key: Name, Value: scudo-dev-endpoint-sg }]
+
+  LogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+      VpcEndpointType: Interface
+      SubnetIds: [ !Ref PrivateSubnetA, !Ref PrivateSubnetB ]
+      SecurityGroupIds: [ !Ref EndpointSecurityGroup ]
+      PrivateDnsEnabled: true
+
+  EcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
+      VpcEndpointType: Interface
+      SubnetIds: [ !Ref PrivateSubnetA, !Ref PrivateSubnetB ]
+      SecurityGroupIds: [ !Ref EndpointSecurityGroup ]
+      PrivateDnsEnabled: true
+
+  EcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
+      VpcEndpointType: Interface
+      SubnetIds: [ !Ref PrivateSubnetA, !Ref PrivateSubnetB ]
+      SecurityGroupIds: [ !Ref EndpointSecurityGroup ]
+      PrivateDnsEnabled: true
+
+  # Bedrock control + runtime endpoints — so Match&Verify and Persistence
+  # task roles can reach Bedrock (Claude Opus 4.8 verifier + agent) without NAT.
+  BedrockEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.bedrock
+      VpcEndpointType: Interface
+      SubnetIds: [ !Ref PrivateSubnetA, !Ref PrivateSubnetB ]
+      SecurityGroupIds: [ !Ref EndpointSecurityGroup ]
+      PrivateDnsEnabled: true
+
+  BedrockRuntimeEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.bedrock-runtime
+      VpcEndpointType: Interface
+      SubnetIds: [ !Ref PrivateSubnetA, !Ref PrivateSubnetB ]
+      SecurityGroupIds: [ !Ref EndpointSecurityGroup ]
+      PrivateDnsEnabled: true
+
+  # ──────── Compute security groups ────────
+  FargateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Fargate task SG. ALB ingress added by the deploy stack.
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: scudo-dev-fargate-sg }]
+
+  NeptuneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Neptune cluster - 8182 from Fargate SG only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !Ref FargateSecurityGroup
+      Tags: [{ Key: Name, Value: scudo-dev-neptune-sg }]
+
+  # ──────── Neptune ────────
+  NeptuneSubnetGroup:
+    Type: AWS::Neptune::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: SCUDO dev - two private subnets across AZs
+      SubnetIds: [ !Ref PrivateSubnetA, !Ref PrivateSubnetB ]
+      Tags: [{ Key: Project, Value: !Ref ProjectTag }]
+
+  NeptuneClusterParameterGroup:
+    Type: AWS::Neptune::DBClusterParameterGroup
+    Properties:
+      Family: neptune1.4
+      Description: SCUDO dev cluster parameters
+      Parameters:
+        neptune_enable_audit_log: '0'
+      Tags: [{ Key: Project, Value: !Ref ProjectTag }]
+
+  NeptuneDBParameterGroup:
+    Type: AWS::Neptune::DBParameterGroup
+    Properties:
+      Family: neptune1.4
+      Description: SCUDO dev instance parameters
+      Parameters:
+        neptune_query_timeout: '120000'
+      Tags: [{ Key: Project, Value: !Ref ProjectTag }]
+
+  NeptuneCluster:
+    Type: AWS::Neptune::DBCluster
+    Properties:
+      DBClusterIdentifier: scudo-dev-neptune
+      DBSubnetGroupName: !Ref NeptuneSubnetGroup
+      VpcSecurityGroupIds: [ !Ref NeptuneSecurityGroup ]
+      DBClusterParameterGroupName: !Ref NeptuneClusterParameterGroup
+      IamAuthEnabled: true
+      BackupRetentionPeriod: 1
+      StorageEncrypted: true
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
+
+  NeptuneInstance:
+    Type: AWS::Neptune::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref NeptuneCluster
+      DBInstanceClass: !Ref NeptuneInstanceClass
+      DBInstanceIdentifier: scudo-dev-neptune-1
+      DBParameterGroupName: !Ref NeptuneDBParameterGroup
+      Tags: [{ Key: Project, Value: !Ref ProjectTag }]
+
+  # ──────── S3 frames bucket (M8) ────────
+  FramesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub scudo-dev-frames-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      VersioningConfiguration: { Status: Enabled }
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+  # ──────── ECR repo for backend image ────────
+  BackendEcrRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: scudo-dev-backend
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      Tags: [{ Key: Project, Value: !Ref ProjectTag }]
+
+  # ──────── Fargate IAM roles ────────
+  FargateExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: scudo-dev-fargate-execution
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Tags: [{ Key: Project, Value: !Ref ProjectTag }]
+
+  # Trust gradient roles: Ingestion (untrusted vendor data in) -> Match & Verify
+  # (read-only, non-authoritative) -> Persistence (the only writer). IAM enforces
+  # what the strategy asserts: Ingestion and Match&Verify task roles physically
+  # cannot write to Neptune or canonical S3, regardless of what the agent calls.
+
+  FargateIngestionTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: scudo-dev-fargate-ingestion
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: scudo-dev-frames-read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ s3:GetObject, s3:ListBucket ]
+                Resource:
+                  - !GetAtt FramesBucket.Arn
+                  - !Sub ${FramesBucket.Arn}/*
+      Tags: [{ Key: Project, Value: !Ref ProjectTag }]
+
+  FargateMatchVerifyTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: scudo-dev-fargate-match-verify
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: scudo-dev-neptune-readonly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - neptune-db:ReadDataViaQuery
+                  - neptune-db:GetQueryStatus
+                  - neptune-db:CancelQuery
+                Resource: !Sub arn:aws:neptune-db:${AWS::Region}:${AWS::AccountId}:${NeptuneCluster.ClusterResourceId}/*
+        - PolicyName: scudo-dev-bedrock-invoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:GetInferenceProfile
+                  - bedrock:ListInferenceProfiles
+                Resource: '*'
+      Tags: [{ Key: Project, Value: !Ref ProjectTag }]
+
+  FargatePersistenceTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: scudo-dev-fargate-persistence
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: scudo-dev-neptune-full
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ neptune-db:* ]
+                Resource: !Sub arn:aws:neptune-db:${AWS::Region}:${AWS::AccountId}:${NeptuneCluster.ClusterResourceId}/*
+        - PolicyName: scudo-dev-bedrock-invoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:GetInferenceProfile
+                  - bedrock:ListInferenceProfiles
+                Resource: '*'
+        - PolicyName: scudo-dev-canonical-write
+          # NB: reusing the frames bucket with a canonical/ prefix for the dev
+          # demo. A dedicated canonical bucket is a follow-up before any non-dev use.
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ s3:PutObject, s3:GetObject ]
+                Resource: !Sub ${FramesBucket.Arn}/canonical/*
+      Tags: [{ Key: Project, Value: !Ref ProjectTag }]
+
+  # ──────── CloudWatch log group ────────
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/ecs/scudo-dev-backend
+      RetentionInDays: 14
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export: { Name: scudo-dev-vpc-id }
+  PublicSubnetId:
+    Value: !Ref PublicSubnet
+    Export: { Name: scudo-dev-public-subnet-id }
+  PrivateSubnetIds:
+    Value: !Join [',', [ !Ref PrivateSubnetA, !Ref PrivateSubnetB ]]
+    Export: { Name: scudo-dev-private-subnet-ids }
+  FargateSecurityGroupId:
+    Value: !Ref FargateSecurityGroup
+    Export: { Name: scudo-dev-fargate-sg-id }
+  NeptuneClusterEndpoint:
+    Value: !GetAtt NeptuneCluster.Endpoint
+    Export: { Name: scudo-dev-neptune-endpoint }
+  NeptuneClusterPort:
+    Value: !GetAtt NeptuneCluster.Port
+    Export: { Name: scudo-dev-neptune-port }
+  NeptuneClusterArn:
+    Value: !Sub arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${NeptuneCluster}
+    Export: { Name: scudo-dev-neptune-arn }
+  NeptuneClusterResourceId:
+    Value: !GetAtt NeptuneCluster.ClusterResourceId
+    Export: { Name: scudo-dev-neptune-resource-id }
+  FramesBucketName:
+    Value: !Ref FramesBucket
+    Export: { Name: scudo-dev-frames-bucket }
+  FargateIngestionTaskRoleArn:
+    Value: !GetAtt FargateIngestionTaskRole.Arn
+    Export: { Name: scudo-dev-fargate-ingestion-task-role }
+  FargateMatchVerifyTaskRoleArn:
+    Value: !GetAtt FargateMatchVerifyTaskRole.Arn
+    Export: { Name: scudo-dev-fargate-match-verify-task-role }
+  FargatePersistenceTaskRoleArn:
+    Value: !GetAtt FargatePersistenceTaskRole.Arn
+    Export: { Name: scudo-dev-fargate-persistence-task-role }
+  FargateExecutionRoleArn:
+    Value: !GetAtt FargateExecutionRole.Arn
+    Export: { Name: scudo-dev-fargate-execution-role }
+  BackendEcrRepoUri:
+    Value: !GetAtt BackendEcrRepo.RepositoryUri
+    Export: { Name: scudo-dev-backend-ecr-uri }
+  AppLogGroupName:
+    Value: !Ref AppLogGroup
+    Export: { Name: scudo-dev-log-group }

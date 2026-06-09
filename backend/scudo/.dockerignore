@@ -1,0 +1,24 @@
+# Shrink the lambda image — these aren't needed at runtime.
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# SAM / Docker assets themselves don't belong in the image
+template.yaml
+Dockerfile
+.dockerignore
+DEPLOY.md
+
+# Local-only test data and dev helpers
+tests/
+skills/
+synthetic/
+
+# Subpackages we don't need at runtime
+sidecar/retrieval.py
+sidecar/graphrag.py
+sidecar/client.py
+authoritative/mcp.py
+authoritative/client.py

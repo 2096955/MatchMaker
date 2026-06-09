@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  SCUDO enrichment box — Bedrock Opus 4.8 behind API Gateway.
+  PoC scope: open HTTP API with shared-secret header, in-memory mocks for
+  the catalogue + Neptune. Bedrock calls are real.
+
+Parameters:
+  ApiKey:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: >
+      Shared secret expected on x-api-key header. Generate with
+      `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+  BedrockModelId:
+    Type: String
+    Default: us.anthropic.claude-opus-4-8
+    Description: Bedrock inference-profile id used by both specialist + verifier.
+  OntologySnapshot:
+    Type: String
+    Default: cdao-2026-05-19
+  RubricVersion:
+    Type: String
+    Default: v1
+
+Globals:
+  Function:
+    Timeout: 90
+    MemorySize: 3008
+    Tracing: Active
+
+Resources:
+  ScudoFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-orchestrator'
+      PackageType: Image
+      Architectures: [x86_64]
+      Environment:
+        Variables:
+          BEDROCK_LLM_MODEL_ID: !Ref BedrockModelId
+          AWS_REGION_OVERRIDE: !Ref AWS::Region
+          SCUDO_ONTOLOGY_SNAPSHOT: !Ref OntologySnapshot
+          SCUDO_RUBRIC_VERSION: !Ref RubricVersion
+          API_KEY: !Ref ApiKey
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - bedrock:Converse
+                - bedrock:ConverseStream
+              Resource: '*'  # PoC: any Bedrock model. Tighten to the inference profile ARN for prod.
+      Events:
+        RunMapping:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ScudoApi
+            Method: POST
+            Path: /run
+            TimeoutInMillis: 29000
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ScudoApi
+            Method: GET
+            Path: /health
+    Metadata:
+      DockerTag: latest
+      DockerContext: .
+      Dockerfile: Dockerfile
+
+  ScudoApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowHeaders: ['content-type', 'x-api-key']
+        AllowMethods: [POST, GET, OPTIONS]
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 5
+        ThrottlingRateLimit: 5
+
+  ScudoLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-orchestrator'
+      RetentionInDays: 14
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the SCUDO API (append /prod/run for the mapping endpoint).
+    Value: !Sub 'https://${ScudoApi}.execute-api.${AWS::Region}.amazonaws.com/prod'
+  RunUrl:
+    Description: Full URL for the mapping endpoint.
+    Value: !Sub 'https://${ScudoApi}.execute-api.${AWS::Region}.amazonaws.com/prod/run'
+  HealthUrl:
+    Description: Health check URL.
+    Value: !Sub 'https://${ScudoApi}.execute-api.${AWS::Region}.amazonaws.com/prod/health'
+  FunctionName:
+    Value: !Ref ScudoFn
+  LogGroup:
+    Value: !Ref ScudoLogGroup
