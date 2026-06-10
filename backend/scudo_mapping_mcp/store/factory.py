@@ -23,8 +23,14 @@ def get_store() -> RetrievalStore:
     if backend == "neptune":
         from .neptune_store import NeptuneStore
         return NeptuneStore(endpoint=settings.neptune_endpoint, graph_name=settings.graph_name)
+    if backend == "memory":
+        # DEV/DEMO ONLY — full ladder on a laptop, no containers. Real
+        # JW+BM25+RRF scoring over in-memory nodes (see memory_store.py).
+        from .memory_store import MemoryStore
+        return MemoryStore()
     raise ValueError(
-        f"Unknown STORE_BACKEND '{backend}'. Use 'falkordb' (local) or 'neptune' (prod)."
+        f"Unknown STORE_BACKEND '{backend}'. Use 'falkordb' (local), "
+        f"'neptune' (prod), or 'memory' (laptop demo)."
     )
 
 
