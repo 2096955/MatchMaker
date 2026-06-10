@@ -3,17 +3,19 @@ FalkorDB backend — the local / prototype store.
 
 PRODUCTION SWAP-POINTS (per Diagram 2):
 
-  Dense arm    -> AWS GraphRAG Toolkit (FalkorDB vector index via
-                  ``CALL db.idx.vector.queryNodes``) — Titan / OpenSearch
-                  embeddings. TODAY: pure-Python Jaro-Winkler over the
-                  taxonomy label is the deliberate STAND-IN. The swap is
-                  NOT drop-in: ``Candidate.similarity`` is the dense
-                  score and the 0.80 floor is calibrated against
-                  Jaro-Winkler's character similarity distribution. Going
-                  to embeddings re-anchors the quantity the floor measures,
-                  so the floor + band widths must be re-derived against a
-                  golden set in the SAME change — calibration is coupled
-                  to the dense arm and cannot be finished before it.
+  Dense arm    -> Claude Opus 4.8 as a SEMANTIC JUDGEMENT scorer (WS-B).
+                  The Titan-Embed plan is PARKED until the Foundation
+                  amendment for Bedrock model access lands; Opus is
+                  already accessible to the M and V task roles, so we
+                  use it as the dense quantity ``Candidate.similarity``
+                  carries. The swap is gated by SCUDO_DENSE_BACKEND
+                  (see opus_dense.py): "opus" wires the Bedrock invoke,
+                  "jaro_winkler" (default in tests) keeps the legacy
+                  deterministic stand-in. CRITICAL INVARIANT (arb-review
+                  §5.2): ``Candidate.similarity`` IS the raw dense
+                  score the backend returned — no rerank, no fusion,
+                  no boost contamination. The 0.80 confidence floor
+                  sees exactly that value.
 
   Lexical arm  -> LlamaIndex ``BM25Retriever`` (or FalkorDB-native
                   full-text index). TODAY: the pure-Python BM25 on
@@ -207,7 +209,31 @@ class FalkorDBStore(RetrievalStore):
 
         Net effect: lexical recovery improves RECALL (right candidates in
         the top-N) without breaking the floor's PRECISION discipline.
+
+        OPUS-DENSE FEATURE FLAG: when ``settings.use_opus_dense`` is True,
+        this method delegates to ``retrieval.multi_path_retrieve`` — the
+        new SDK-inspired multi-path retrieval surface. The flag is OFF by
+        default so the legacy Jaro-Winkler + BM25 + RRF path (below) is
+        the one the 86 smoke gates exercise unchanged. Agent B owns the
+        retrieval module; if it isn't on the path or raises, we surface
+        that loudly (do NOT silently fall back — a flag-on misconfig
+        should fail visibly, not regress silently to the legacy path).
         """
+        # Flag-gated delegation to the new multi-path retrieval pipeline.
+        # Imported lazily so the module-load surface stays cheap and the
+        # legacy path doesn't pay an import cost it never uses.
+        from ..config import settings as _settings
+        if _settings.use_opus_dense:
+            from .. import retrieval as _retrieval  # type: ignore
+            return _retrieval.multi_path_retrieve(
+                ref,
+                self,
+                max_results,
+                min_similarity,
+                candidate_filter=candidate_filter,
+                dense_scorer=None,
+            )
+
         limit = self.clamp_results(max_results)
         rows = self._ro("MATCH (t:TaxonomyNode) RETURN t.iri, t.label, t.parent_iri")
         if not rows:
@@ -221,16 +247,42 @@ class FalkorDBStore(RetrievalStore):
         # part of the structural box) and saves the scoring work.
         rejected = set(self.get_negative_precedents(ref.vendor, ref.product_id))
 
-        # Arm 1 — dense (Jaro-Winkler) over labels. AUTHORITATIVE similarity.
+        # Arm 1 — dense (Jaro-Winkler OR Opus) over labels. AUTHORITATIVE similarity.
+        # Backend is selected by SCUDO_DENSE_BACKEND (see opus_dense.py):
+        #   "jaro_winkler" (default): the legacy deterministic stand-in.
+        #   "opus":                   Bedrock invoke on Claude Opus 4.8.
+        # In both cases the returned value is in [0, 1] and lands on
+        # Candidate.similarity unmodified — arb-review §5.2 invariant.
+        import os as _os
+        dense_backend = (_os.getenv("SCUDO_DENSE_BACKEND") or "jaro_winkler").strip().lower()
+
         dense_scores: dict[str, float] = {}
         labels: dict[str, str] = {}
         parents: dict[str, Optional[str]] = {}
-        for iri, label, parent in rows:
-            if iri in rejected:
-                continue
-            labels[iri] = label or ""
-            parents[iri] = parent or None
-            dense_scores[iri] = _jaro_winkler(query_text, label or "")
+
+        if dense_backend == "opus":
+            # Lazy import so the package still loads when boto3 is absent.
+            from ..opus_dense import opus_dense_score
+            query_label = ref.name or ref.product_id
+            query_desc = ref.description or ""
+            for iri, label, parent in rows:
+                if iri in rejected:
+                    continue
+                labels[iri] = label or ""
+                parents[iri] = parent or None
+                dense_scores[iri] = opus_dense_score(
+                    query_label=query_label,
+                    query_desc=query_desc,
+                    candidate_label=label or "",
+                    candidate_desc="",
+                )
+        else:
+            for iri, label, parent in rows:
+                if iri in rejected:
+                    continue
+                labels[iri] = label or ""
+                parents[iri] = parent or None
+                dense_scores[iri] = _jaro_winkler(query_text, label or "")
 
         # Arm 2 — BM25 (lexical sidecar). Recovers exact-token hits the
         # dense arm misses on tickers / RICs / acronyms. SORT-only.
@@ -245,11 +297,23 @@ class FalkorDBStore(RetrievalStore):
             [dense_scores, bm25_scores],
         )
 
-        # Structural pass — rank-signal tilt applied to the SORT only.
-        # Scale the per-approval boost down to RRF's order of magnitude
-        # so a structural tilt doesn't dominate the fused rank score.
-        # (RRF scores sit around 1/(k+rank), ~0.016 for top hits; the
-        # tilt is a small additive perturbation in that range.)
+        # Structural pass — rank-signal tilt applied to the SORT ONLY.
+        # The boost magnitude is rescaled per backend so that it stays
+        # commensurate with the sort key but never absorbed into
+        # ``Candidate.similarity``. INVARIANT: boost cap ≤ 0.10 of the
+        # similarity scale, and never above 0.10 absolute.
+        #
+        #   Jaro-Winkler backend: sort key is the RRF fused-rank score
+        #     whose top contribution is rrf_top = 1/(RRF_K+1) ≈ 0.0164.
+        #     The raw boost (cap 0.10) is scaled by rrf_top so a saturated
+        #     boost contributes ≤ 0.00164 to the sort key — well under
+        #     10% of the top RRF magnitude.
+        #
+        #   Opus backend: sort key starts from the dense similarity in
+        #     [0, 1]. The raw boost (cap 0.10) is applied directly, so a
+        #     saturated boost contributes ≤ 0.10 — perceptible but
+        #     bounded at 10% of full scale and incapable of lifting a
+        #     sub-floor candidate past 0.80 + 0.10 = 0.90.
         sig = self.vendor_signature(ref.vendor, ref.name, ref.product_id)
         boosts = self.rank_signals_for(sig)
         rrf_top = 1.0 / (self.RRF_K + 1)  # ~0.0164 — the maximum fused contrib
@@ -259,6 +323,8 @@ class FalkorDBStore(RetrievalStore):
             similarity = dense_scores[iri]
             if similarity < min_similarity:
                 continue
+            # CRITICAL: Candidate.similarity is the RAW DENSE SCORE
+            # (arb-review §5.2). No rerank, no boost, no fusion.
             candidate = Candidate(
                 node=TaxonomyNode(
                     iri=iri, label=labels[iri],
@@ -274,12 +340,18 @@ class FalkorDBStore(RetrievalStore):
             # class tags yet); the filter drops nothing until that data lands.
             if candidate_filter is not None and not candidate_filter(candidate):
                 continue
-            rank_score = fused_rank_score.get(iri, 0.0)
-            # Scale boost into RRF's range so a strong rank signal nudges
-            # the sort order without obliterating fusion's contribution.
             raw_boost = self.compute_rank_boost(boosts, iri)
-            scaled_boost = raw_boost * rrf_top
-            sort_key = rank_score + scaled_boost
+            if dense_backend == "opus":
+                # Sort by raw dense + raw capped boost. Boost cap is
+                # ALREADY ≤ 0.10 — no further scaling needed against a
+                # [0, 1] dense quantity.
+                sort_key = similarity + raw_boost
+            else:
+                # Legacy fused-rank sort. Scale boost into RRF's range
+                # so a strong rank signal nudges the sort order without
+                # obliterating fusion's contribution.
+                rank_score = fused_rank_score.get(iri, 0.0)
+                sort_key = rank_score + raw_boost * rrf_top
             scored.append((candidate, sort_key))
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return [c for c, _ in scored[:limit]]
