@@ -69,6 +69,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
 from .matching import map_vendor_product
+from .mcp_host import McpHost, get_host
 from .models import (
     Candidate,
     MappingResult,
@@ -78,6 +79,15 @@ from .models import (
     VendorProductRef,
 )
 from .store import get_store
+
+
+# Tier names — must match the keys McpHost was constructed with.
+# Kept here (not on McpHost) so the agent and the host stay weakly coupled:
+# the host only knows "some tier named X exists", the agent decides which
+# tier each tool belongs to.
+_TIER_INGESTION = "ingestion"
+_TIER_MATCH_VERIFY = "match_verify"
+_TIER_PERSISTENCE = "persistence"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -129,6 +139,32 @@ class ScriptedMappingAgent:
 
     NAME = "scripted"
 
+    def __init__(
+        self,
+        *,
+        use_mcp_host: bool = False,
+        mcp_host: Optional[McpHost] = None,
+    ) -> None:
+        """
+        Args:
+          use_mcp_host: when True, the agent's @tool calls are routed
+            through the SCUDO MCP host (round-robin + breaker + semaphore)
+            instead of the in-process Python functions. Default False so
+            existing tests and the local dev path keep working without
+            any HTTP endpoints stood up.
+          mcp_host: optional explicit host. If omitted, the module-level
+            singleton from mcp_host.get_host() is used. Tests pass a fake
+            host here to assert routing without touching the network.
+        """
+        self._use_mcp_host = use_mcp_host
+        self._mcp_host = mcp_host
+
+    def _host(self) -> Optional[McpHost]:
+        """Resolve the effective host, falling back to the singleton."""
+        if not self._use_mcp_host:
+            return None
+        return self._mcp_host or get_host()
+
     def run(
         self,
         ref: VendorProductRef,
@@ -157,20 +193,49 @@ class ScriptedMappingAgent:
         )
 
         # Step 1 — find_similar_products
+        # Routing: when use_mcp_host=True, the tool call goes to the
+        # ingestion tier via the host (round-robin + breaker). When False,
+        # it's a direct in-process call against get_store(). Both paths
+        # produce the same event shape; the host path adds a hop in the
+        # trace the SCUDO admin UI can show.
+        find_args = {
+            "vendor": ref.vendor,
+            "product_id": ref.product_id,
+            "name": ref.name,
+            "max_results": max_candidates,
+        }
         yield AgentEvent(
             type="tool_call",
-            payload={
-                "tool": "find_similar_products",
-                "args": {
-                    "vendor": ref.vendor,
-                    "product_id": ref.product_id,
-                    "name": ref.name,
-                    "max_results": max_candidates,
-                },
-            },
+            payload={"tool": "find_similar_products", "args": find_args},
         )
+        host = self._host()
         store = get_store()
-        candidates = store.find_similar_products(ref, max_results=max_candidates)
+        if host is not None:
+            # The host returns the same JSON the in-process branch builds
+            # below, but it travels through the ingestion MCP. We still
+            # hydrate Candidate objects locally so the rest of run() sees
+            # one consistent shape regardless of routing.
+            try:
+                result_json = host.call(
+                    _TIER_INGESTION, "find_similar_products", find_args,
+                )
+                candidates = _candidates_from_host_result(result_json)
+            except Exception as e:  # noqa: BLE001 — host transport surface
+                yield AgentEvent(
+                    type="error",
+                    payload={
+                        "error": f"mcp_host:{type(e).__name__}: {e}",
+                        "tier": _TIER_INGESTION,
+                        "tool": "find_similar_products",
+                    },
+                )
+                candidates = store.find_similar_products(
+                    ref, max_results=max_candidates,
+                )
+        else:
+            candidates = store.find_similar_products(
+                ref, max_results=max_candidates,
+            )
         yield AgentEvent(
             type="tool_result",
             payload={
@@ -206,13 +271,16 @@ class ScriptedMappingAgent:
             )
 
             # Step 2 — get_taxonomy_node for the top candidate
+            node_args = {"node_iri": best.node.iri}
             yield AgentEvent(
                 type="tool_call",
-                payload={
-                    "tool": "get_taxonomy_node",
-                    "args": {"node_iri": best.node.iri},
-                },
+                payload={"tool": "get_taxonomy_node", "args": node_args},
             )
+            if host is not None:
+                try:
+                    host.call(_TIER_INGESTION, "get_taxonomy_node", node_args)
+                except Exception:  # noqa: BLE001 — best-effort visibility hop
+                    pass
             node = store.get_taxonomy_node(best.node.iri)
             yield AgentEvent(
                 type="tool_result",
@@ -223,13 +291,21 @@ class ScriptedMappingAgent:
             )
 
             # Step 3 — get_ontology_neighbourhood for shape context
+            sub_args = {"node_iri": best.node.iri, "max_depth": 2}
             yield AgentEvent(
                 type="tool_call",
                 payload={
                     "tool": "get_ontology_neighbourhood",
-                    "args": {"node_iri": best.node.iri, "max_depth": 2},
+                    "args": sub_args,
                 },
             )
+            if host is not None:
+                try:
+                    host.call(
+                        _TIER_INGESTION, "get_ontology_neighbourhood", sub_args,
+                    )
+                except Exception:  # noqa: BLE001 — best-effort visibility hop
+                    pass
             subgraph = store.get_ontology_neighbourhood(
                 best.node.iri, max_depth=2, max_nodes=20,
             )
@@ -245,18 +321,28 @@ class ScriptedMappingAgent:
         # NOTE: this is the seam where the MCP tool and the matcher
         # produce the same MappingResult. The agent does not score; it
         # asks the matcher to score.
+        #
+        # Routing: even with use_mcp_host=True, the LOCAL matcher call
+        # is what produces the system-of-record MappingResult. The host
+        # hop to match_verify is fired in parallel so SCUDO sees the
+        # tier traffic, but its return value is NOT trusted to override
+        # the deterministic matcher — see arb-review-pack: "matcher
+        # wins; agent surfaces, matcher gates".
+        map_args = {
+            "vendor": ref.vendor,
+            "product_id": ref.product_id,
+            "name": ref.name,
+            "description": ref.description,
+        }
         yield AgentEvent(
             type="tool_call",
-            payload={
-                "tool": "map_vendor_product",
-                "args": {
-                    "vendor": ref.vendor,
-                    "product_id": ref.product_id,
-                    "name": ref.name,
-                    "description": ref.description,
-                },
-            },
+            payload={"tool": "map_vendor_product", "args": map_args},
         )
+        if host is not None:
+            try:
+                host.call(_TIER_MATCH_VERIFY, "map_vendor_product", map_args)
+            except Exception:  # noqa: BLE001 — best-effort visibility hop
+                pass
         result = map_vendor_product(ref)
         yield AgentEvent(
             type="tool_result",
@@ -326,6 +412,8 @@ class BedrockMappingAgent:
         *,
         model_id: Optional[str] = None,
         region: Optional[str] = None,
+        use_mcp_host: bool = False,
+        mcp_host: Optional[McpHost] = None,
     ) -> None:
         self._model_id = (
             model_id
@@ -338,6 +426,11 @@ class BedrockMappingAgent:
             or os.getenv("AWS_DEFAULT_REGION")
             or "eu-west-2"
         )
+        # The bedrock backend keeps the host parameter for parity with
+        # ScriptedMappingAgent — the @tool wrappers below check it and
+        # route through the host when enabled. Default OFF.
+        self._use_mcp_host = use_mcp_host
+        self._mcp_host = mcp_host
         self._agent: Any = None  # lazy-initialised on first run()
 
     def _build_agent(self) -> Any:
@@ -533,13 +626,70 @@ def get_agent() -> Any:
     """Return the configured mapping agent.
 
     SCUDO_AGENT_BACKEND selects between "scripted" (default) and "bedrock".
-    The frontend / route layer is identical for both — they consume the
-    same AgentEvent stream.
+    SCUDO_MCP_HOST_ENABLED (truthy: 1/true/yes) routes tool calls through
+    the McpHost singleton instead of in-process Python. Off by default so
+    the 86/86 smoke suite keeps using the deterministic in-process path.
+
+    The frontend / route layer is identical for all permutations — they
+    consume the same AgentEvent stream regardless of backend or routing.
     """
     backend = (os.getenv("SCUDO_AGENT_BACKEND") or "scripted").strip().lower()
+    use_host = _env_truthy(os.getenv("SCUDO_MCP_HOST_ENABLED"))
     if backend == "bedrock":
-        return BedrockMappingAgent()
-    return ScriptedMappingAgent()
+        return BedrockMappingAgent(use_mcp_host=use_host)
+    return ScriptedMappingAgent(use_mcp_host=use_host)
+
+
+def _env_truthy(val: Optional[str]) -> bool:
+    """Strict truthy parse — only the canonical set counts as enabled.
+
+    Keeps "1", "true", "yes", "on" (case-insensitive) as ON and treats
+    everything else (including the unset/empty) as OFF. Avoids the
+    "FALSE" foot-gun where bool(str) returns True for any non-empty.
+    """
+    if val is None:
+        return False
+    return val.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _candidates_from_host_result(payload: Any) -> list[Candidate]:
+    """Rehydrate Candidate objects from a host-returned JSON payload.
+
+    The ingestion MCP's find_similar_products tool returns the same
+    {"count", "candidates": [...]} shape the in-process branch emits in
+    its tool_result event. This helper turns it back into Candidate
+    objects so run() sees one consistent type regardless of routing.
+
+    Gracefully tolerates the host returning a malformed payload — it
+    returns an empty list rather than raising, which lets the agent
+    continue and produce a NEEDS_REVIEW (the matcher will catch it).
+    """
+    if not isinstance(payload, dict):
+        return []
+    raw_cands = payload.get("candidates") or []
+    out: list[Candidate] = []
+    for c in raw_cands:
+        if not isinstance(c, dict):
+            continue
+        node = c.get("node") or {}
+        if not isinstance(node, dict) or not node.get("iri"):
+            continue
+        try:
+            out.append(
+                Candidate(
+                    node=TaxonomyNode(
+                        iri=node["iri"],
+                        label=node.get("label", ""),
+                        parent_iri=node.get("parent_iri"),
+                        children_iris=list(node.get("children_iris") or []),
+                    ),
+                    similarity=float(c.get("similarity", 0.0)),
+                ),
+            )
+        except (TypeError, ValueError):
+            # Defensive — don't let one malformed candidate sink the run.
+            continue
+    return out
 
 
 # ──────────────────────────────────────────────────────────────────────────

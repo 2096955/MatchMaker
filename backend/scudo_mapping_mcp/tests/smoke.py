@@ -2903,6 +2903,434 @@ def _():
     assert any(p['publish_id'] == pid for p in recent['publishes']), recent
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# MCP HOST — round-robin transport, circuit breaker, per-tier semaphore,
+# visibility metrics. SCUDO owns this layer; the trust gradient lives on
+# the MCP servers themselves, not on the host.
+# Gates use a stubbed transport (call-counting fake) so no HTTP server
+# is required. asyncio.run is used to satisfy the brief's host-gate
+# convention even though McpHost.call() is synchronous.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _host_fake_transport(*, fail_forever: bool = False,
+                         call_log=None, status_code: int = 200,
+                         body=None):
+    """Build a transport stub matching the McpHost transport signature.
+
+    Returns (transport_callable, calls_list). The transport records every
+    invocation against `calls_list` so gates can assert on which endpoint
+    URL was picked by the round-robin / breaker logic without standing up
+    a real HTTP listener.
+    """
+    if call_log is None:
+        call_log = []
+
+    def _transport(method, url, *, json=None, timeout=10.0):  # noqa: A002
+        call_log.append({"method": method, "url": url, "json": json,
+                         "timeout": timeout})
+        if fail_forever:
+            raise RuntimeError("transport down")
+        return status_code, (body if body is not None
+                             else {"ok": True, "echo": json})
+
+    return _transport, call_log
+
+
+@case("HOST_pool_lazy_init_creates_one_client_per_mcp")
+def _():
+    """First call to a tier picks one of its endpoints via round-robin; a
+    second call to the SAME tier reuses the host's transport / endpoint
+    state (no per-call client construction). Demonstrates the pool /
+    visibility contract without standing up HTTP.
+    """
+    import asyncio
+    from scudo_mapping_mcp.mcp_host import McpHost
+
+    transport, calls = _host_fake_transport()
+    host = McpHost(
+        endpoints_by_tier={
+            "ingestion":    ["http://x:8001/mcp"],
+            "match_verify": ["http://x:8002/mcp"],
+            "persistence":  ["http://x:8003/mcp"],
+        },
+        transport=transport,
+    )
+
+    async def _run():
+        # Three calls into match_verify exercise the same endpoint state.
+        host.call("match_verify", "matchverify.find_candidates", {"v": 1})
+        host.call("match_verify", "matchverify.find_candidates", {"v": 2})
+        host.call("ingestion", "ingest.list_frames", {})
+
+    asyncio.run(_run())
+
+    # Transport saw exactly 3 calls: 2 to match_verify's only endpoint
+    # plus 1 to ingestion's. Persistence never touched.
+    mv_calls = [c for c in calls if c["url"] == "http://x:8002/mcp"]
+    in_calls = [c for c in calls if c["url"] == "http://x:8001/mcp"]
+    pe_calls = [c for c in calls if c["url"] == "http://x:8003/mcp"]
+    assert len(mv_calls) == 2, mv_calls
+    assert len(in_calls) == 1, in_calls
+    assert len(pe_calls) == 0, pe_calls
+
+    # Metrics confirm the per-tier rollup: 2 calls on match_verify, 1 on
+    # ingestion, 0 on persistence. Single _EndpointState object per URL.
+    m = host.metrics()
+    assert m["tiers"]["match_verify"]["calls_total"] == 2, m
+    assert m["tiers"]["ingestion"]["calls_total"] == 1, m
+    assert m["tiers"]["persistence"]["calls_total"] == 0, m
+    # Lazy-init invariant phrased for tier model: untouched tier has 0
+    # calls and the breaker stays CLOSED — no transport ever consulted.
+    assert m["tiers"]["persistence"]["breaker_state"] == "closed", m
+
+
+@case("HOST_breaker_opens_after_threshold_failures")
+def _():
+    """After breaker_threshold consecutive failures the endpoint's breaker
+    trips OPEN. When the tier has only one endpoint, the NEXT call fails
+    fast with McpHostUnavailable — the picker refuses to forward to an
+    OPEN endpoint.
+    """
+    import asyncio
+    from scudo_mapping_mcp.mcp_host import (
+        McpHost, McpHostError, McpHostUnavailable,
+    )
+
+    transport, calls = _host_fake_transport(fail_forever=True)
+    host = McpHost(
+        endpoints_by_tier={"match_verify": ["http://x:8002/mcp"]},
+        breaker_threshold=3,
+        breaker_cooldown_s=30.0,
+        transport=transport,
+    )
+
+    async def _run():
+        # 3 transport failures -> breaker trips on this endpoint.
+        for _ in range(3):
+            try:
+                host.call("match_verify", "t", {})
+            except McpHostError as e:
+                # The picker forwarded — these are real transport errors,
+                # not McpHostUnavailable.
+                assert not isinstance(e, McpHostUnavailable), e
+        # Endpoint should now be OPEN.
+        m = host.metrics()
+        ep = m["tiers"]["match_verify"]["endpoints"][0]
+        assert ep["breaker_state"] == "open", ep
+        assert m["tiers"]["match_verify"]["breaker_state"] == "open", m
+
+        # The next call MUST fail fast with McpHostUnavailable without
+        # touching the transport at all.
+        calls_before = len(calls)
+        try:
+            host.call("match_verify", "t", {})
+        except McpHostUnavailable:
+            pass
+        else:
+            raise AssertionError(
+                "expected McpHostUnavailable once breaker open"
+            )
+        assert len(calls) == calls_before, (
+            "OPEN breaker must not forward the call to the transport"
+        )
+
+    asyncio.run(_run())
+
+
+@case("HOST_breaker_half_open_after_reset_timeout")
+def _():
+    """OPEN -> HALF_OPEN after breaker_cooldown_s elapses. The picker
+    treats half_open as eligible (next call probes the endpoint); a
+    successful probe slams the breaker back to CLOSED via _record_success.
+
+    We use the McpHost(clock=...) injection seam so we can advance time
+    without sleeping the gate.
+    """
+    import asyncio
+    from scudo_mapping_mcp.mcp_host import McpHost
+
+    now = [1000.0]
+    clock = lambda: now[0]
+
+    # Transport that fails until we flip the switch.
+    healthy = {"flag": False}
+
+    def transport(method, url, *, json=None, timeout=10.0):  # noqa: A002
+        if not healthy["flag"]:
+            raise RuntimeError("down")
+        return 200, {"ok": True}
+
+    host = McpHost(
+        endpoints_by_tier={"match_verify": ["http://x:8002/mcp"]},
+        breaker_threshold=2,
+        breaker_cooldown_s=30.0,
+        transport=transport,
+        clock=clock,
+    )
+
+    async def _run():
+        # Trip the breaker (2 failures at threshold=2).
+        from scudo_mapping_mcp.mcp_host import McpHostError
+        for _ in range(2):
+            try:
+                host.call("match_verify", "t", {})
+            except McpHostError:
+                pass
+        m = host.metrics()
+        ep = m["tiers"]["match_verify"]["endpoints"][0]
+        assert ep["breaker_state"] == "open", ep
+
+        # Advance the clock past breaker_cooldown_s — endpoint now
+        # surfaces as half_open (informational only — picker treats it
+        # as CLOSED so the probe lands).
+        now[0] += 31.0
+        m2 = host.metrics()
+        ep2 = m2["tiers"]["match_verify"]["endpoints"][0]
+        assert ep2["breaker_state"] == "half_open", ep2
+
+        # Make the next call succeed: probe lands, breaker resets.
+        healthy["flag"] = True
+        body = host.call("match_verify", "t", {})
+        assert body == {"ok": True}, body
+        m3 = host.metrics()
+        ep3 = m3["tiers"]["match_verify"]["endpoints"][0]
+        assert ep3["breaker_state"] == "closed", ep3
+
+        # And a fresh failure streak after recovery still has to traverse
+        # the full breaker_threshold — proves the failure counter reset.
+        healthy["flag"] = False
+        from scudo_mapping_mcp.mcp_host import McpHostError as _Err
+        try:
+            host.call("match_verify", "t", {})
+        except _Err:
+            pass
+        # One failure post-recovery must NOT re-open the breaker (cap
+        # is 2). Endpoint stays closed.
+        m4 = host.metrics()
+        ep4 = m4["tiers"]["match_verify"]["endpoints"][0]
+        assert ep4["breaker_state"] == "closed", ep4
+
+    asyncio.run(_run())
+
+
+@case("HOST_semaphore_caps_concurrent_invocations")
+def _():
+    """Per-tier semaphore caps concurrency. With max_concurrent_per_tier=N
+    and N slots already held, a non-blocking acquire must fail and
+    surface McpHostError so the agent doesn't wait forever.
+
+    We drain the semaphore by hand (the public surface holds it for the
+    duration of the underlying transport call, so the cleanest gate is
+    to assert against the actual BoundedSemaphore the host owns).
+    """
+    import asyncio
+    from scudo_mapping_mcp.mcp_host import McpHost, McpHostError
+
+    transport, _calls = _host_fake_transport()
+    host = McpHost(
+        endpoints_by_tier={"match_verify": ["http://x:8002/mcp"]},
+        max_concurrent_per_tier=2,
+        timeout_s=0.05,  # very short so the gate doesn't hang under load
+        transport=transport,
+    )
+
+    async def _run():
+        # The internal tier-state object exposes the semaphore — a public
+        # attribute on _TierState. Reach in via the same _tier helper the
+        # host uses internally so the gate doesn't depend on naming.
+        ts = host._tier("match_verify")
+        sem = ts.semaphore
+
+        # Grab 2 slots — same as 2 concurrent in-flight calls.
+        acquired_1 = sem.acquire(blocking=False)
+        acquired_2 = sem.acquire(blocking=False)
+        assert acquired_1 and acquired_2, (acquired_1, acquired_2)
+
+        # 3rd acquire MUST fail (cap=2). And a host.call() now MUST raise
+        # McpHostError on semaphore exhaustion within timeout_s.
+        third = sem.acquire(blocking=False)
+        assert third is False, "semaphore must refuse a 3rd slot at cap=2"
+
+        try:
+            host.call("match_verify", "t", {})
+        except McpHostError as e:
+            assert "semaphore exhausted" in str(e), str(e)
+        else:
+            raise AssertionError(
+                "expected McpHostError on semaphore exhaustion at cap=2"
+            )
+
+        # Release the held slots; the next call lands cleanly.
+        sem.release()
+        sem.release()
+        body = host.call("match_verify", "t", {})
+        assert body == {"ok": True, "echo": {"tool": "t", "args": {}}}, body
+
+    asyncio.run(_run())
+
+
+@case("HOST_status_snapshot_reports_per_mcp_state")
+def _():
+    """metrics() is the visibility-platform surface. It MUST report every
+    configured tier (even untouched ones), every endpoint URL, breaker
+    state, calls totals, in-flight counter, and the live config block
+    the dashboard renders.
+    """
+    import asyncio
+    from scudo_mapping_mcp.mcp_host import McpHost
+
+    transport, _calls = _host_fake_transport()
+    host = McpHost(
+        endpoints_by_tier={
+            "ingestion":    ["http://x:8001/mcp"],
+            "match_verify": ["http://x:8002a/mcp", "http://x:8002b/mcp"],
+            "persistence":  ["http://x:8003/mcp"],
+        },
+        max_concurrent_per_tier=4,
+        breaker_threshold=7,
+        breaker_cooldown_s=15.0,
+        timeout_s=10.0,
+        transport=transport,
+    )
+
+    # Untouched snapshot.
+    m = host.metrics()
+    assert m["enabled"] is True, m
+    assert m["config"]["max_concurrent_per_tier"] == 4, m
+    assert m["config"]["breaker_threshold"] == 7, m
+    assert m["config"]["breaker_cooldown_s"] == 15.0, m
+    assert m["config"]["timeout_s"] == 10.0, m
+
+    assert set(m["tiers"].keys()) == {
+        "ingestion", "match_verify", "persistence",
+    }, m
+    for tier, view in m["tiers"].items():
+        assert view["calls_total"] == 0, (tier, view)
+        assert view["calls_failed"] == 0, (tier, view)
+        assert view["in_flight"] == 0, (tier, view)
+        assert view["breaker_state"] == "closed", (tier, view)
+        for ep in view["endpoints"]:
+            assert ep["breaker_state"] == "closed", ep
+            assert ep["calls_total"] == 0, ep
+            assert ep["calls_failed"] == 0, ep
+            assert ep["in_flight"] == 0, ep
+    # match_verify has 2 endpoints; the other tiers have 1 each.
+    assert len(m["tiers"]["match_verify"]["endpoints"]) == 2, m
+    assert len(m["tiers"]["ingestion"]["endpoints"]) == 1, m
+
+    async def _run():
+        host.call("match_verify", "t", {"v": 1})
+        host.call("match_verify", "t", {"v": 2})
+
+    asyncio.run(_run())
+
+    m2 = host.metrics()
+    # Round-robin spread the 2 calls across the 2 match_verify endpoints,
+    # one each. Worst case it's 2/0; in either case the tier total is 2.
+    mv = m2["tiers"]["match_verify"]
+    assert mv["calls_total"] == 2, mv
+    assert sum(ep["calls_total"] for ep in mv["endpoints"]) == 2, mv
+    # Untouched tiers still report cleanly.
+    assert m2["tiers"]["ingestion"]["calls_total"] == 0, m2
+    assert m2["tiers"]["persistence"]["calls_total"] == 0, m2
+    assert m2["tiers"]["persistence"]["breaker_state"] == "closed", m2
+
+
+@case("INV_mcp_host_round_robin_cycles")
+def _():
+    """Round-robin within a tier cycles deterministically across endpoints.
+
+    The invariant the arb-review-pack pins: with N endpoints in a tier
+    and the breaker closed on all of them, N successive calls hit each
+    endpoint exactly once and N+1 wraps back to the first. This proves:
+
+      1. The selector advances monotonically (no stuck cursor).
+      2. The wrap-around is by `% len(endpoints)` (no off-by-one that
+         would leak calls onto an endpoint that doesn't exist).
+      3. Per-endpoint visibility counters tick correctly under load —
+         the SCUDO dashboard's per-endpoint bars are not aliased.
+    """
+    from scudo_mapping_mcp.mcp_host import McpHost
+
+    transport, calls = _host_fake_transport()
+    host = McpHost(
+        endpoints_by_tier={
+            "match_verify": [
+                "http://x:8002a/mcp",
+                "http://x:8002b/mcp",
+                "http://x:8002c/mcp",
+            ],
+        },
+        transport=transport,
+    )
+
+    # 7 calls into a 3-endpoint tier -> cycle two full times plus one,
+    # so the URL sequence MUST be a-b-c-a-b-c-a in order.
+    for i in range(7):
+        host.call("match_verify", "t", {"i": i})
+
+    seen_urls = [c["url"] for c in calls]
+    expected = [
+        "http://x:8002a/mcp",
+        "http://x:8002b/mcp",
+        "http://x:8002c/mcp",
+        "http://x:8002a/mcp",
+        "http://x:8002b/mcp",
+        "http://x:8002c/mcp",
+        "http://x:8002a/mcp",
+    ]
+    assert seen_urls == expected, seen_urls
+
+    # Per-endpoint counters: a=3, b=2, c=2. metrics() must reflect that.
+    m = host.metrics()
+    by_url = {ep["url"]: ep for ep in m["tiers"]["match_verify"]["endpoints"]}
+    assert by_url["http://x:8002a/mcp"]["calls_total"] == 3, by_url
+    assert by_url["http://x:8002b/mcp"]["calls_total"] == 2, by_url
+    assert by_url["http://x:8002c/mcp"]["calls_total"] == 2, by_url
+    assert m["tiers"]["match_verify"]["calls_total"] == 7, m
+
+    # With one endpoint OPEN the picker must skip it on the next pick.
+    host._force_open("match_verify", "http://x:8002b/mcp")
+    calls.clear()
+    host.call("match_verify", "t", {"j": 0})
+    host.call("match_verify", "t", {"j": 1})
+    skipped_urls = [c["url"] for c in calls]
+    # 'b' was OPEN, so picker yields a then c (or c then a depending on
+    # cursor position) — but NEVER b. The invariant is the set, not the
+    # exact ordering, because the cursor advances past the OPEN endpoint.
+    assert "http://x:8002b/mcp" not in skipped_urls, skipped_urls
+    assert len(skipped_urls) == 2, skipped_urls
+
+
+@case("INV_mcp_host_disabled_by_default_for_agent")
+def _():
+    """ScriptedMappingAgent defaults use_mcp_host=False — the visible
+    behaviour is identical to the pre-WS-C in-process path.
+
+    Locks the opt-in contract the brief calls out so the 86/86 (now 105+)
+    smoke suite can't silently start depending on the host being wired.
+    """
+    from scudo_mapping_mcp.agent import ScriptedMappingAgent
+
+    agent = ScriptedMappingAgent()
+    assert agent._use_mcp_host is False, agent._use_mcp_host
+    assert agent._host() is None, agent._host()
+
+    # Explicit-False is also a no-op; passing a real host but use=False
+    # must still route in-process. This is the safety net for a future
+    # caller that gets the wiring half-right.
+    from scudo_mapping_mcp.mcp_host import McpHost
+
+    fake_transport, _ = _host_fake_transport()
+    host = McpHost(
+        endpoints_by_tier={"ingestion": ["http://x/mcp"]},
+        transport=fake_transport,
+    )
+    a2 = ScriptedMappingAgent(use_mcp_host=False, mcp_host=host)
+    assert a2._host() is None, a2._host()
+
+
 def main() -> int:
     for name, ok, detail in _results:
         if ok:
