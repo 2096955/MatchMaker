@@ -57,7 +57,8 @@ Thumbs.db
 Dockerfile
 backend/Dockerfile
 backend/scudo/
-backend/vendor_catalogue_mcp/
+# vendor_catalogue_mcp/ is imported by routes/catalogue.py — must stay in
+# the image even though it predates the SCUDO matching work.
 *.SKILL.md
 *.md
 !backend/README.md
