@@ -1662,6 +1662,65 @@ def _():
     assert r.alternative_mapped_node_iri == EQUITIES_IRI, r.alternative_mapped_node_iri
 
 
+@case("TRUST_specialist_anchored_to_top_candidate")
+def _():
+    """ARB review pack §5.3 invariant — the specialist is ANCHORED to the
+    candidate set the sparse ranker surfaced. It scores within the top-N
+    anchor window; it does NOT bring its own picks in from the wider
+    taxonomy. A specialist returning an off-list IRI (hallucinated node /
+    stale taxonomy / prompt injection) MUST fail closed: NEEDS_REVIEW with
+    the violation reason surfaced, and the off-list IRI DISCARDED — not
+    silently surfaced as an alternative the reviewer might select.
+    """
+    fake = _fresh_store()
+    fake.set_score(EQ_PRICES_IRI, 0.82)   # borderline: above floor, below pass
+    fake.set_score(EQUITIES_IRI, 0.30)
+    fake.set_score(FX_IRI, 0.10)
+
+    OFF_LIST_IRI = "cdao:does-not-exist-anywhere"
+
+    def off_list_specialist(ref, candidates):  # noqa: ANN001
+        # Returns an IRI that is NOT in the candidate list — simulates a
+        # hallucinated taxonomy node / stale model / prompt-injection result.
+        return Candidate(
+            node=TaxonomyNode(iri=OFF_LIST_IRI, label="Hallucinated Node"),
+            similarity=0.99,
+        )
+
+    r = map_vendor_product(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="LADDER-OFF-LIST",
+        name="Equity Prices Real Time",
+    ), specialist=off_list_specialist)
+
+    # Routes to NEEDS_REVIEW with the violation reason surfaced.
+    assert r.status == MappingStatus.NEEDS_REVIEW, (
+        f"off-list specialist pick must fail closed to NEEDS_REVIEW; "
+        f"got {r.status}"
+    )
+    assert r.invariant_violation == "specialist_off_list", (
+        f"invariant_violation must surface the reason; got "
+        f"{r.invariant_violation!r}"
+    )
+    # Off-list IRI is DISCARDED — abstention means it is NOT surfaced for
+    # a reviewer to accidentally select. The violation itself is the signal.
+    assert r.alternative_mapped_node_iri is None, (
+        f"off-list IRI must NOT surface as alternative; got "
+        f"{r.alternative_mapped_node_iri!r}"
+    )
+    assert r.alternative_mapped_node_label is None, r.alternative_mapped_node_label
+    # OFF_LIST_IRI must not be the mapped_node_iri either — primary stays
+    # anchored to the sparse ranker's pick (candidates[0]).
+    assert r.mapped_node_iri != OFF_LIST_IRI, r.mapped_node_iri
+    assert r.mapped_node_iri == EQ_PRICES_IRI, r.mapped_node_iri
+    # Confidence capped into the fail band — must not auto-map at nominally-
+    # borderline dense similarity when the LLM violated its contract.
+    assert r.confidence < config_mod.settings.confidence_floor, (
+        f"confidence must be capped below floor; got {r.confidence}"
+    )
+    # Rationale carries the reason string explicitly.
+    assert "specialist_off_list" in r.rationale, r.rationale
+
+
 @case("LADDER_specialist_concurrence_caps_at_min_of_dense_and_specialist")
 def _():
     """Borderline + specialist concurs at HIGHER confidence — the matcher
@@ -2204,6 +2263,644 @@ def _():
         )
     finally:
         _restore_env(saved)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# WS-B — Opus-as-dense seam (opus_dense.py).
+# Pins the arb-review §5.2 invariant: ``Candidate.similarity`` equals the
+# RAW DENSE SCORE the backend returned, never a fused / boosted /
+# reranked value. The 0.80 confidence floor is calibrated against that
+# raw quantity; contamination would silently break I4.
+# ─────────────────────────────────────────────────────────────────────────
+from .. import opus_dense as opus_dense_mod
+
+
+@case("TRUST_dense_similarity_is_raw")
+def _():
+    """Candidate.similarity == raw dense score from the backend.
+
+    Drives the store's find_similar_products with a stubbed dense
+    backend that returns KNOWN scores per candidate, then asserts
+    every returned Candidate.similarity equals exactly what the
+    stub handed back — no rerank, no fusion, no boost contamination.
+
+    This is the arb-review §5.2 invariant: the quantity the 0.80
+    confidence floor sees IS the quantity the dense scorer returned.
+    """
+    from ..store import falkordb_store as fs_mod
+
+    # Known dense scores keyed by candidate label substring. The stub
+    # picks the right score per call so we don't depend on call order.
+    KNOWN = {
+        "Equity Prices": 0.873,
+        "Equities": 0.612,
+        "Foreign Exchange": 0.142,
+    }
+
+    def fake_opus_dense_score(
+        query_label, query_desc, candidate_label, candidate_desc,
+    ):
+        for needle, score in KNOWN.items():
+            if candidate_label == needle:
+                return score
+        return 0.0
+
+    # Monkeypatch the seam: switch SCUDO_DENSE_BACKEND=opus AND swap
+    # opus_dense_score for the stub so we don't actually hit Bedrock.
+    saved_backend = os.environ.get("SCUDO_DENSE_BACKEND")
+    os.environ["SCUDO_DENSE_BACKEND"] = "opus"
+    saved_fn = opus_dense_mod.opus_dense_score
+    opus_dense_mod.opus_dense_score = fake_opus_dense_score  # type: ignore[assignment]
+    try:
+        # FakeStore short-circuits the dense path with its own oracle, so
+        # to exercise the FalkorDB store's branch we drive it directly
+        # via the module-level function. We use a minimal stand-in store
+        # class that mimics only the surface find_similar_products
+        # needs — the test is about the score plumbing, not falkordb IO.
+        from ..models import VendorProductRef as VPR
+
+        class _DenseProbeStore(fs_mod.FalkorDBStore):
+            """Subclass that skips the FalkorDB connection (we never call
+            it) but reuses find_similar_products's logic. The two _ro
+            calls (taxonomy scan + RETURN 1 health) and rank_signals_for
+            are stubbed inline."""
+            def __init__(self):  # noqa: D401 — skip super().__init__
+                pass
+
+            def _ro(self, cypher, params=None):
+                if "MATCH (t:TaxonomyNode)" in cypher:
+                    return [
+                        (EQ_PRICES_IRI, "Equity Prices", EQUITIES_IRI),
+                        (EQUITIES_IRI, "Equities", None),
+                        (FX_IRI, "Foreign Exchange", None),
+                    ]
+                return []
+
+            def get_negative_precedents(self, vendor, product_id):
+                return []
+
+            def rank_signals_for(self, vendor_signature):
+                return {}
+
+        probe = _DenseProbeStore()
+        cands = probe.find_similar_products(
+            VPR(vendor=IN_SCOPE_VENDOR, product_id="WS-B-RAW",
+                name="Equity Prices Real Time"),
+            max_results=10,
+        )
+        assert cands, "expected candidates from the probe store"
+        # Every returned Candidate.similarity MUST equal the raw stub
+        # score for that label — no rerank, no boost, no fusion.
+        by_iri = {c.node.iri: c for c in cands}
+        eq_prices_sim = by_iri[EQ_PRICES_IRI].similarity
+        equities_sim = by_iri[EQUITIES_IRI].similarity
+        fx_sim = by_iri[FX_IRI].similarity
+        # Pydantic Candidate rounds to 4 decimal places; KNOWN scores are
+        # already 3dp so equality is exact.
+        assert eq_prices_sim == 0.873, (
+            f"Candidate.similarity must be the RAW dense score; "
+            f"got {eq_prices_sim} for EQ_PRICES (stub returned 0.873)"
+        )
+        assert equities_sim == 0.612, equities_sim
+        assert fx_sim == 0.142, fx_sim
+        # And the sort order tracks dense (no fusion / no RRF distortion).
+        assert cands[0].node.iri == EQ_PRICES_IRI, (
+            f"top hit must be the highest raw dense score; got "
+            f"{[c.node.iri for c in cands]}"
+        )
+    finally:
+        opus_dense_mod.opus_dense_score = saved_fn  # type: ignore[assignment]
+        if saved_backend is None:
+            os.environ.pop("SCUDO_DENSE_BACKEND", None)
+        else:
+            os.environ["SCUDO_DENSE_BACKEND"] = saved_backend
+
+
+@case("TRUST_opus_dense_backend_env_var_contract")
+def _():
+    """SCUDO_DENSE_BACKEND env var contract — jaro_winkler default,
+    opus enabled by explicit set, unknown values raise.
+
+    The three-seam discipline says: backends are selected by env var
+    (so the deploy task def is the swap point), defaults are safe for
+    CI (jaro_winkler — deterministic, no network), and an unknown
+    value fails fast rather than silently picking one.
+    """
+    saved_backend = os.environ.get("SCUDO_DENSE_BACKEND")
+    saved_fallback = os.environ.get("SCUDO_DENSE_FALLBACK")
+    try:
+        # Default (unset) -> jaro_winkler; deterministic, no exception.
+        os.environ.pop("SCUDO_DENSE_BACKEND", None)
+        s_default = opus_dense_mod.opus_dense_score(
+            "Equity Prices", "", "Equity Prices", "",
+        )
+        assert 0.0 <= s_default <= 1.0, s_default
+        # Same input -> same output under the deterministic backend.
+        s_again = opus_dense_mod.opus_dense_score(
+            "Equity Prices", "", "Equity Prices", "",
+        )
+        assert s_default == s_again, (s_default, s_again)
+
+        # Explicit jaro_winkler -> same.
+        os.environ["SCUDO_DENSE_BACKEND"] = "jaro_winkler"
+        s_jw = opus_dense_mod.opus_dense_score(
+            "Equity Prices", "", "Equity Prices", "",
+        )
+        assert s_jw == s_default, (s_jw, s_default)
+
+        # Unknown -> ValueError. Fail fast, not silent default.
+        os.environ["SCUDO_DENSE_BACKEND"] = "titan"
+        raised = False
+        try:
+            opus_dense_mod.opus_dense_score(
+                "Equity Prices", "", "Equity Prices", "",
+            )
+        except ValueError:
+            raised = True
+        assert raised, "unknown backend must raise ValueError"
+    finally:
+        if saved_backend is None:
+            os.environ.pop("SCUDO_DENSE_BACKEND", None)
+        else:
+            os.environ["SCUDO_DENSE_BACKEND"] = saved_backend
+        if saved_fallback is None:
+            os.environ.pop("SCUDO_DENSE_FALLBACK", None)
+        else:
+            os.environ["SCUDO_DENSE_FALLBACK"] = saved_fallback
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# RETRIEVAL — multi-path orchestrator (retrieval.py).
+# Pins the SDK-inspired shape: BM25 pre-filters, dense rescores survivors,
+# negative-precedents drop pre-dense, degraded fallback below the floor.
+# ─────────────────────────────────────────────────────────────────────────
+from .. import retrieval as retrieval_mod
+from ..retrieval import multi_path_retrieve
+
+
+@case("RETRIEVAL_bm25_prefilter_caps_at_25")
+def _():
+    """BM25 nominates AT MOST 25 candidates regardless of universe size.
+
+    Seed 40 distinct TaxonomyNodes; the dense_scorer stub records the size
+    of the list it actually sees. The pre-filter must clamp it to 25.
+    """
+    nodes = [
+        TaxonomyNode(iri=f"cdao:rt-cap-{i:03d}", label=f"Equities Variant {i}")
+        for i in range(40)
+    ]
+    fake = FakeStore(nodes=nodes)
+
+    seen_sizes: list[int] = []
+
+    def stub(query: str, survivors: list[Candidate]) -> list[Candidate]:
+        seen_sizes.append(len(survivors))
+        return [Candidate(node=c.node, similarity=0.7) for c in survivors]
+
+    result = multi_path_retrieve(
+        VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="X-CAP",
+                         name="Equities Variant 7"),
+        fake,
+        max_results=10,
+        dense_scorer=stub,
+    )
+    assert seen_sizes, "dense_scorer was never called"
+    assert seen_sizes[0] <= 25, (
+        f"BM25 pre-filter must cap at 25, dense saw {seen_sizes[0]}"
+    )
+    # Sanity — the cap is the pin, not coincidence: with 40 universe nodes
+    # and no other filtering, the pre-filter should saturate exactly at 25.
+    assert seen_sizes[0] == 25, seen_sizes[0]
+    assert len(result) == 10, len(result)
+
+
+@case("RETRIEVAL_dense_scorer_runs_only_on_survivors")
+def _():
+    """dense_scorer must NOT see negative-precedent-rejected nodes.
+
+    The rejected node is dropped BEFORE the dense rescore so an expensive
+    Opus call is never spent on a node the human already vetoed.
+    """
+    fake = _fresh_store()
+    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="X-SURV",
+                           name="Equity Prices Real Time")
+    # Reject EQ_PRICES_IRI up-front. The orchestrator must drop it.
+    apply_decision(ref, decision="reject", decided_by="reviewer@jpmc",
+                   node_iri=EQ_PRICES_IRI)
+
+    seen_iris: list[str] = []
+
+    def stub(query: str, survivors: list[Candidate]) -> list[Candidate]:
+        seen_iris.extend(c.node.iri for c in survivors)
+        return [Candidate(node=c.node, similarity=0.7) for c in survivors]
+
+    result = multi_path_retrieve(ref, fake, dense_scorer=stub)
+    assert EQ_PRICES_IRI not in seen_iris, (
+        f"rejected node leaked into dense rescore: {seen_iris}"
+    )
+    # And it never makes it into the final result either.
+    assert all(c.node.iri != EQ_PRICES_IRI for c in result), [
+        c.node.iri for c in result
+    ]
+
+
+@case("RETRIEVAL_falls_back_to_constant_similarity_when_no_dense_scorer")
+def _():
+    """No dense_scorer wired → every survivor gets the degraded constant.
+
+    The constant is BELOW the 0.80 floor by construction so a misconfigured
+    run cannot accidentally auto-map anything. Also pins the value at 0.5
+    so a reviewer can tell at a glance that the run was degraded.
+    """
+    fake = _fresh_store()
+    result = multi_path_retrieve(
+        VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="X-DEGRADED",
+                         name="Equity Prices Real Time"),
+        fake,
+        dense_scorer=None,  # explicit — this is the degraded path
+    )
+    assert result, "expected the orchestrator to still return candidates"
+    sims = [c.similarity for c in result]
+    assert all(s == 0.5 for s in sims), sims
+    # Confidence floor sanity — degraded sims cannot pass auto-map.
+    assert all(s < config_mod.CONFIDENCE_FLOOR for s in sims), sims
+
+
+@case("RETRIEVAL_negative_precedents_dropped_before_dense")
+def _():
+    """Negative-precedent drop happens BEFORE the dense rescore call.
+
+    Distinct from the survivors gate: this pins the ORDER. If dense were
+    called first, a future scorer with side-effects (tokens, latency) would
+    waste budget on a node that's about to be discarded anyway.
+    """
+    fake = _fresh_store()
+    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="X-ORDER",
+                           name="Equity Prices Real Time")
+    apply_decision(ref, decision="reject", decided_by="reviewer@jpmc",
+                   node_iri=FX_IRI)
+
+    call_log: list[tuple[str, str]] = []
+
+    # Wrap the store's get_negative_precedents so we can record when it
+    # fires relative to the dense_scorer call.
+    real_get_neg = fake.get_negative_precedents
+
+    def spy_get_neg(vendor, product_id):
+        call_log.append(("get_negative_precedents", f"{vendor}:{product_id}"))
+        return real_get_neg(vendor, product_id)
+
+    fake.get_negative_precedents = spy_get_neg  # type: ignore[assignment]
+
+    def stub(query: str, survivors: list[Candidate]) -> list[Candidate]:
+        call_log.append(("dense_scorer", f"n={len(survivors)}"))
+        return [Candidate(node=c.node, similarity=0.7) for c in survivors]
+
+    multi_path_retrieve(ref, fake, dense_scorer=stub)
+
+    # The first negative-precedent call must precede the first dense call.
+    neg_idx = next(
+        (i for i, (name, _) in enumerate(call_log)
+         if name == "get_negative_precedents"),
+        -1,
+    )
+    dense_idx = next(
+        (i for i, (name, _) in enumerate(call_log)
+         if name == "dense_scorer"),
+        -1,
+    )
+    assert neg_idx >= 0, call_log
+    assert dense_idx >= 0, call_log
+    assert neg_idx < dense_idx, (
+        f"negative-precedent drop must precede dense rescore; got {call_log}"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# OPUS-DENSE feature flag (config) + boost scaling for [0, 1] dense scores
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@case("CONFIG_use_opus_dense_defaults_false")
+def _():
+    """No SCUDO_USE_OPUS_DENSE env -> use_opus_dense is False. The legacy
+    Jaro-Winkler + BM25 + RRF path stays the default; the prior smoke gates
+    therefore keep exercising the same code they always have."""
+    saved = _with_env(SCUDO_USE_OPUS_DENSE=None)
+    try:
+        s = config_mod.Settings.from_env()
+        assert s.use_opus_dense is False, s.use_opus_dense
+    finally:
+        _restore_env(saved)
+
+
+@case("CONFIG_use_opus_dense_reads_env")
+def _():
+    """SCUDO_USE_OPUS_DENSE=1 flips the flag on. Confirms the env var is
+    actually consumed by Settings.from_env, not silently ignored (#18-style
+    drift where the deploy task def sets a var with no reader on the
+    Python side)."""
+    saved = _with_env(SCUDO_USE_OPUS_DENSE="1")
+    try:
+        s = config_mod.Settings.from_env()
+        assert s.use_opus_dense is True, s.use_opus_dense
+    finally:
+        _restore_env(saved)
+
+
+@case("BOOST_scaled_for_dense_uses_raw_value")
+def _():
+    """compute_rank_boost_scaled_for_dense returns the RAW boost (≤ 0.10),
+    NOT the RRF-scaled boost (≤ 0.10 * 1/(RRF_K+1) ≈ 0.00164). Under
+    Opus-dense, the sort key is a [0, 1] similarity; the structural tilt
+    must be commensurate with that range, or it becomes invisible.
+
+    Pin the magnitude by construction: 3 approvals -> 0.06 raw boost.
+    Compare against the legacy RRF-scaled value to make the bug this
+    method exists to fix concrete in the test name.
+    """
+    # 3 approvals -> raw boost = 3 * RANK_BOOST_PER_APPROVAL = 0.06.
+    boosts = {"cdao:x": 3}
+    raw = RetrievalStore.compute_rank_boost_scaled_for_dense(boosts, "cdao:x")
+    expected = 3 * RetrievalStore.RANK_BOOST_PER_APPROVAL
+    assert abs(raw - expected) < 1e-9, (raw, expected)
+    # The dense-scaled value MUST NOT be the legacy * rrf_top product —
+    # that's the scaling bug this method exists to fix.
+    rrf_top = 1.0 / (RetrievalStore.RRF_K + 1)
+    legacy_scaled = raw * rrf_top
+    assert raw > legacy_scaled * 10, (raw, legacy_scaled)
+    # Saturation at RANK_BOOST_CAP still holds — boost is bounded so an
+    # under-similar node can never overtake a clearly-better one in [0, 1].
+    saturated = RetrievalStore.compute_rank_boost_scaled_for_dense(
+        {"cdao:x": 1000}, "cdao:x",
+    )
+    assert saturated == RetrievalStore.RANK_BOOST_CAP, saturated
+    # Missing node -> 0.0 (the comparable boost for an unranked candidate).
+    assert RetrievalStore.compute_rank_boost_scaled_for_dense(
+        {}, "cdao:absent",
+    ) == 0.0
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# DENSE SCORER — Opus-as-dense-scorer stand-in for parked Titan embeddings
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@case("DENSE_score_returns_candidates_with_updated_similarity")
+def _():
+    """The injected model client is called with the prompt; the returned
+    candidates keep input order and carry the Opus-derived similarity.
+    The TaxonomyNode fields are copied unchanged — Opus is not trusted to
+    invent or rewrite taxonomy structure (I5)."""
+    from scudo_mapping_mcp import dense_scorer as ds
+
+    nodes = [
+        TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices",
+                     parent_iri=EQUITIES_IRI),
+        TaxonomyNode(iri=EQUITIES_IRI, label="Equities"),
+        TaxonomyNode(iri=FX_IRI, label="Foreign Exchange"),
+    ]
+    cands = [Candidate(node=n, similarity=0.1) for n in nodes]
+
+    captured = {}
+    def fake_model(*, system, user, temperature):
+        captured["system"] = system
+        captured["user"] = user
+        captured["temperature"] = temperature
+        return json.dumps({
+            "scores": [
+                {"iri": EQ_PRICES_IRI, "score": 0.93},
+                {"iri": EQUITIES_IRI, "score": 0.55},
+                {"iri": FX_IRI, "score": 0.10},
+            ],
+        })
+
+    out = ds.score_candidates(
+        "Equity Prices Real Time feed",
+        cands,
+        model_client=fake_model,
+    )
+
+    # Order preserved on the input ordering — load-bearing for the matcher.
+    assert [c.node.iri for c in out] == [
+        EQ_PRICES_IRI, EQUITIES_IRI, FX_IRI,
+    ], [c.node.iri for c in out]
+    # Similarity replaced by the Opus-derived score.
+    assert out[0].similarity == 0.93, out[0].similarity
+    assert out[1].similarity == 0.55, out[1].similarity
+    assert out[2].similarity == 0.10, out[2].similarity
+    # TaxonomyNode metadata copied unchanged — Opus cannot invent structure.
+    assert out[0].node.label == "Equity Prices"
+    assert out[0].node.parent_iri == EQUITIES_IRI
+    # Prompt shape pins: low temperature + system rubric language present.
+    assert captured["temperature"] == 0.1, captured["temperature"]
+    assert "[0, 1]" in captured["system"], captured["system"]
+    assert "Vendor product" in captured["user"], captured["user"]
+    assert EQ_PRICES_IRI in captured["user"], captured["user"]
+
+
+@case("DENSE_rejects_oversize_candidate_list")
+def _():
+    """The matcher should pre-filter — silent truncation would hide a
+    retrieval regression. The contract is: hard ValueError when callers
+    overshoot ``max_candidates``."""
+    from scudo_mapping_mcp import dense_scorer as ds
+
+    # 26 dummy candidates — over the default cap of 25.
+    cands = [
+        Candidate(
+            node=TaxonomyNode(iri=f"cdao:dummy-{i}", label=f"Dummy {i}"),
+            similarity=0.5,
+        )
+        for i in range(26)
+    ]
+
+    invoked = {"count": 0}
+    def should_not_be_called(**kwargs):
+        invoked["count"] += 1
+        return "{}"
+
+    try:
+        ds.score_candidates(
+            "anything", cands, model_client=should_not_be_called,
+        )
+    except ValueError as e:
+        assert "max_candidates" in str(e), str(e)
+    else:
+        raise AssertionError(
+            "expected ValueError when len(candidates) > max_candidates"
+        )
+    # And critically: the model was NEVER invoked — we fail fast at the
+    # boundary, before paying any Bedrock cost.
+    assert invoked["count"] == 0, invoked
+
+
+@case("DENSE_validates_response_shape")
+def _():
+    """Opus responses are validated at the seam — malformed JSON, missing
+    IRIs, hallucinated IRIs, and out-of-range scores all surface as
+    ``DenseScoreError`` so the matcher can fall back to the deterministic
+    floor check (same path as 'no specialist passed')."""
+    from scudo_mapping_mcp import dense_scorer as ds
+
+    nodes = [
+        TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices"),
+        TaxonomyNode(iri=EQUITIES_IRI, label="Equities"),
+    ]
+    cands = [Candidate(node=n, similarity=0.1) for n in nodes]
+
+    def model_returning(text):
+        def _fn(**kwargs):
+            return text
+        return _fn
+
+    # 1. Not JSON at all.
+    try:
+        ds.score_candidates(
+            "x", cands,
+            model_client=model_returning("not json at all"),
+        )
+    except ds.DenseScoreError as e:
+        assert "not valid JSON" in str(e) or "missing" in str(e), str(e)
+    else:
+        raise AssertionError("expected DenseScoreError on malformed JSON")
+
+    # 2. Missing one of the requested IRIs.
+    bad_missing = json.dumps({
+        "scores": [{"iri": EQ_PRICES_IRI, "score": 0.9}],
+    })
+    try:
+        ds.score_candidates(
+            "x", cands, model_client=model_returning(bad_missing),
+        )
+    except ds.DenseScoreError as e:
+        assert "omitted" in str(e).lower() or EQUITIES_IRI in str(e), str(e)
+    else:
+        raise AssertionError("expected DenseScoreError on missing IRI")
+
+    # 3. Hallucinated IRI not in the input set.
+    bad_hallucinated = json.dumps({
+        "scores": [
+            {"iri": EQ_PRICES_IRI, "score": 0.9},
+            {"iri": EQUITIES_IRI, "score": 0.5},
+            {"iri": "cdao:not-in-input", "score": 0.7},
+        ],
+    })
+    try:
+        ds.score_candidates(
+            "x", cands, model_client=model_returning(bad_hallucinated),
+        )
+    except ds.DenseScoreError as e:
+        msg = str(e).lower()
+        assert "unknown candidate" in msg or "invented" in msg, str(e)
+    else:
+        raise AssertionError("expected DenseScoreError on hallucinated IRI")
+
+    # 4. Score out of [0, 1] range.
+    bad_range = json.dumps({
+        "scores": [
+            {"iri": EQ_PRICES_IRI, "score": 1.5},
+            {"iri": EQUITIES_IRI, "score": 0.5},
+        ],
+    })
+    try:
+        ds.score_candidates(
+            "x", cands, model_client=model_returning(bad_range),
+        )
+    except ds.DenseScoreError as e:
+        assert "out of" in str(e).lower() or "[0,1]" in str(e), str(e)
+    else:
+        raise AssertionError("expected DenseScoreError on out-of-range score")
+
+    # 5. Duplicate IRI in the response.
+    bad_dup = json.dumps({
+        "scores": [
+            {"iri": EQ_PRICES_IRI, "score": 0.9},
+            {"iri": EQ_PRICES_IRI, "score": 0.4},
+            {"iri": EQUITIES_IRI, "score": 0.5},
+        ],
+    })
+    try:
+        ds.score_candidates(
+            "x", cands, model_client=model_returning(bad_dup),
+        )
+    except ds.DenseScoreError as e:
+        msg = str(e).lower()
+        assert "more than once" in msg or "duplicate" in msg, str(e)
+    else:
+        raise AssertionError("expected DenseScoreError on duplicate IRI")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# IFUSION — mock SPI V2 publish seam
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@case("IFUSION_publish_returns_mock_acceptance")
+def _():
+    """POST /api/ifusion/publish answers with a synthetic acceptance envelope.
+
+    The publish step is a pure mock today — no SPI V2 call, no HMAC verify
+    (that already happened upstream in Persistence). The gate pins the
+    contract the UI relies on so a careless refactor of the mock doesn't
+    silently break the demo's "publish accepted" badge.
+
+    Also pins the idempotency rule: a second publish of the same
+    (vendor, product_id, mapping_id) returns the SAME publish_id with
+    status='duplicate', which is what lets a reviewer click the button
+    twice during the demo without confusion.
+    """
+    # Importing here keeps Flask / route deps out of the smoke runner's
+    # top-level import surface — the other ~85 gates don't need Flask.
+    from flask import Flask
+
+    # Defer this import too: it pulls in `routes.ifusion`, which imports
+    # `logger` from the backend package root. Resolves cleanly under the
+    # normal `python -m scudo_mapping_mcp.tests.smoke` invocation from
+    # the backend/ cwd.
+    from routes.ifusion import ifusion_bp, _reset_for_tests
+
+    _reset_for_tests()
+
+    app = Flask(__name__)
+    # No auth gate — this is a blueprint-isolation test, not an integration
+    # test against the production app.py. The auth gate's coverage is owned
+    # by app.py, not by this blueprint.
+    app.register_blueprint(ifusion_bp, url_prefix='/api')
+    client = app.test_client()
+
+    payload = {
+        'vendor': IN_SCOPE_VENDOR,
+        'product_id': 'EQ-RT-PUB-001',
+        'mapping_id': 'mapping-abc-123',
+    }
+
+    # ── First publish: fresh acceptance ────────────────────────────────
+    resp = client.post('/api/ifusion/publish', json=payload)
+    assert resp.status_code == 200, resp.status_code
+    body = resp.get_json()
+    assert body['published'] is True, body
+    assert body['status'] == 'accepted', body
+    assert body['channel'] == 'spi_v2', body
+    pid = body.get('publish_id') or ''
+    assert pid.startswith('mock-pub-'), pid
+    assert body['vendor'] == IN_SCOPE_VENDOR
+    assert body['product_id'] == 'EQ-RT-PUB-001'
+    assert body['mapping_id'] == 'mapping-abc-123'
+
+    # ── Replay: same tuple must return the SAME publish_id, duplicate ──
+    resp2 = client.post('/api/ifusion/publish', json=payload)
+    assert resp2.status_code == 200, resp2.status_code
+    body2 = resp2.get_json()
+    assert body2['publish_id'] == pid, (body2, pid)
+    assert body2['status'] == 'duplicate', body2
+
+    # ── /recent surfaces the publish for the UI ───────────────────────
+    resp3 = client.get('/api/ifusion/recent?limit=5')
+    assert resp3.status_code == 200, resp3.status_code
+    recent = resp3.get_json()
+    assert recent['count'] >= 1, recent
+    assert any(p['publish_id'] == pid for p in recent['publishes']), recent
 
 
 def main() -> int:

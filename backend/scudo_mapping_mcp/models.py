@@ -136,6 +136,17 @@ class MappingResult(BaseModel):
     # just one. None on every non-disagreement path.
     alternative_mapped_node_iri: Optional[str] = None
     alternative_mapped_node_label: Optional[str] = None
+    # Invariant violation surface (ARB 5.3) — populated when the matcher
+    # fails closed because a downstream component broke its contract. The
+    # canonical case today is "specialist_off_list": the specialist returned
+    # a pick whose IRI is NOT among the candidates the sparse ranker
+    # surfaced. The specialist scores within the top-N anchor window — it
+    # does not bring its own picks in from the wider taxonomy. When that
+    # invariant is broken (hallucinated node / stale taxonomy / prompt
+    # injection) the matcher abstains entirely, routes to NEEDS_REVIEW, and
+    # records the violation here so a reviewer can see WHY the case landed
+    # in the queue (not just THAT it did). None on every healthy path.
+    invariant_violation: Optional[Literal["specialist_off_list"]] = None
     # M5 fields — always populated (default empty rather than absent) so the
     # JSON shape is stable for both the MCP tool and the HTTP facade.
     field_normalisation: list[FieldRule] = Field(default_factory=list)

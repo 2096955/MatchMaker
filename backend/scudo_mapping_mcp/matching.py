@@ -1,7 +1,11 @@
 """
 The matcher — a strict COST LADDER.
 
-ARCHITECTURE — see Diagram 1 (main flow) and Diagram 2 (Falkor internals).
+ARCHITECTURE — see:
+    docs/diagram-1-main-flow.md          (the cost ladder end-to-end)
+    docs/diagram-2-falkor-internals.md   (rung 3: dense + lexical + structural)
+    docs/i5-lift-preconditions.md        (when this file's AUTO_MAPPED actually
+                                          becomes an autonomous write)
 
 The ladder is FIRST-MATCH-WINS, ordered from cheapest to most expensive.
 Each rung that can settle the case ends the pipeline; the LLM only runs on
@@ -90,7 +94,10 @@ do not change — only the scorer does (Section 11 / M9).
 """
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 from .config import settings
 from .frames import check_scope
@@ -279,8 +286,68 @@ def map_vendor_product(
             "all required validations passed."
         )
     elif best.similarity >= borderline_threshold:
-        # BORDERLINE band: consult the specialist (Rung 4). Three sub-cases.
+        # BORDERLINE band: consult the specialist (Rung 4). Three sub-cases
+        # plus one invariant violation path.
         specialist_pick = specialist(ref, candidates) if specialist else None
+
+        # INVARIANT (ARB review pack §5.3): the specialist is ANCHORED to the
+        # candidate set the sparse ranker surfaced. It SCORES within that
+        # top-N anchor window — it does NOT bring its own picks in from the
+        # wider taxonomy. A specialist returning an off-list IRI is a
+        # contract violation (hallucinated node / stale taxonomy / prompt
+        # injection / model swapped for an untuned one).
+        #
+        # We FAIL CLOSED: abstain entirely, route to NEEDS_REVIEW with the
+        # invariant_violation reason surfaced on the result, and DO NOT
+        # carry the off-list IRI through as an alternative — abstention
+        # means the offending pick is DISCARDED, not surfaced for a reviewer
+        # to accidentally select. We deliberately do NOT collapse this onto
+        # the "abstain" path, because that path can auto-map when the dense
+        # score sits above the floor; here the abstention is FORCED by
+        # detected misbehaviour, which is itself a signal that the case
+        # warrants human attention regardless of the dense score.
+        if specialist_pick is not None and \
+                specialist_pick.node.iri not in {c.node.iri for c in candidates}:
+            logger.warning(
+                "specialist returned off-list pick %r; failing closed to "
+                "NEEDS_REVIEW (candidate iris: %s)",
+                specialist_pick.node.iri,
+                sorted({c.node.iri for c in candidates}),
+            )
+            band = "borderline"
+            status = MappingStatus.NEEDS_REVIEW
+            mapped_node_iri = best.node.iri
+            mapped_node_label = best.node.label
+            # Cap into the fail band — an LLM contract violation must not
+            # auto-map at nominally-borderline dense similarity.
+            confidence = min(best.similarity, borderline_threshold - 0.01)
+            rationale = (
+                f"BORDERLINE band — INVARIANT VIOLATION: specialist returned "
+                f"off-list IRI '{specialist_pick.node.iri}' "
+                f"('{specialist_pick.node.label}'), which is not among the "
+                f"{len(candidates)} candidates surfaced by the sparse ranker. "
+                "Specialist abstained (fail-closed); routed to NEEDS_REVIEW. "
+                "Reason: specialist_off_list."
+            )
+            return MappingResult(
+                vendor_product_iri=ref.iri, vendor=ref.vendor,
+                product_id=ref.product_id, product_name=ref.name,
+                mapped_node_iri=mapped_node_iri,
+                mapped_node_label=mapped_node_label,
+                confidence=confidence, status=status,
+                band=band,
+                # Off-list IRI is DISCARDED — abstention means it is NOT
+                # surfaced for a reviewer to select. The violation itself
+                # IS the surfaced signal, on invariant_violation + rationale.
+                alternative_mapped_node_iri=None,
+                alternative_mapped_node_label=None,
+                candidates=candidates, rationale=rationale,
+                field_normalisation=rules,
+                validations=vresults,
+                invariant_violation="specialist_off_list",
+                source_content_hash=source_content_hash,
+                source_file_audit_id=source_file_audit_id,
+            )
 
         if specialist_pick is None:
             # Specialist absent / abstained. Fall back to the deterministic
