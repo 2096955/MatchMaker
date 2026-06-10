@@ -1,0 +1,44 @@
+flowchart TD
+    Q["Vendor product<br/>name, id, description"]
+    subgraph PATHS["GraphRAG-SDK multi-path (over the working graph)"]
+        VEC["vector, dense<br/>Titan embeddings, Bedrock via LiteLLM"]
+        FT["fulltext, lexical<br/>RediSearch"]
+        CY["cypher<br/>structured graph query"]
+        REL["relationship expansion<br/>traverse from seed nodes"]
+    end
+    RR["cosine rerank<br/>ranked candidates, SDK default, swappable"]
+    BOOST["plus precedent boost<br/>rank-signal tilt up to 0.10, recomputed from edges"]
+    DROP["minus negative-precedent drop<br/>rejected mappings removed"]
+    DIST["distance check, SciPy sparse<br/>deferred: needs anchor data"]
+    SURV["Surviving candidates<br/>top candidate and similarity, to the gate"]
+    NONE["No survivors, to review"]
+
+    Q --> VEC
+    Q --> FT
+    Q --> CY
+    Q --> REL
+    VEC --> RR
+    FT --> RR
+    CY --> RR
+    REL --> RR
+    RR --> BOOST
+    BOOST --> DROP
+    DROP --> SURV
+    DROP --> NONE
+    DROP -.->|deferred| DIST
+
+    classDef det fill:#d8f0ee,stroke:#2c8c84,color:#16433f;
+    classDef dense fill:#dbe9fb,stroke:#3b6fb0,color:#1d3a5f;
+    classDef fuse fill:#fbe4e0,stroke:#c0563a,color:#5a1f12;
+    classDef store fill:#ece8e0,stroke:#7d7464,color:#3d362a;
+    classDef good fill:#e0f0d5,stroke:#5a8f3a,color:#274a14;
+    classDef warn fill:#fdf0d5,stroke:#b8860b,color:#5c4209;
+    classDef deferred fill:#ffffff,stroke:#7d7464,color:#7d7464,stroke-dasharray:4 3;
+    class VEC dense
+    class FT,CY,REL det
+    class RR fuse
+    class BOOST,DROP store
+    class DIST deferred
+    class SURV good
+    class NONE warn
+    class Q store

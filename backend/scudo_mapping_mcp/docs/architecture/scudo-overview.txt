@@ -1,0 +1,57 @@
+flowchart TD
+    GW["Gateway: NGINX + FastAPI<br/>auth, rate-limit, identity"]
+    UI["Scudo Reviewer UI<br/>human: approve / reject"]
+    IN["Catalogue + CDAO taxonomy<br/>per-vendor adapters, one MCP per vendor"]
+
+    AGENT["Strands agent, Claude Opus 4.8 on Bedrock<br/>the LLM the user engages<br/>orchestrates under deterministic guards<br/>also the borderline specialist"]
+    HOST["MCP host, transport<br/>pool, circuit breaker, semaphore"]
+
+    subgraph MCPS["MCP servers (by responsibility, write-isolated)"]
+        ING["Ingestion MCP<br/>read-only: scope, frame read"]
+        MV["Match and Verify MCP<br/>the matching engine: matcher, seal"]
+        PER["Persistence MCP<br/>sole writer: verify seal, I5 gate, queue"]
+    end
+
+    subgraph STORES["Stores and runtime (AWS Atlas)"]
+        S3["S3<br/>vendor frames"]
+        FALKOR["FalkorDB working graph<br/>GraphRAG-SDK retrieval, sparse<br/>non-authoritative, rebuildable"]
+        NEP["Neptune<br/>canonical RDF, sole-write"]
+        QUEUE["Reviewer queue, DynamoDB"]
+        SSM["SSM / Secrets Manager<br/>HMAC key, verify"]
+        IFU["iFusion<br/>publish via SPI V2"]
+    end
+
+    subgraph OBS["Observability and audit"]
+        XR["AWS X-Ray<br/>agent traces, Strands OTEL"]
+        CW["CloudWatch<br/>metrics, logs"]
+        BL["Bedrock invocation logs"]
+        TA["Trajectory archive, S3<br/>sealed verdict, steps"]
+    end
+
+    GW -->|engages| AGENT
+    AGENT -->|triggers tools| HOST
+    HOST --> ING
+    HOST --> MV
+    HOST --> PER
+    ING -->|frames| MV
+    MV -->|sealed verdict| PER
+    MV -.->|borderline specialist| AGENT
+    ING --> S3
+    MV --> FALKOR
+    PER --> NEP
+    PER --> QUEUE
+    PER --> SSM
+    NEP -->|publish| IFU
+    NEP -.->|precedent| FALKOR
+    PER -.->|needs-review| UI
+    IN -.->|catalogue| S3
+    AGENT -.->|telemetry| XR
+
+    classDef agent fill:#e9defb,stroke:#6b46c1,color:#3b2566;
+    classDef det fill:#d8f0ee,stroke:#2c8c84,color:#16433f;
+    classDef store fill:#ece8e0,stroke:#7d7464,color:#3d362a;
+    classDef good fill:#e0f0d5,stroke:#5a8f3a,color:#274a14;
+    class AGENT agent
+    class ING,MV,PER det
+    class S3,FALKOR,NEP,QUEUE,SSM,HOST,XR,CW,BL,TA store
+    class IFU,GW,UI,IN good

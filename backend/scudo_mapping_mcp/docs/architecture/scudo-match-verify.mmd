@@ -1,0 +1,43 @@
+flowchart TD
+    VP["Vendor product<br/>normalised frame, from Ingestion"]
+    SCOPE{{"Scope gate<br/>in scope?"}}
+    OOS["Out of scope, exit"]
+    PREC{{"Precedent check<br/>confirmed MAPPED_TO?"}}
+    REUSE["Reuse mapping, short-circuit"]
+    MATCH["Falkor match and check<br/>GraphRAG-SDK multi-path, sparse structural<br/>similarity is the raw dense score"]
+    VAL["Validations, M5 deterministic<br/>required: scope_compatible, identifier_resolves, data_class_match<br/>warn: name and description length"]
+    GATE{{"Three-band gate<br/>sim vs floor 0.80, half-width 0.05<br/>or required-fail"}}
+    AUTO["AUTO_MAPPED<br/>PASS, no specialist"]
+    SPEC["LLM specialist, borderline only, the agent<br/>anchored to top candidate<br/>confidence is min of dense and specialist"]
+    REVIEW["NEEDS_REVIEW<br/>FAIL or required-fail"]
+    SEAL["HMAC seal, v=2<br/>carries band, signed here only, key from SSM"]
+    PERS["to Persistence MCP<br/>I5 gate decides persist-or-queue"]
+
+    VP --> SCOPE
+    SCOPE -->|in scope| PREC
+    SCOPE -->|out of scope| OOS
+    PREC -->|new| MATCH
+    PREC -->|confirmed| REUSE
+    MATCH --> VAL
+    VAL --> GATE
+    GATE -->|PASS| AUTO
+    GATE -->|BORDERLINE| SPEC
+    GATE -->|FAIL| REVIEW
+    SPEC -->|concur| AUTO
+    SPEC -->|disagree| REVIEW
+    AUTO --> SEAL
+    REVIEW --> SEAL
+    SEAL --> PERS
+
+    classDef gate fill:#fdf0d5,stroke:#b8860b,color:#5c4209;
+    classDef det fill:#d8f0ee,stroke:#2c8c84,color:#16433f;
+    classDef llm fill:#e9defb,stroke:#6b46c1,color:#3b2566;
+    classDef good fill:#e0f0d5,stroke:#5a8f3a,color:#274a14;
+    classDef warn fill:#fdf0d5,stroke:#b8860b,color:#5c4209;
+    classDef store fill:#ece8e0,stroke:#7d7464,color:#3d362a;
+    class SCOPE,PREC,GATE gate
+    class MATCH,VAL det
+    class SPEC llm
+    class AUTO,REUSE good
+    class REVIEW,OOS warn
+    class SEAL,PERS,VP store
