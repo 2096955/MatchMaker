@@ -15,7 +15,9 @@
 #   Match-Verify   : python -m scudo_mapping_mcp.match_verify_mcp
 #   Persistence    : python -m scudo_mapping_mcp.persistence_mcp
 
-FROM python:3.12-slim
+# AWS ECR Public mirror of the official Docker Hub image — avoids the
+# anonymous-pull HTTP 429 rate-limit CodeBuild hits on shared IPs.
+FROM public.ecr.aws/docker/library/python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
