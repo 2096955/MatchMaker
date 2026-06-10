@@ -77,24 +77,26 @@ Resources:
         - { Key: Env, Value: !Ref EnvironmentTag }
 
   # Private DNS for in-VPC service-to-service discovery. M-V and Persistence
-  # resolve falkor.scudo.local to the Falkor task's ENI IP.
+  # resolve falkor.scudo.local to the Falkor task's ENI IP. Kept minimal —
+  # earlier nested SOA/TTL configuration triggered a Cloud Map
+  # eventual-consistency race where CreateNamespace returned success
+  # but Cloud Map then returned NamespaceNotFound to the immediately
+  # following CreateService 2 seconds later.
   ServiceDiscoveryNamespace:
     Type: AWS::ServiceDiscovery::PrivateDnsNamespace
     Properties:
       Name: scudo.local
       Description: SCUDO dev private DNS namespace
       Vpc: !ImportValue scudo-dev-vpc-id
-      Properties:
-        DnsProperties:
-          SOA:
-            TTL: 60
 
   FalkorServiceDiscovery:
     Type: AWS::ServiceDiscovery::Service
+    DependsOn: ServiceDiscoveryNamespace
     Properties:
       Name: falkor
       NamespaceId: !Ref ServiceDiscoveryNamespace
       DnsConfig:
+        NamespaceId: !Ref ServiceDiscoveryNamespace
         DnsRecords:
           - { Type: A, TTL: 10 }
         RoutingPolicy: MULTIVALUE
