@@ -161,4 +161,4 @@ if __name__ == "__main__":
     # co-run locally without a clash.
     mcp.settings.host = os.getenv("MCP_HOST", "0.0.0.0")
     mcp.settings.port = int(os.getenv("MCP_PORT", "8001"))
-    mcp.run(transport="streamable_http")
+    mcp.run(transport="streamable-http")
