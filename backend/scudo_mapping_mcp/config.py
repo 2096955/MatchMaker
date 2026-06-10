@@ -50,7 +50,7 @@ BORDERLINE_HALF_WIDTH: float = 0.05
 
 
 _ALLOWED_TAXONOMY_LOADERS: tuple[str, ...] = ("cdao",)
-_ALLOWED_PERSIST_TARGETS: tuple[str, ...] = ("falkordb", "neptune", "none")
+_ALLOWED_PERSIST_TARGETS: tuple[str, ...] = ("falkordb", "neptune", "none", "memory")
 
 
 def _default_vendor_adapters() -> tuple[str, ...]:
@@ -126,6 +126,13 @@ class Settings:
     vendor_adapters: tuple[str, ...]  # SCUDO_VENDOR_ADAPTERS
     taxonomy_loader: str              # SCUDO_TAXONOMY_LOADER — "cdao" (only allowed today)
     persist_target: str               # SCUDO_PERSIST_TARGET — "falkordb" | "neptune" | "none"
+    # Opus-dense feature flag — see method docstring on from_env.
+    # When True, find_similar_products delegates to
+    # retrieval.multi_path_retrieve (Opus-judged dense scoring with the
+    # multi-path shape). When False (default), the existing Jaro-Winkler +
+    # BM25 + RRF path runs unchanged. Gated so the 86 smoke gates keep
+    # exercising the legacy path until the new path is fully calibrated.
+    use_opus_dense: bool              # SCUDO_USE_OPUS_DENSE — "1"/"true"/"yes" -> True
 
     @staticmethod
     def from_env() -> "Settings":
@@ -168,6 +175,15 @@ class Settings:
                 f"{_ALLOWED_PERSIST_TARGETS!r}"
             )
 
+        # Opus-dense feature flag — accept the common truthy spellings so
+        # an operator can flip the path with SCUDO_USE_OPUS_DENSE=1 (or
+        # =true / =yes) without remembering the exact token. Everything
+        # else (unset, "0", "false", garbage) stays at False so the legacy
+        # Jaro-Winkler + BM25 + RRF path remains the default.
+        use_opus_dense = os.getenv("SCUDO_USE_OPUS_DENSE", "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+
         return Settings(
             store_backend=store_backend,
             falkordb_url=os.getenv("FALKORDB_URL", "falkordb://localhost:6379"),
@@ -183,6 +199,7 @@ class Settings:
             vendor_adapters=vendor_adapters,
             taxonomy_loader=taxonomy_loader,
             persist_target=persist_target,
+            use_opus_dense=use_opus_dense,
         )
 
 

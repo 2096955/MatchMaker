@@ -215,9 +215,14 @@ class ScriptedMappingAgent:
             # below, but it travels through the ingestion MCP. We still
             # hydrate Candidate objects locally so the rest of run() sees
             # one consistent shape regardless of routing.
+            # ARB B1 fix — re-tier from INGESTION to MATCH_VERIFY. The
+            # ``find_similar_products`` / ``get_taxonomy_node`` /
+            # ``get_ontology_neighbourhood`` tools live on the
+            # Match&Verify MCP (see match_verify_mcp.py), NOT Ingestion.
+            # Ingestion only exposes ingest.list_frames / ingest.get_frame.
             try:
                 result_json = host.call(
-                    _TIER_INGESTION, "find_similar_products", find_args,
+                    _TIER_MATCH_VERIFY, "matchverify.find_candidates", find_args,
                 )
                 candidates = _candidates_from_host_result(result_json)
             except Exception as e:  # noqa: BLE001 — host transport surface
@@ -225,8 +230,8 @@ class ScriptedMappingAgent:
                     type="error",
                     payload={
                         "error": f"mcp_host:{type(e).__name__}: {e}",
-                        "tier": _TIER_INGESTION,
-                        "tool": "find_similar_products",
+                        "tier": _TIER_MATCH_VERIFY,
+                        "tool": "matchverify.find_candidates",
                     },
                 )
                 candidates = store.find_similar_products(
@@ -278,7 +283,7 @@ class ScriptedMappingAgent:
             )
             if host is not None:
                 try:
-                    host.call(_TIER_INGESTION, "get_taxonomy_node", node_args)
+                    host.call(_TIER_MATCH_VERIFY, "matchverify.get_node", node_args)
                 except Exception:  # noqa: BLE001 — best-effort visibility hop
                     pass
             node = store.get_taxonomy_node(best.node.iri)
@@ -302,7 +307,7 @@ class ScriptedMappingAgent:
             if host is not None:
                 try:
                     host.call(
-                        _TIER_INGESTION, "get_ontology_neighbourhood", sub_args,
+                        _TIER_MATCH_VERIFY, "matchverify.get_neighbourhood", sub_args,
                     )
                 except Exception:  # noqa: BLE001 — best-effort visibility hop
                     pass

@@ -222,16 +222,28 @@ class FalkorDBStore(RetrievalStore):
         # Flag-gated delegation to the new multi-path retrieval pipeline.
         # Imported lazily so the module-load surface stays cheap and the
         # legacy path doesn't pay an import cost it never uses.
+        #
+        # CANONICAL OPUS SURFACE — opus_dense.make_opus_dense_scorer.
+        # The newer scudo_mapping_mcp.dense_scorer module is DEPRECATED
+        # (see its module docstring); opus_dense is the per-pair scorer
+        # wired through here and on the legacy SCUDO_DENSE_BACKEND=opus
+        # path. Closes ARB finding A1 (flag-on no longer hardwires
+        # dense_scorer=None — every match got 0.5 → NEEDS_REVIEW) and
+        # A2 (one canonical surface).
         from ..config import settings as _settings
         if _settings.use_opus_dense:
             from .. import retrieval as _retrieval  # type: ignore
+            from .. import opus_dense as _opus_dense  # type: ignore
+            scorer = _opus_dense.make_opus_dense_scorer(
+                query_desc=ref.description or "",
+            )
             return _retrieval.multi_path_retrieve(
                 ref,
                 self,
                 max_results,
                 min_similarity,
                 candidate_filter=candidate_filter,
-                dense_scorer=None,
+                dense_scorer=scorer,
             )
 
         limit = self.clamp_results(max_results)

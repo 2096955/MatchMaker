@@ -253,6 +253,30 @@ class RetrievalStore(ABC):
         return min(cls.RANK_BOOST_CAP, cls.RANK_BOOST_PER_APPROVAL * count)
 
     @classmethod
+    def compute_rank_boost_scaled_for_dense(
+        cls, boosts: dict, node_iri: str,
+    ) -> float:
+        """Rank-signal boost, scaled for a dense-score sort key in [0, 1].
+
+        The legacy ``find_similar_products`` path sorts by a fused RRF score
+        whose top entry is ~1/(RRF_K+1) ≈ 0.0164. Multiplying the raw boost
+        (cap 0.10) by that magnitude keeps the structural tilt commensurate
+        with the fused ranking signal. Under Opus-dense, the sort key is the
+        raw dense similarity in [0, 1] — orders of magnitude larger than
+        RRF — so the same scaling would render the boost effectively
+        invisible (≤ 0.00164 against a top hit near 1.0).
+
+        This method returns the RAW boost (≤ ``RANK_BOOST_CAP`` == 0.10),
+        which is the correct magnitude to add to a dense [0, 1] sort key:
+        the tilt is a perceptible nudge but bounded so an under-similar
+        node can never overtake a clearly-better one. The matcher still
+        emits ``Candidate.similarity = raw dense score``, so the 0.80
+        confidence floor never sees the boost (I5 preserved).
+        """
+        count = int(boosts.get(node_iri, 0) or 0)
+        return min(cls.RANK_BOOST_CAP, cls.RANK_BOOST_PER_APPROVAL * count)
+
+    @classmethod
     def max_useful_boost_approvals(cls) -> int:
         """How many approvals saturate the cap.
 

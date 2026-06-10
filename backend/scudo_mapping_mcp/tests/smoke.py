@@ -3331,6 +3331,100 @@ def _():
     assert a2._host() is None, a2._host()
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# ARB FIX VERIFICATION — A1 / A2 / B1 / B2
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@case("ARB_A1_flag_on_passes_real_scorer_not_none")
+def _():
+    """Closes ARB A1. SCUDO_USE_OPUS_DENSE=true must wire a real Opus
+    scorer into multi_path_retrieve — NOT dense_scorer=None which would
+    collapse every match to 0.5 and route everything to NEEDS_REVIEW.
+    """
+    from scudo_mapping_mcp.store import falkordb_store as fk_mod
+    import inspect
+    src = inspect.getsource(fk_mod.FalkorDBStore.find_similar_products)
+    assert "make_opus_dense_scorer" in src, (
+        "find_similar_products flag-on branch must call "
+        "opus_dense.make_opus_dense_scorer, not pass dense_scorer=None"
+    )
+    # Verify the canonical scorer module is the one being wired.
+    assert "opus_dense" in src, (
+        "the canonical Opus surface (opus_dense) must be the import"
+    )
+
+
+@case("ARB_A2_dense_scorer_module_is_deprecated_in_docstring")
+def _():
+    """Closes ARB A2. The duplicate dense_scorer.py module must be
+    visibly marked DEPRECATED so a maintainer reading the code on demo
+    day can tell which Opus path is the real one.
+    """
+    from scudo_mapping_mcp import dense_scorer
+    assert dense_scorer.__doc__ is not None
+    assert "DEPRECATED" in dense_scorer.__doc__, (
+        "dense_scorer.py must carry a DEPRECATED marker in its docstring"
+    )
+    assert "opus_dense" in dense_scorer.__doc__, (
+        "dense_scorer docstring must point at the canonical opus_dense module"
+    )
+
+
+@case("ARB_B1_agent_host_calls_route_to_match_verify_tier")
+def _():
+    """Closes ARB B1. Agent host-mode calls for find_similar_products /
+    get_taxonomy_node / get_ontology_neighbourhood must route to
+    _TIER_MATCH_VERIFY (where those tools live), not _TIER_INGESTION
+    (which only exposes ingest.list_frames / ingest.get_frame).
+    """
+    import inspect
+    from scudo_mapping_mcp import agent as agent_module
+    src = inspect.getsource(agent_module)
+    # The three M&V tool calls must use match_verify tier + namespaced names.
+    assert "_TIER_MATCH_VERIFY, \"matchverify.find_candidates\"" in src, (
+        "find_similar_products call must be re-tiered to match_verify"
+    )
+    assert "_TIER_MATCH_VERIFY, \"matchverify.get_node\"" in src, (
+        "get_taxonomy_node call must be re-tiered to match_verify"
+    )
+    assert "_TIER_MATCH_VERIFY, \"matchverify.get_neighbourhood\"" in src, (
+        "get_ontology_neighbourhood call must be re-tiered to match_verify"
+    )
+    # No remaining ingestion-tier calls for M&V tools.
+    assert "_TIER_INGESTION, \"find_similar_products\"" not in src
+    assert "_TIER_INGESTION, \"get_taxonomy_node\"" not in src
+    assert "_TIER_INGESTION, \"get_ontology_neighbourhood\"" not in src
+
+
+@case("ARB_B2_dense_rescore_catches_scorer_exception_and_degrades")
+def _():
+    """Closes ARB B2. A failing dense_scorer (Bedrock outage / throttle /
+    malformed response) must NOT crash the matcher. _dense_rescore catches
+    the exception, logs a warning, and degrades every survivor to
+    _DEGRADED_SIMILARITY so the floor gate routes the case to review.
+    """
+    from scudo_mapping_mcp import retrieval
+    from scudo_mapping_mcp.models import Candidate, TaxonomyNode
+
+    survivors = [
+        Candidate(node=TaxonomyNode(iri="cdao:a", label="A"), similarity=0.0),
+        Candidate(node=TaxonomyNode(iri="cdao:b", label="B"), similarity=0.0),
+    ]
+
+    def exploding_scorer(query, cands):
+        raise RuntimeError("simulated Bedrock outage")
+
+    # Must NOT raise.
+    out = retrieval._dense_rescore("anything", survivors, exploding_scorer)
+    assert len(out) == 2
+    # Every survivor degraded.
+    for c in out:
+        assert abs(c.similarity - retrieval._DEGRADED_SIMILARITY) < 1e-9, c
+    # Below floor — matcher's floor gate will route the whole case to review.
+    assert retrieval._DEGRADED_SIMILARITY < 0.80
+
+
 def main() -> int:
     for name, ok, detail in _results:
         if ok:
