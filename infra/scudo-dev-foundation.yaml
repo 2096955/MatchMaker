@@ -148,11 +148,43 @@ Resources:
       SubnetId: !Ref PublicSubnetB
       RouteTableId: !Ref PublicRouteTable
 
+  # NAT gateway in the AZ-a public subnet, so private-subnet tasks have an
+  # egress path. Foundation went endpoint-only originally; that broke for
+  # (a) FalkorDB image pull from Docker Hub and (b) Secrets Manager API
+  # calls. NAT is the pragmatic dev unblocker — for JPMC prod, mirror
+  # third-party images to ECR and add a Secrets Manager interface endpoint
+  # instead. Single NAT in one AZ is fine for the dev sandbox; HA NAT
+  # would need a NatGateway per AZ.
+  NatGatewayEip:
+    Type: AWS::EC2::EIP
+    DependsOn: IgwAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: scudo-dev-nat-eip }
+        - { Key: Project, Value: !Ref ProjectTag }
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEip.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - { Key: Name, Value: scudo-dev-nat }
+        - { Key: Project, Value: !Ref ProjectTag }
+
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref Vpc
       Tags: [{ Key: Name, Value: scudo-dev-private-rt }]
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
 
   PrivateSubnetARouteAssoc:
     Type: AWS::EC2::SubnetRouteTableAssociation
