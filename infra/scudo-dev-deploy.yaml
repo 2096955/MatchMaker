@@ -32,8 +32,8 @@ Parameters:
     Description: ECR image tag for the backend image (built from backend/Dockerfile).
   FalkorImage:
     Type: String
-    Default: falkordb/falkordb:v4.10.4
-    Description: Pinned FalkorDB version (do NOT use :edge in deployed environments).
+    Default: falkordb/falkordb:edge
+    Description: FalkorDB tag. FalkorDB only publishes rolling tags (edge, edge-alpine, latest-alpine) — no immutable semver tags exist. For JPMC prod, mirror to ECR with a frozen digest. For dev, edge is fine.
   BedrockModelId:
     Type: String
     Default: eu.anthropic.claude-opus-4-8
