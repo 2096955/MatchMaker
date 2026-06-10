@@ -183,4 +183,4 @@ if __name__ == "__main__":
     # Bind for containers / AWS; override with MCP_HOST / MCP_PORT.
     mcp.settings.host = os.getenv("MCP_HOST", "0.0.0.0")
     mcp.settings.port = int(os.getenv("MCP_PORT", "8000"))
-    mcp.run(transport="streamable_http")
+    mcp.run(transport="streamable-http")

@@ -241,4 +241,4 @@ async def verify_mapping(params: VerifyInput) -> str:
 if __name__ == "__main__":
     mcp.settings.host = os.getenv("MCP_HOST", "0.0.0.0")
     mcp.settings.port = int(os.getenv("MCP_PORT", "8002"))
-    mcp.run(transport="streamable_http")
+    mcp.run(transport="streamable-http")
