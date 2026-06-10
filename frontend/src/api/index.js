@@ -87,8 +87,28 @@ export const ingestMappingFile = (vendor, file) => {
 
 export const mapVendorProduct = (body) => api.post('/mapping/map', body)
 
+// Ingestion mock — paste a vendor row, get a VendorProductRef-shaped frame.
+// Pure demo seam; nothing persists. See backend/routes/ingestion_mock.py.
+export const ingestionMock = (body) =>
+  api.post('/mapping/ingestion-mock', body)
+
 export const recordMappingDecision = (body) =>
   api.post('/mapping/decision', body)
+
+// ── iFusion publish (mock SPI V2 — demo only) ────────────────────────
+// The matcher persists into Neptune; this endpoint pretends to publish the
+// canonical mapping downstream so the demo can show the full loop closing.
+// Idempotent on (vendor, product_id, mapping_id) — replay returns the same
+// publish_id with status='duplicate'. No HMAC verification (post-persist).
+export const publishMappingToIfusion = ({ mappingId, vendor, productId }) =>
+  api.post('/ifusion/publish', {
+    mapping_id: mappingId,
+    vendor,
+    product_id: productId,
+  })
+
+export const listRecentIfusionPublishes = (limit = 20) =>
+  api.get('/ifusion/recent', { params: { limit } })
 
 // runAgentStream streams Server-Sent Events from POST /mapping/agent/run.
 // EventSource doesn't support POST, so we use fetch + ReadableStream.

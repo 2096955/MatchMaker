@@ -9,6 +9,8 @@ All routes are mounted under the ``/api`` prefix via six Blueprints:
 - ``ingest_bp``    — Ingestion trigger endpoint and ETL run-log queries.
 - ``catalogue_bp`` — Vendor catalogue HTTP facade over ``vendor_catalogue_mcp``.
 - ``mapping_bp``   — Vendor → CDAO mapping HTTP facade over ``scudo_mapping_mcp``.
+- ``ifusion_bp``   — Mock iFusion publish seam (SPI V2 stand-in for the demo).
+- ``ingestion_mock_bp`` — Demo-only seam: paste a vendor row, get a frame.
 
 CORS is enabled for all ``/api/*`` routes to allow the Vite dev server
 (running on a different port) to call the API without proxy restrictions.
@@ -41,6 +43,9 @@ from routes.admin import admin_bp
 from routes.ingest import ingest_bp
 from routes.catalogue import catalogue_bp
 from routes.mapping import mapping_bp
+from routes.ifusion import ifusion_bp
+from routes.ingestion_mock import ingestion_mock_bp
+from routes.visibility import visibility_bp
 
 app = Flask(__name__)
 
@@ -53,6 +58,9 @@ app.register_blueprint(admin_bp, url_prefix='/api')
 app.register_blueprint(ingest_bp, url_prefix='/api')
 app.register_blueprint(catalogue_bp, url_prefix='/api')
 app.register_blueprint(mapping_bp, url_prefix='/api')
+app.register_blueprint(ifusion_bp, url_prefix='/api')
+app.register_blueprint(ingestion_mock_bp, url_prefix='/api')
+app.register_blueprint(visibility_bp, url_prefix='/api')
 
 
 @app.before_request

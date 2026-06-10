@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   describeMappingAgent,
   getMappingVendors,
+  ingestionMock,
   ingestMappingFile,
   listMappingWorkingSet,
+  mapVendorProduct,
   recordMappingDecision,
   runAgentStream,
 } from '../../api'
@@ -233,6 +235,12 @@ export default function MappingDemo() {
   const [error, setError]               = useState('')
   const [decisionMsg, setDecisionMsg]   = useState('')
   const [overrideIri, setOverrideIri]   = useState('')
+  // Paste-a-row mock state (demo seam; calls /api/mapping/ingestion-mock).
+  const [mockProductId, setMockProductId]     = useState('')
+  const [mockName, setMockName]               = useState('')
+  const [mockDescription, setMockDescription] = useState('')
+  const [mockIdentifier, setMockIdentifier]   = useState('')
+  const [mockBusy, setMockBusy]               = useState(false)
   const abortRunRef                     = useRef(null)
   const eventsBottomRef                 = useRef(null)
   const fileInputRef                    = useRef(null)
@@ -271,6 +279,59 @@ export default function MappingDemo() {
       setError(err.response?.data?.error || 'File ingest failed')
     }
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Paste-a-row mock: send to /api/mapping/ingestion-mock, then immediately
+  // run the matcher on the returned frame so the right-hand panel populates.
+  // Nothing is persisted backend-side; the frame is held in component state.
+  const handleMockSubmit = async () => {
+    setError('')
+    setDecisionMsg('')
+    if (!mockProductId.trim()) {
+      setError('product_id is required for the mock row')
+      return
+    }
+    setMockBusy(true)
+    try {
+      const { data: frame } = await ingestionMock({
+        vendor,
+        product_id: mockProductId.trim(),
+        name: mockName.trim(),
+        description: mockDescription.trim(),
+        identifier: mockIdentifier.trim(),
+      })
+      // Surface the mocked frame in the working-set UI so it can be picked
+      // again later in the session (purely client-side; nothing persisted).
+      setWorkingSet(prev => {
+        const exists = prev.some(p =>
+          p.vendor === frame.vendor && p.product_id === frame.product_id)
+        if (exists) return prev
+        return [
+          ...prev,
+          {
+            vendor: frame.vendor,
+            product_id: frame.product_id,
+            name: frame.name,
+            description: frame.description,
+          },
+        ]
+      })
+      // Run the matcher on the mocked frame straight away — same code path
+      // as the real ingestion route, just with no S3 audit id.
+      const { data: result } = await mapVendorProduct({
+        vendor: frame.vendor,
+        product_id: frame.product_id,
+        name: frame.name,
+        description: frame.description,
+      })
+      setSelected(frame.product_id)
+      setMapping(result)
+      setEvents([{ type: 'agent_message', content: 'Mock frame routed straight to the matcher (no agent stream).' }])
+    } catch (err) {
+      setError(err.response?.data?.error || 'Mock ingestion failed')
+    } finally {
+      setMockBusy(false)
+    }
   }
 
   const handleRunAgent = (product) => {
@@ -407,6 +468,59 @@ export default function MappingDemo() {
                 accept=".csv,.json,.tsv"
                 onChange={e => e.target.files?.[0] && handleIngest(e.target.files[0])}
               />
+            </div>
+
+            {/* Paste-a-row mock — demo seam, no S3 round-trip. */}
+            <div style={{
+              border: '1px dashed #cbd5e1', borderRadius: 8,
+              padding: 10, marginBottom: 16, background: '#f8fafc',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#475569',
+                            textTransform: 'uppercase', letterSpacing: '.06em',
+                            marginBottom: 6 }}>
+                Paste a vendor row (mock)
+              </div>
+              <input
+                className="f-input"
+                style={{ width: '100%', fontSize: 12, marginBottom: 6, padding: '6px 8px' }}
+                placeholder="product_id (required)"
+                value={mockProductId}
+                onChange={e => setMockProductId(e.target.value)}
+                disabled={mockBusy || running}
+              />
+              <input
+                className="f-input"
+                style={{ width: '100%', fontSize: 12, marginBottom: 6, padding: '6px 8px' }}
+                placeholder="name"
+                value={mockName}
+                onChange={e => setMockName(e.target.value)}
+                disabled={mockBusy || running}
+              />
+              <textarea
+                className="f-input"
+                style={{ width: '100%', fontSize: 12, marginBottom: 6, padding: '6px 8px',
+                         minHeight: 50, fontFamily: 'inherit' }}
+                placeholder="description"
+                value={mockDescription}
+                onChange={e => setMockDescription(e.target.value)}
+                disabled={mockBusy || running}
+              />
+              <input
+                className="f-input"
+                style={{ width: '100%', fontSize: 12, marginBottom: 8, padding: '6px 8px' }}
+                placeholder="identifier (ISIN / SEDOL / ticker)"
+                value={mockIdentifier}
+                onChange={e => setMockIdentifier(e.target.value)}
+                disabled={mockBusy || running}
+              />
+              <button
+                className="btn btn-primary btn-sm"
+                style={{ width: '100%' }}
+                onClick={handleMockSubmit}
+                disabled={mockBusy || running || !mockProductId.trim()}
+              >
+                {mockBusy ? 'Sending…' : 'Send to matcher'}
+              </button>
             </div>
 
             <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af',
