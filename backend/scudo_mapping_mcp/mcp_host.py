@@ -163,6 +163,7 @@ class McpHost:
                     "http://localhost:8002b/mcp/match",
                 ],
                 "persistence":  ["http://localhost:8003/mcp/persist"],
+                "normalise":    ["http://localhost:8004/mcp/normalise"],
             },
         )
 
@@ -180,7 +181,10 @@ class McpHost:
     DEFAULT_BREAKER_COOLDOWN_S = 30.0
     DEFAULT_TIMEOUT_S = 10.0
 
-    KNOWN_TIERS = ("ingestion", "match_verify", "persistence")
+    # "normalise" is the read-only Normalise & Calibrate MCP (:8004). It is
+    # a utility tier, not part of the write-trust gradient: no signing key,
+    # no write surface (TRUST_normalise_mcp_imports_no_writers pins this).
+    KNOWN_TIERS = ("ingestion", "match_verify", "persistence", "normalise")
 
     def __init__(
         self,

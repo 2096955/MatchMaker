@@ -3425,6 +3425,193 @@ def _():
     assert retrieval._DEGRADED_SIMILARITY < 0.80
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Normalise & Calibrate MCP (:8004) — gap-closure gates
+# ──────────────────────────────────────────────────────────────────────
+
+@case("TRUST_normalise_mcp_imports_no_writers")
+def _():
+    """Static AST check, same discipline as the Ingestion gate: the
+    Normalise & Calibrate MCP is a read-only utility tier and must never
+    import the write surface. It also must not import the verdict module
+    (it holds no signing key — it cannot mint trust)."""
+    import ast, pathlib
+    path = pathlib.Path("scudo_mapping_mcp/normalise_mcp.py").resolve()
+    src = path.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    forbidden = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            mod = node.module
+            if mod.endswith("feedback") or mod.endswith("bundle") \
+                    or mod.endswith("verdict"):
+                forbidden.add(mod)
+            for n in node.names:
+                if n.name in {"apply_decision", "import_bundle",
+                              "upsert_precedent", "sign"}:
+                    forbidden.add(f"{mod}.{n.name}")
+        elif isinstance(node, ast.Import):
+            for n in node.names:
+                if n.name.endswith((".feedback", ".bundle", ".verdict")):
+                    forbidden.add(n.name)
+    assert not forbidden, (
+        f"Normalise MCP must not import write/signing surfaces; "
+        f"found: {forbidden}"
+    )
+
+
+@case("NORM_missing_primary_key_rejected_not_synthesised")
+def _():
+    """The M8 contract made load-bearing: a row with no primary-key column
+    is REJECTED with a reason — never given a synthesised row-order id
+    (which would re-fork IRIs on re-upload and break I8)."""
+    from scudo_mapping_mcp.normalisation import normalise_record
+    frame = normalise_record(IN_SCOPE_VENDOR, {
+        "name": "Real-time Equity Prices", "description": "Tick data",
+    })
+    assert not frame.ok
+    assert frame.product_id is None
+    assert "missing_primary_key" in (frame.rejection_reason or "")
+    # And the happy path lifts the PK verbatim, untouched.
+    ok_frame = normalise_record(IN_SCOPE_VENDOR, {
+        "product_id": "EQ-RT-001", "name": "Real-time Equity Prices",
+    })
+    assert ok_frame.ok and ok_frame.product_id == "EQ-RT-001", ok_frame
+    assert ok_frame.to_vendor_product_ref().product_id == "EQ-RT-001"
+
+
+@case("NORM_adapter_registry_consumes_vendor_adapters_setting")
+def _():
+    """The SCUDO_VENDOR_ADAPTERS seam is no longer config-without-
+    implementation: every default token resolves to a wired adapter, and
+    an unwired vendor fails closed (None, not the generic heuristic)."""
+    from scudo_mapping_mcp import config as cfg
+    from scudo_mapping_mcp.normalisation import adapter_for
+    for vendor in PRIORITY_VENDORS:
+        adapter = adapter_for(vendor)
+        assert adapter is not None, f"no adapter wired for {vendor!r}"
+        assert adapter.adapter_id in cfg.settings.vendor_adapters
+    assert adapter_for("NotAVendor") is None
+
+
+@case("NORM_identifier_checksums_validated")
+def _():
+    """ISIN/CUSIP/SEDOL get real check-digit validation; RIC gets an
+    honest pattern check (check='pattern', not an implied checksum)."""
+    from scudo_mapping_mcp.normalisation import validate_identifier
+    assert validate_identifier("isin", "US0378331005").valid      # Apple
+    assert not validate_identifier("isin", "US0378331006").valid  # bad digit
+    assert validate_identifier("cusip", "037833100").valid        # Apple
+    assert not validate_identifier("cusip", "037833101").valid
+    assert validate_identifier("sedol", "0263494").valid          # BAE
+    assert not validate_identifier("sedol", "0263495").valid
+    ric = validate_identifier("ric", "AAPL.O")
+    assert ric.valid and ric.check == "pattern"
+    unknown = validate_identifier("nonsense", "X")
+    assert not unknown.valid and "unknown scheme" in unknown.detail
+
+
+@case("NORM_ambiguous_date_fails_closed")
+def _():
+    """Date normalisation never guesses: 03/04/2024 is ambiguous (two
+    valid readings), 25/12/2024 is deterministic (only day-first parses),
+    ISO and yyyymmdd pass straight through."""
+    from scudo_mapping_mcp.normalisation import normalise_date
+    amb = normalise_date("03/04/2024")
+    assert amb.status == "ambiguous" and amb.iso is None, amb
+    dmy = normalise_date("25/12/2024")
+    assert dmy.status == "ok" and dmy.iso == "2024-12-25", dmy
+    assert normalise_date("2024-06-30").iso == "2024-06-30"
+    assert normalise_date("20240630").iso == "2024-06-30"
+    assert normalise_date("03/04/24").status == "ambiguous"  # 2-digit year
+    assert normalise_date("not a date").status == "invalid"
+
+
+@case("NORM_data_class_maps_to_cdao_vocabulary")
+def _():
+    """Vendor asset-class strings map deterministically onto the CDAO
+    roots; unknown classes return None with a reason (never guessed), so
+    data_class_match's pass-by-default is preserved rather than faked."""
+    from scudo_mapping_mcp.normalisation import classify_data_class
+    assert classify_data_class("Equities").cdao_iri == "cdao:equities"
+    assert classify_data_class("FIXED INCOME").cdao_iri == "cdao:fixed-income"
+    assert classify_data_class("fx").cdao_iri == "cdao:fx"
+    unknown = classify_data_class("Weather Futures Sentiment")
+    assert unknown.cdao_iri is None and not unknown.matched
+    assert "never guessed" in unknown.detail
+
+
+@case("NORM_identifier_exact_join_finds_frame")
+def _():
+    """The deterministic join: an exact ISIN value in a frame's raw row is
+    found by value, not by similarity — identity, not retrieval."""
+    from scudo_mapping_mcp.normalisation import resolve_identifiers
+    _fresh_store()
+    frames_mod.put_frame(VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-001",
+        name="Real-time Equity Prices",
+        raw={"isin": "US0378331005", "ric": "AAPL.O"},
+    ))
+    matches = resolve_identifiers(
+        ["us0378331005"], frames_mod.all_frames(),  # case-insensitive
+    )
+    assert len(matches) == 1, matches
+    assert matches[0].product_id == "EQ-RT-001"
+    assert matches[0].matched_field == "isin"
+    assert resolve_identifiers(["GB00B03MLX29"], frames_mod.all_frames()) == []
+
+
+@case("NORM_iri_translation_bridges_both_mints")
+def _():
+    """translate_iri returns BOTH canonical IRIs and they really do differ
+    (the G1 mint fork) — and the catalogue side matches the actual
+    vendor_catalogue_mcp mint, not a drifting reimplementation."""
+    from scudo_mapping_mcp.normalisation import translate_iri
+    t = translate_iri("LSEG", "LSEG-IBES-EST-001")
+    assert t.matching_engine_iri == mds_iri("LSEG", "LSEG-IBES-EST-001")
+    try:
+        from vendor_catalogue_mcp.contract import VendorId, product_iri
+    except ImportError:
+        assert t.catalogue_iri is None  # honest degradation
+        return
+    assert t.catalogue_iri == product_iri(VendorId.LSEG, "LSEG-IBES-EST-001")
+    assert t.catalogue_iri != t.matching_engine_iri  # the fork is real
+
+
+@case("CAL_golden_replay_reports_metrics")
+def _():
+    """The calibration harness: retrieval-only replay of a golden set
+    reports precision@1, recall into the anchor window, band distribution
+    at current settings, and a floor sweep. Out-of-scope golden rows are
+    skipped with a reason, not scored around."""
+    from scudo_mapping_mcp.calibration import GoldenPair, replay_golden
+    fake = _fresh_store()
+    fake.set_score(EQ_PRICES_IRI, 0.90)
+    fake.set_score(EQUITIES_IRI, 0.60)
+    fake.set_score(FX_IRI, 0.20)
+    report = replay_golden(
+        [
+            GoldenPair(vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-001",
+                       name="Real-time Equity Prices",
+                       expected_node_iri=EQ_PRICES_IRI),
+            GoldenPair(vendor="NotAVendor", product_id="x",
+                       expected_node_iri=FX_IRI),
+        ],
+        max_candidates=8,
+        store=fake,
+    )
+    assert report.total == 2 and report.scored == 1 and report.skipped == 1
+    assert report.precision_at_1 == 1.0, report.precision_at_1
+    assert report.recall_at_n == 1.0
+    assert report.band_distribution.get("pass") == 1, report.band_distribution
+    # Sweep: at floor 0.50 the 0.90 top hit auto-maps and is correct.
+    p50 = next(p for p in report.sweep if abs(p.floor - 0.50) < 1e-9)
+    assert p50.auto_mapped == 1 and p50.auto_precision == 1.0
+    # At floor 0.95 it routes to review.
+    p95 = next(p for p in report.sweep if abs(p.floor - 0.95) < 1e-9)
+    assert p95.auto_mapped == 0 and p95.routed_to_review == 1
+
+
 def main() -> int:
     for name, ok, detail in _results:
         if ok:

@@ -2,7 +2,7 @@
 
 Deterministic vendor-to-canonical product mapping with a three-MCP trust gradient, a five-rung cost ladder, and a verifier gate.
 
-> **Status:** 86 mapping + 8 auth smoke tests passing. Deploy is **GREEN** in the Cognizant cloudboost sandbox (`954976331678`, `eu-west-2`). ALB: `scudo-dev-alb-2025833982.eu-west-2.elb.amazonaws.com`. **This is a dev sandbox**, **not** the JPMC SCUDO production account. Treat all thresholds, dense-arm similarity, and Neptune retrieval as uncalibrated stand-ins until the production cutover.
+> **Status:** 120 mapping + 8 auth smoke tests passing. Deploy is **GREEN** in the Cognizant cloudboost sandbox (`954976331678`, `eu-west-2`). ALB: `scudo-dev-alb-2025833982.eu-west-2.elb.amazonaws.com`. **This is a dev sandbox**, **not** the JPMC SCUDO production account. Treat all thresholds, dense-arm similarity, and Neptune retrieval as uncalibrated stand-ins until the production cutover.
 
 ## SCUDO as the visibility platform
 
@@ -115,6 +115,25 @@ The seal is the contract. Ingestion cannot mint one (no key). Match-Verify mints
 
 ---
 
+## Normalise & Calibrate MCP (:8004) — why a fourth server
+
+`normalise_mcp.py` is a **read-only utility tier** alongside the trust gradient — it holds no signing key, imports no write surface (smoke gate `TRUST_normalise_mcp_imports_no_writers` pins this via the AST), and registers as the `normalise` tier on the `McpHost`. It exists because of a precise gap analysis of the matching engine (the full review lives in [`backend/scudo_mapping_mcp/docs/mcp-matching-engine-review.md`](backend/scudo_mapping_mcp/docs/mcp-matching-engine-review.md)):
+
+**The matcher scores `name + description` similarity and nothing else.** A dense/RAG retriever over CDAO improves *recall* on those two fields only. Precision comes from structure, and the structured fields were either buried in the untyped `raw` dict or absent from the engine entirely. Each one needs a *deterministic* treatment, not a retrieval one:
+
+| Gap | Why retrieval can't fix it | Tool that closes it |
+|---|---|---|
+| **Identifiers** (ISIN, CUSIP, SEDOL, RIC, FIGI, ticker) | Embeddings are weak on exact codes; an exact identifier is a **join key, not a similarity input**. An exact ISIN hit is identity. | `normalise.validate_identifier` (real check-digit validation where the scheme defines one; honest `pattern` checks otherwise) + `normalise.resolve_identifiers` (exact join over the working set — use it *before* asking Match-Verify to score) |
+| **Dates** | No temporal field exists on `VendorProductRef`; no validation touches time. Dates were matched **nowhere**. | `normalise.normalise_date` — canonicalises to ISO-8601 and **fails closed on ambiguity** (`03/04/2024` → `ambiguous`, never a guess); the precondition for any future effective-dating validation |
+| **Data class** | `validations.data_class_match` is pass-by-default until *both* sides declare a class — so a cross-asset-class string match can auto-map cleanly. | `normalise.classify_data_class` — controlled vocabulary onto the CDAO roots; unknown values return `null` with a reason rather than a fabricated class |
+| **Vendor normalisation** | `SCUDO_VENDOR_ADAPTERS` was parsed and smoke-tested but consumed by nothing; the generic column heuristic synthesised `row-N` ids that re-fork IRIs on re-upload (breaks I8). | `normalise.normalise_record` — the adapter registry that actually consumes the setting; rows with no primary key are **rejected to quarantine, never synthesised** (M8 contract) |
+| **Identity fork** | `models.mds_iri` and `vendor_catalogue_mcp.product_iri` mint *different* IRIs for the same product — golden data minted under either scheme silently misses precedent reuse. | `normalise.translate_iri` — returns both mints so the join is explicit |
+| **Uncalibrated thresholds** | The 0.80 floor / ±0.05 band were set against the Jaro-Winkler stand-in; swapping the dense arm without recalibrating fails silently in one of two directions (everything auto-maps, or nothing does). | `calibrate.replay_golden` — retrieval-only replay of a golden set: precision@1, recall into the top-N specialist anchor window, MRR, band distribution, and a floor sweep with auto-map precision per threshold |
+
+The same discipline as the rest of the engine applies throughout: deterministic, replay-safe, **fail-closed — refuse with a reason rather than guess**. The scope gate fires on every vendor-taking tool (layer-1 posture, same as Ingestion), and the calibration harness deliberately excludes precedent reuse and the specialist so the measurement is of the retriever, not contaminated by the things the calibration protects.
+
+---
+
 ## Repo layout
 
 ```
@@ -122,6 +141,9 @@ backend/scudo_mapping_mcp/
   ingestion_mcp.py         # MCP server :8001 - untrusted vendor in, normalise to VendorProductRef
   match_verify_mcp.py      # MCP server :8002 - cost ladder + 3-band gate; emits sealed MappingResult
   persistence_mcp.py       # MCP server :8003 - sole writer; verifies HMAC seal; publish gate
+  normalise_mcp.py         # MCP server :8004 - read-only normalise & calibrate tier (see section above)
+  normalisation.py         # Adapter registry, identifier checksums, date + data-class canonicalisation
+  calibration.py           # Golden-set retrieval replay: precision@1, recall@N, floor sweep
   matching.py              # Cost ladder implementation (rungs 1-5, first-match-wins)
   frames.py                # _read_vendor_frame (mock -> S3 cutover) + check_scope (rights/entitlement)
   feedback.py              # M4 HITL write-back; approve/override/reject feeds precedent rank signal
@@ -138,7 +160,7 @@ backend/scudo_mapping_mcp/
     falkordb_store.py      # FalkorDB backend - Cypher; Jaro-Winkler dense stub; pure-Python BM25
     neptune_store.py       # Neptune backend - SigV4 SPARQL; find_similar_products is M9 PLACEHOLDER
   tests/
-    smoke.py               # 86 mapping smoke gates - no pytest dependency
+    smoke.py               # 120 mapping smoke gates - no pytest dependency
     fake_store.py          # In-memory store for unit-level tests
 
 backend/
@@ -165,18 +187,19 @@ frontend/                    # React SPA (Vite); reviewer queue UI + provider/da
 ## Tests
 
 ```
-86 mapping smoke tests   # cost ladder, scope gate, seal verify, store seam, bundle round-trip, fusion, hydrate
- 8 auth smoke tests      # gateway header + principal + 401 cases
+120 mapping smoke tests  # cost ladder, scope gate, seal verify, store seam, bundle round-trip, fusion, hydrate,
+                         # normalisation (adapters, checksums, dates, data class) + calibration replay
+  8 auth smoke tests     # gateway header + principal + 401 cases
 ```
 
 The smoke runner is standalone — no pytest dependency. Run from `backend/`:
 
 ```bash
-python -m scudo_mapping_mcp.tests.smoke     # 86 mapping gates
+python -m scudo_mapping_mcp.tests.smoke     # 120 mapping gates
 python -m tests.test_auth                   # 8 auth gates
 ```
 
-No golden-set evaluation harness is wired up yet. The smoke suite verifies wiring and invariants, not retrieval quality.
+The golden-set evaluation harness is `calibrate.replay_golden` on the Normalise & Calibrate MCP — the smoke suite verifies wiring and invariants; the calibration harness measures retrieval quality against a golden set you supply.
 
 ---
 
@@ -203,6 +226,7 @@ export SCUDO_AUTH_DEV_PRINCIPAL=local@dev
 python -m scudo_mapping_mcp.ingestion_mcp        # :8001
 python -m scudo_mapping_mcp.match_verify_mcp     # :8002
 python -m scudo_mapping_mcp.persistence_mcp      # :8003
+python -m scudo_mapping_mcp.normalise_mcp        # :8004 (read-only normalise & calibrate)
 
 # Flask SPA + REST (in another terminal):
 gunicorn -b 0.0.0.0:5000 -k gthread --threads 4 --timeout 300 app:app
