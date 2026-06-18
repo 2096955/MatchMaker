@@ -76,6 +76,7 @@ from .bundle import export_bundle, import_bundle
 from .config import PRIORITY_VENDORS
 from .feedback import apply_decision
 from .frames import check_scope
+from .hydrate import export_to_s3
 from .models import MappingBundle, MappingStatus, VendorProductRef
 
 _RW = {
@@ -351,7 +352,6 @@ async def publish_bundle_tool(params: BundleExportInput) -> str:
         source_env=params.source_env,
         created_at=params.created_at,
     )
-    from .hydrate import export_to_s3
 
     bucket, key = export_to_s3(bundle)
     return json.dumps(

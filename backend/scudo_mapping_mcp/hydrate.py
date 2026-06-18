@@ -155,12 +155,18 @@ def export_to_s3(
         bucket, key = _bundle_s3_location()
 
     body = bundle.model_dump_json().encode("utf-8")
-    _s3_client().put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=body,
-        ContentType="application/json",
-    )
+    try:
+        _s3_client().put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=body,
+            ContentType="application/json",
+        )
+    except Exception as exc:
+        raise HydrationError(
+            f"export_to_s3: failed to write s3://{bucket}/{key}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
     _log.info(
         "export_to_s3: wrote canonical bundle to s3://%s/%s (%d bytes)",
         bucket,

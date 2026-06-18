@@ -67,7 +67,7 @@ class FakeS3Client:
         }
 
     def put_object(self, *, Bucket, Key, Body, **kwargs):  # noqa: N803 — boto3 kwarg names
-        """Write path for export_to_s3. Stores Body (bytes) at (Bucket, Key)."""
+        """Write path for export_to_s3. Accepts Body as bytes; the test passes bytes."""
         self._objects[(Bucket, Key)] = {
             "Body": Body if isinstance(Body, bytes) else Body.encode("utf-8"),
             "Metadata": {},
@@ -2518,6 +2518,17 @@ def _():
         )
         bucket, key = hydrate_mod.export_to_s3(bundle)
         assert (bucket, key) in s3._objects, "export_to_s3 wrote nothing to S3"
+
+        # Verify the written content matches the exported bundle.
+        stored = s3._objects[(bucket, key)]
+        written = json.loads(stored["Body"].decode("utf-8"))
+        assert written["version"] == bundle.version, (
+            f"version mismatch: written={written['version']}, bundle={bundle.version}"
+        )
+        assert len(written["patterns"]) == len(bundle.patterns), (
+            f"patterns count mismatch: written={len(written['patterns'])}, "
+            f"bundle={len(bundle.patterns)}"
+        )
 
         # Fresh store + hydrate from the same fake S3 replays the precedent.
         _fresh_store()
