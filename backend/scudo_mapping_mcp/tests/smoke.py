@@ -6,6 +6,7 @@ Same gates as `test_invariants.py` but executable as a script:
 Exit code is non-zero on any failure, so this can sit behind the post-deploy
 check the brief calls for ("smoke-test actual behaviour, not just startup").
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -22,7 +23,6 @@ from .. import frames as frames_mod
 from .. import hydrate as hydrate_mod
 from .. import store as store_pkg
 from ..agent import (
-    AgentEvent,
     ScriptedMappingAgent,
     get_agent,
 )
@@ -66,6 +66,14 @@ class FakeS3Client:
             "Metadata": dict(metadata or {}),
         }
 
+    def put_object(self, *, Bucket, Key, Body, **kwargs):  # noqa: N803 — boto3 kwarg names
+        """Write path for export_to_s3. Stores Body (bytes) at (Bucket, Key)."""
+        self._objects[(Bucket, Key)] = {
+            "Body": Body if isinstance(Body, bytes) else Body.encode("utf-8"),
+            "Metadata": {},
+        }
+        return {}
+
     def get_object(self, Bucket, Key):  # noqa: N803 — boto3 kwarg names
         try:
             obj = self._objects[(Bucket, Key)]
@@ -100,12 +108,15 @@ FX_IRI = "cdao:fx"
 
 
 def _fresh_store() -> FakeStore:
-    fake = FakeStore(nodes=[
-        TaxonomyNode(iri=EQUITIES_IRI, label="Equities"),
-        TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices",
-                     parent_iri=EQUITIES_IRI),
-        TaxonomyNode(iri=FX_IRI, label="Foreign Exchange"),
-    ])
+    fake = FakeStore(
+        nodes=[
+            TaxonomyNode(iri=EQUITIES_IRI, label="Equities"),
+            TaxonomyNode(
+                iri=EQ_PRICES_IRI, label="Equity Prices", parent_iri=EQUITIES_IRI
+            ),
+            TaxonomyNode(iri=FX_IRI, label="Foreign Exchange"),
+        ]
+    )
     # Wire it through every module that resolves the store.
     store_pkg.get_store = lambda: fake  # type: ignore[assignment]
     matching_mod.get_store = lambda: fake  # type: ignore[assignment]
@@ -127,25 +138,32 @@ def case(name: str):
         except AssertionError as e:
             _results.append((name, False, f"assertion: {e}"))
         except Exception as e:  # noqa: BLE001
-            _results.append((name, False, f"{type(e).__name__}: {e}\n"
-                                          f"{traceback.format_exc()}"))
+            _results.append(
+                (name, False, f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+            )
         return fn
+
     return deco
 
 
 @case("iri_is_deterministic")
 def _():
-    assert mds_iri(IN_SCOPE_VENDOR, "EQ-RT-001") == \
-           mds_iri(IN_SCOPE_VENDOR, "EQ-RT-001")
+    assert mds_iri(IN_SCOPE_VENDOR, "EQ-RT-001") == mds_iri(
+        IN_SCOPE_VENDOR, "EQ-RT-001"
+    )
     assert mds_iri("S&P Global", "X").startswith("mds.sandpglobal:")
 
 
 @case("out_of_scope_vendor_is_fail_closed")
 def _():
     _fresh_store()
-    r = map_vendor_product(VendorProductRef(
-        vendor="NotAVendor", product_id="x", name="anything",
-    ))
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor="NotAVendor",
+            product_id="x",
+            name="anything",
+        )
+    )
     assert r.status == MappingStatus.OUT_OF_SCOPE, r.status
     assert r.field_normalisation
     scope_v = next(v for v in r.validations if v.name == "scope_compatible")
@@ -158,10 +176,13 @@ def _():
     fake.set_score(EQ_PRICES_IRI, 0.40)
     fake.set_score(EQUITIES_IRI, 0.30)
     fake.set_score(FX_IRI, 0.20)
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="X1",
-        name="random gibberish that wont match anything",
-    ))
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="X1",
+            name="random gibberish that wont match anything",
+        )
+    )
     assert r.status == MappingStatus.NEEDS_REVIEW, r.status
     assert r.confidence < 0.80
 
@@ -171,10 +192,13 @@ def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
     fake.set_score(EQUITIES_IRI, 0.60)
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-001",
-        name="Equity Prices Real Time",
-    ))
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="EQ-RT-001",
+            name="Equity Prices Real Time",
+        )
+    )
     assert r.status == MappingStatus.AUTO_MAPPED, r.status
     assert r.mapped_node_iri == EQ_PRICES_IRI
     assert r.confidence >= 0.80
@@ -186,10 +210,13 @@ def _():
     fake.set_score(EQ_PRICES_IRI, 0.99)
     # identifier_resolves fails when the validator can't look the node up.
     fake.get_taxonomy_node = lambda iri: None  # type: ignore[assignment]
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-002",
-        name="Equity Prices Real Time",
-    ))
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="EQ-RT-002",
+            name="Equity Prices Real Time",
+        )
+    )
     assert r.status == MappingStatus.NEEDS_REVIEW, r.status
     failed = [v for v in r.validations if v.required and v.status == "fail"]
     names = [v.name for v in failed]
@@ -201,10 +228,12 @@ def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
     fake.set_score(EQUITIES_IRI, 0.85)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-003",
-                           name="Equity Prices Real Time")
-    apply_decision(ref, decision="reject", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI)
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-003", name="Equity Prices Real Time"
+    )
+    apply_decision(
+        ref, decision="reject", decided_by="reviewer@jpmc", node_iri=EQ_PRICES_IRI
+    )
     r = map_vendor_product(ref)
     assert r.mapped_node_iri == EQUITIES_IRI, r.mapped_node_iri
     assert all(c.node.iri != EQ_PRICES_IRI for c in r.candidates)
@@ -214,10 +243,16 @@ def _():
 def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-004",
-                           name="Equity Prices Real Time")
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-004", name="Equity Prices Real Time"
+    )
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.91,
+    )
     r = map_vendor_product(ref)
     assert r.status == MappingStatus.APPROVED, r.status
     assert r.mapped_node_iri == EQ_PRICES_IRI
@@ -236,12 +271,15 @@ def _():
     fake.set_score(EQ_PRICES_IRI, 0.95)
     fake.set_score(EQUITIES_IRI, 0.10)
     fake.set_score(FX_IRI, 0.05)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-005",
-                           name="Equity Prices Real Time")
-    apply_decision(ref, decision="override", decided_by="reviewer@jpmc",
-                   node_iri=EQUITIES_IRI)
-    sibling = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-005-B",
-                               name="Equity Prices Real Time")
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-005", name="Equity Prices Real Time"
+    )
+    apply_decision(
+        ref, decision="override", decided_by="reviewer@jpmc", node_iri=EQUITIES_IRI
+    )
+    sibling = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-005-B", name="Equity Prices Real Time"
+    )
     r = map_vendor_product(sibling)
     eq_score = next(c.similarity for c in r.candidates if c.node.iri == EQUITIES_IRI)
     # Boost no longer shows in Candidate.similarity; raw 0.10 stays raw.
@@ -263,18 +301,24 @@ def _():
     # Real apply_decision approvals across 5 distinct products with the
     # same name (and so the same vendor_signature).
     from scudo_mapping_mcp.store.base import RetrievalStore
+
     n = RetrievalStore.max_useful_boost_approvals()  # tracks the seam's tuning
     for i in range(n):
         apply_decision(
-            VendorProductRef(vendor=IN_SCOPE_VENDOR,
-                             product_id=f"PRIOR-{i}",
-                             name="Equity Prices Real Time"),
-            decision="approve", decided_by=f"reviewer{i}@jpmc",
-            node_iri=EQ_PRICES_IRI, suggested_confidence=0.91,
+            VendorProductRef(
+                vendor=IN_SCOPE_VENDOR,
+                product_id=f"PRIOR-{i}",
+                name="Equity Prices Real Time",
+            ),
+            decision="approve",
+            decided_by=f"reviewer{i}@jpmc",
+            node_iri=EQ_PRICES_IRI,
+            suggested_confidence=0.91,
         )
     # New sibling product — different IRI, same signature.
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-NEW",
-                           name="Equity Prices Real Time")
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-NEW", name="Equity Prices Real Time"
+    )
     r = map_vendor_product(ref)
     # Similarity stays at the raw oracle score; boost only tilts the sort.
     assert r.confidence == 0.72, r.confidence
@@ -287,12 +331,19 @@ def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
     fake.set_score(EQUITIES_IRI, 0.60)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-OV",
-                           name="Equity Prices Real Time")
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.95)
-    apply_decision(ref, decision="override", decided_by="reviewer@jpmc",
-                   node_iri=EQUITIES_IRI)
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-OV", name="Equity Prices Real Time"
+    )
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.95,
+    )
+    apply_decision(
+        ref, decision="override", decided_by="reviewer@jpmc", node_iri=EQUITIES_IRI
+    )
 
     # Precedent reuse now points to the OVERRIDE target, not the stale approve.
     r = map_vendor_product(ref)
@@ -300,8 +351,7 @@ def _():
     assert r.status == MappingStatus.OVERRIDDEN, r.status
 
     # Boost on the old node has been decremented back to 0; new node now at 1.
-    sig = fake.vendor_signature(IN_SCOPE_VENDOR,
-                                "Equity Prices Real Time", "EQ-RT-OV")
+    sig = fake.vendor_signature(IN_SCOPE_VENDOR, "Equity Prices Real Time", "EQ-RT-OV")
     boosts = fake.rank_signals_for(sig)
     assert boosts.get(EQ_PRICES_IRI, 0) == 0, boosts
     assert boosts.get(EQUITIES_IRI, 0) == 1, boosts
@@ -318,22 +368,28 @@ def _():
     """
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-ING",
-                           name="Equity Prices Real Time",
-                           description="vendor description")
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-ING",
+        name="Equity Prices Real Time",
+        description="vendor description",
+    )
     # Step 1: ingest writes the row (real flow goes through ingest.ingest_bytes
     # -> store.upsert_vendor_product per parsed row).
     fake.upsert_vendor_product(ref)
     # Step 2: HITL approves the previously-ingested product.
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.91,
+    )
 
-    sig = fake.vendor_signature(IN_SCOPE_VENDOR, "Equity Prices Real Time",
-                                "EQ-ING")
+    sig = fake.vendor_signature(IN_SCOPE_VENDOR, "Equity Prices Real Time", "EQ-ING")
     boosts = fake.rank_signals_for(sig)
     assert boosts.get(EQ_PRICES_IRI, 0) == 1, (
-        f"ingest-then-approve must contribute to rank signal; "
-        f"got {boosts!r}"
+        f"ingest-then-approve must contribute to rank signal; got {boosts!r}"
     )
 
 
@@ -347,20 +403,30 @@ def _():
     """
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-IDEMP",
-                           name="Equity Prices Real Time")
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-IDEMP", name="Equity Prices Real Time"
+    )
 
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
-    sig = fake.vendor_signature(IN_SCOPE_VENDOR, "Equity Prices Real Time",
-                                "EQ-IDEMP")
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.91,
+    )
+    sig = fake.vendor_signature(IN_SCOPE_VENDOR, "Equity Prices Real Time", "EQ-IDEMP")
     boosts_first = fake.rank_signals_for(sig)
     precedent_first = fake.get_precedent_mapping(IN_SCOPE_VENDOR, "EQ-IDEMP")
 
     # Same decision, again, three times.
     for _ in range(3):
-        apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                       node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
+        apply_decision(
+            ref,
+            decision="approve",
+            decided_by="reviewer@jpmc",
+            node_iri=EQ_PRICES_IRI,
+            suggested_confidence=0.91,
+        )
 
     boosts_after = fake.rank_signals_for(sig)
     precedent_after = fake.get_precedent_mapping(IN_SCOPE_VENDOR, "EQ-IDEMP")
@@ -376,9 +442,11 @@ def _():
     from scudo_mapping_mcp import frames as fm
 
     class _Boom:
-        vendor = property(lambda self: (_ for _ in ()).throw(
-            RuntimeError("simulated odrl lookup failure")
-        ))
+        vendor = property(
+            lambda self: (_ for _ in ()).throw(
+                RuntimeError("simulated odrl lookup failure")
+            )
+        )
 
     result = fm.check_scope(_Boom())  # type: ignore[arg-type]
     assert result.allowed is False
@@ -394,12 +462,19 @@ def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
     fake.set_score(EQUITIES_IRI, 0.60)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-RA",
-                           name="Equity Prices Real Time")
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
-    apply_decision(ref, decision="reject", decided_by="reviewer@jpmc",
-                   node_iri=EQUITIES_IRI)
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-RA", name="Equity Prices Real Time"
+    )
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.91,
+    )
+    apply_decision(
+        ref, decision="reject", decided_by="reviewer@jpmc", node_iri=EQUITIES_IRI
+    )
 
     # Prior positive precedent to EQ_PRICES_IRI survives.
     r = map_vendor_product(ref)
@@ -416,12 +491,15 @@ def _():
     the same vendor signature (same vendor + same name)."""
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
-    ref_x = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="X",
-                             name="Equity Prices Real Time")
-    ref_y = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="Y",
-                             name="Equity Prices Real Time")
-    apply_decision(ref_x, decision="reject", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI)
+    ref_x = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="X", name="Equity Prices Real Time"
+    )
+    ref_y = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="Y", name="Equity Prices Real Time"
+    )
+    apply_decision(
+        ref_x, decision="reject", decided_by="reviewer@jpmc", node_iri=EQ_PRICES_IRI
+    )
     # Product Y has no negative precedent; the matcher still considers
     # EQ_PRICES_IRI for Y.
     r = map_vendor_product(ref_y)
@@ -432,11 +510,15 @@ def _():
 def _():
     """Direct caller (not just HTTP) cannot write an out-of-scope precedent."""
     _fresh_store()
-    ref = VendorProductRef(vendor="NotAVendor", product_id="X",
-                           name="anything")
+    ref = VendorProductRef(vendor="NotAVendor", product_id="X", name="anything")
     try:
-        apply_decision(ref, decision="approve", decided_by="u",
-                       node_iri=EQ_PRICES_IRI, suggested_confidence=0.9)
+        apply_decision(
+            ref,
+            decision="approve",
+            decided_by="u",
+            node_iri=EQ_PRICES_IRI,
+            suggested_confidence=0.9,
+        )
     except ValueError as e:
         assert "out of scope" in str(e), str(e)
     else:
@@ -448,21 +530,50 @@ def _():
     fake = _fresh_store()
     ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="X", name="foo")
     for case_args, expected in [
-        ({"decision": "maybe", "decided_by": "u", "node_iri": EQ_PRICES_IRI,
-          "suggested_confidence": 0.9},
-         "decision must be"),
-        ({"decision": "approve", "decided_by": "", "node_iri": EQ_PRICES_IRI,
-          "suggested_confidence": 0.9},
-         "decided_by"),
-        ({"decision": "approve", "decided_by": "u", "node_iri": "",
-          "suggested_confidence": 0.9},
-         "node_iri"),
-        ({"decision": "approve", "decided_by": "u",
-          "node_iri": EQ_PRICES_IRI},  # missing suggested_confidence
-         "suggested_confidence is required"),
-        ({"decision": "approve", "decided_by": "u",
-          "node_iri": "cdao:nope", "suggested_confidence": 0.9},
-         "unknown taxonomy node"),
+        (
+            {
+                "decision": "maybe",
+                "decided_by": "u",
+                "node_iri": EQ_PRICES_IRI,
+                "suggested_confidence": 0.9,
+            },
+            "decision must be",
+        ),
+        (
+            {
+                "decision": "approve",
+                "decided_by": "",
+                "node_iri": EQ_PRICES_IRI,
+                "suggested_confidence": 0.9,
+            },
+            "decided_by",
+        ),
+        (
+            {
+                "decision": "approve",
+                "decided_by": "u",
+                "node_iri": "",
+                "suggested_confidence": 0.9,
+            },
+            "node_iri",
+        ),
+        (
+            {
+                "decision": "approve",
+                "decided_by": "u",
+                "node_iri": EQ_PRICES_IRI,
+            },  # missing suggested_confidence
+            "suggested_confidence is required",
+        ),
+        (
+            {
+                "decision": "approve",
+                "decided_by": "u",
+                "node_iri": "cdao:nope",
+                "suggested_confidence": 0.9,
+            },
+            "unknown taxonomy node",
+        ),
     ]:
         try:
             apply_decision(ref, **case_args)
@@ -492,12 +603,15 @@ def _():
     """
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-PROV",
-                           name="Equity Prices Real Time")
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-PROV", name="Equity Prices Real Time"
+    )
     fake.upsert_precedent(
         ref=ref,
         node=TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices"),
-        decision="approve", decided_by="auto", confidence=0.95,
+        decision="approve",
+        decided_by="auto",
+        confidence=0.95,
         provisional=True,
     )
     # The edge IS in the store (fidelity to FalkorDB store-and-filter).
@@ -519,19 +633,23 @@ def _():
     """
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-REUSE",
-                           name="Equity Prices Real Time")
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.95)
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-REUSE", name="Equity Prices Real Time"
+    )
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.95,
+    )
     # Pretend the node was retired from the taxonomy after the approval.
     del fake._nodes[EQ_PRICES_IRI]
     r = map_vendor_product(ref)
     assert r.status == MappingStatus.APPROVED, r.status
-    required_fails = [v for v in r.validations
-                      if v.required and v.status == "fail"]
+    required_fails = [v for v in r.validations if v.required and v.status == "fail"]
     assert not required_fails, (
-        f"precedent reuse must not emit required-fail validations: "
-        f"{r.validations}"
+        f"precedent reuse must not emit required-fail validations: {r.validations}"
     )
 
 
@@ -539,11 +657,19 @@ def _():
 def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-RT-EX1",
-                           name="Equity Prices Real Time",
-                           description="Real-time equity pricing feed")
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-RT-EX1",
+        name="Equity Prices Real Time",
+        description="Real-time equity pricing feed",
+    )
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.91,
+    )
 
     bundle = export_bundle(source_env="test-A", created_at="2026-01-01T00:00:00.000Z")
     assert bundle.version == "1.0.0", bundle.version
@@ -566,27 +692,34 @@ def _():
 def _():
     fake = _fresh_store()
     # One CONFIRMED, one PROVISIONAL, one REJECTED.
-    ref_confirmed = VendorProductRef(vendor=IN_SCOPE_VENDOR,
-                                     product_id="EQ-CONF",
-                                     name="Equity Prices Real Time")
-    ref_prov = VendorProductRef(vendor=IN_SCOPE_VENDOR,
-                                product_id="EQ-PROV",
-                                name="Equity Prices Real Time")
-    ref_rej = VendorProductRef(vendor=IN_SCOPE_VENDOR,
-                               product_id="EQ-REJ",
-                               name="Equity Prices Real Time")
+    ref_confirmed = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-CONF", name="Equity Prices Real Time"
+    )
+    ref_prov = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-PROV", name="Equity Prices Real Time"
+    )
+    ref_rej = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-REJ", name="Equity Prices Real Time"
+    )
     fake.set_score(EQ_PRICES_IRI, 0.95)
-    apply_decision(ref_confirmed, decision="approve",
-                   decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
+    apply_decision(
+        ref_confirmed,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.91,
+    )
     fake.upsert_precedent(
         ref=ref_prov,
         node=TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices"),
-        decision="approve", decided_by="auto", confidence=0.95,
+        decision="approve",
+        decided_by="auto",
+        confidence=0.95,
         provisional=True,
     )
-    apply_decision(ref_rej, decision="reject", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI)
+    apply_decision(
+        ref_rej, decision="reject", decided_by="reviewer@jpmc", node_iri=EQ_PRICES_IRI
+    )
 
     bundle = export_bundle(source_env="test", created_at="2026-01-01T00:00:00.000Z")
     pids = [p.product_id for p in bundle.patterns]
@@ -599,15 +732,20 @@ def _():
     fake_a = _fresh_store()
     fake_a.set_score(EQ_PRICES_IRI, 0.95)
     refs = [
-        VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id=pid,
-                         name="Equity Prices Real Time")
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR, product_id=pid, name="Equity Prices Real Time"
+        )
         for pid in ("EQ-RT-A1", "EQ-RT-A2")
     ]
     for r in refs:
-        apply_decision(r, decision="approve", decided_by="reviewer@jpmc",
-                       node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
-    bundle = export_bundle(source_env="test-A",
-                           created_at="2026-01-01T00:00:00.000Z")
+        apply_decision(
+            r,
+            decision="approve",
+            decided_by="reviewer@jpmc",
+            node_iri=EQ_PRICES_IRI,
+            suggested_confidence=0.91,
+        )
+    bundle = export_bundle(source_env="test-A", created_at="2026-01-01T00:00:00.000Z")
 
     # Env B — fresh, same taxonomy.
     fake_b = _fresh_store()
@@ -630,27 +768,32 @@ def _():
 def _():
     fake_a = _fresh_store()
     fake_a.set_score(EQ_PRICES_IRI, 0.95)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-IDEM",
-                           name="Equity Prices Real Time")
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
-    bundle = export_bundle(source_env="test",
-                           created_at="2026-01-01T00:00:00.000Z")
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-IDEM", name="Equity Prices Real Time"
+    )
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.91,
+    )
+    bundle = export_bundle(source_env="test", created_at="2026-01-01T00:00:00.000Z")
 
     fake_b = _fresh_store()
     import_bundle(bundle)
     rank_after_first = fake_b.rank_signals_for(
-        fake_b.vendor_signature(IN_SCOPE_VENDOR,
-                                "Equity Prices Real Time", "EQ-IDEM")
+        fake_b.vendor_signature(IN_SCOPE_VENDOR, "Equity Prices Real Time", "EQ-IDEM")
     ).get(EQ_PRICES_IRI, 0)
     # Second import on the SAME store — must not double the rank signal.
     import_bundle(bundle)
     rank_after_second = fake_b.rank_signals_for(
-        fake_b.vendor_signature(IN_SCOPE_VENDOR,
-                                "Equity Prices Real Time", "EQ-IDEM")
+        fake_b.vendor_signature(IN_SCOPE_VENDOR, "Equity Prices Real Time", "EQ-IDEM")
     ).get(EQ_PRICES_IRI, 0)
-    assert rank_after_first == rank_after_second == 1, \
-        (rank_after_first, rank_after_second)
+    assert rank_after_first == rank_after_second == 1, (
+        rank_after_first,
+        rank_after_second,
+    )
     # Precedent still resolves to APPROVED.
     result = map_vendor_product(ref)
     assert result.status == MappingStatus.APPROVED
@@ -673,12 +816,17 @@ def _():
     # Env A has one confirmed mapping to cdao:eq-prices.
     fake_a = _fresh_store()
     fake_a.set_score(EQ_PRICES_IRI, 0.95)
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-SKIP",
-                           name="Equity Prices Real Time")
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
-    bundle = export_bundle(source_env="test",
-                           created_at="2026-01-01T00:00:00.000Z")
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-SKIP", name="Equity Prices Real Time"
+    )
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.91,
+    )
+    bundle = export_bundle(source_env="test", created_at="2026-01-01T00:00:00.000Z")
 
     # Env B has a DIFFERENT taxonomy — missing the target node.
     fake_b = FakeStore(nodes=[TaxonomyNode(iri="cdao:fx", label="FX")])
@@ -701,8 +849,12 @@ def _():
     # Hand-build a bundle whose pattern is out of scope locally — bypassing
     # apply_decision's scope gate so the bundle is the only ingress.
     from ..models import (
-        BundleProvenance, FieldRule, MappingBundle, MappingPattern,
+        BundleProvenance,
+        FieldRule,
+        MappingBundle,
+        MappingPattern,
     )
+
     fake = _fresh_store()
     pattern = MappingPattern(
         vendor="NotAVendor",
@@ -737,6 +889,7 @@ def _():
 @case("M6_bundle_rejects_incompatible_major_version")
 def _():
     from ..models import MappingBundle
+
     _fresh_store()
     bundle = MappingBundle(
         version="2.0.0",  # major mismatch
@@ -756,6 +909,7 @@ def _():
 # ──────────────────────────────────────────────────────────────────────────
 # M8 — S3 frame source (federated audit fields + IRI parity)
 # ──────────────────────────────────────────────────────────────────────────
+
 
 def _m8_setup(objects=None, *, prefix=""):
     """Wire frames._read_vendor_frame to read from a FakeS3Client.
@@ -782,13 +936,15 @@ def _m8_teardown(saved):
 def _():
     fake, saved = _m8_setup()
     try:
-        body = json.dumps({
-            "vendor": IN_SCOPE_VENDOR,
-            "product_id": "EQ-RT-001",
-            "name": "Equity Pricing Real Time",
-            "description": "Real-time equity prices",
-            "raw": {"permId": "EQ-RT-001"},
-        }).encode("utf-8")
+        body = json.dumps(
+            {
+                "vendor": IN_SCOPE_VENDOR,
+                "product_id": "EQ-RT-001",
+                "name": "Equity Pricing Real Time",
+                "description": "Real-time equity prices",
+                "raw": {"permId": "EQ-RT-001"},
+            }
+        ).encode("utf-8")
         fake.put("test-bucket", f"{IN_SCOPE_VENDOR}/EQ-RT-001.json", body)
         ref = frames_mod._read_vendor_frame(IN_SCOPE_VENDOR, "EQ-RT-001")
         assert ref is not None
@@ -854,12 +1010,17 @@ def _():
 def _():
     """sha256 of the body bytes; identical body → identical hash."""
     import hashlib
+
     fake, saved = _m8_setup()
     try:
-        body = json.dumps({
-            "vendor": IN_SCOPE_VENDOR, "product_id": "EQ-1",
-            "name": "x",
-        }, sort_keys=True).encode("utf-8")
+        body = json.dumps(
+            {
+                "vendor": IN_SCOPE_VENDOR,
+                "product_id": "EQ-1",
+                "name": "x",
+            },
+            sort_keys=True,
+        ).encode("utf-8")
         expected = hashlib.sha256(body).hexdigest()
         fake.put("test-bucket", f"{IN_SCOPE_VENDOR}/EQ-1.json", body)
         ref1 = frames_mod._read_vendor_frame(IN_SCOPE_VENDOR, "EQ-1")
@@ -874,11 +1035,17 @@ def _():
 def _():
     fake, saved = _m8_setup()
     try:
-        body = json.dumps({
-            "vendor": IN_SCOPE_VENDOR, "product_id": "EQ-2", "name": "x",
-        }).encode("utf-8")
+        body = json.dumps(
+            {
+                "vendor": IN_SCOPE_VENDOR,
+                "product_id": "EQ-2",
+                "name": "x",
+            }
+        ).encode("utf-8")
         fake.put(
-            "test-bucket", f"{IN_SCOPE_VENDOR}/EQ-2.json", body,
+            "test-bucket",
+            f"{IN_SCOPE_VENDOR}/EQ-2.json",
+            body,
             metadata={"file-audit-id": "audit-row-42"},
         )
         ref = frames_mod._read_vendor_frame(IN_SCOPE_VENDOR, "EQ-2")
@@ -891,9 +1058,13 @@ def _():
 def _():
     fake, saved = _m8_setup()
     try:
-        body = json.dumps({
-            "vendor": IN_SCOPE_VENDOR, "product_id": "EQ-3", "name": "x",
-        }).encode("utf-8")
+        body = json.dumps(
+            {
+                "vendor": IN_SCOPE_VENDOR,
+                "product_id": "EQ-3",
+                "name": "x",
+            }
+        ).encode("utf-8")
         fake.put("test-bucket", f"{IN_SCOPE_VENDOR}/EQ-3.json", body)
         ref = frames_mod._read_vendor_frame(IN_SCOPE_VENDOR, "EQ-3")
         assert ref.source_file_audit_id is None
@@ -910,13 +1081,21 @@ def _():
     truth, not the payload."""
     fake, saved = _m8_setup()
     try:
-        body = json.dumps({
-            "vendor": IN_SCOPE_VENDOR, "product_id": "EQ-4", "name": "x",
-            "source_content_hash": "ATTACKER-CONTROLLED",
-            "source_file_audit_id": "ATTACKER-CONTROLLED",
-        }).encode("utf-8")
-        fake.put("test-bucket", f"{IN_SCOPE_VENDOR}/EQ-4.json", body,
-                 metadata={"file-audit-id": "real-audit-id"})
+        body = json.dumps(
+            {
+                "vendor": IN_SCOPE_VENDOR,
+                "product_id": "EQ-4",
+                "name": "x",
+                "source_content_hash": "ATTACKER-CONTROLLED",
+                "source_file_audit_id": "ATTACKER-CONTROLLED",
+            }
+        ).encode("utf-8")
+        fake.put(
+            "test-bucket",
+            f"{IN_SCOPE_VENDOR}/EQ-4.json",
+            body,
+            metadata={"file-audit-id": "real-audit-id"},
+        )
         ref = frames_mod._read_vendor_frame(IN_SCOPE_VENDOR, "EQ-4")
         assert ref.source_content_hash != "ATTACKER-CONTROLLED"
         assert ref.source_file_audit_id == "real-audit-id"
@@ -946,9 +1125,13 @@ def _():
 def _():
     fake, saved = _m8_setup(prefix="env/uat/")
     try:
-        body = json.dumps({
-            "vendor": IN_SCOPE_VENDOR, "product_id": "EQ-5", "name": "x",
-        }).encode("utf-8")
+        body = json.dumps(
+            {
+                "vendor": IN_SCOPE_VENDOR,
+                "product_id": "EQ-5",
+                "name": "x",
+            }
+        ).encode("utf-8")
         # Key MUST include the prefix.
         fake.put("test-bucket", f"env/uat/{IN_SCOPE_VENDOR}/EQ-5.json", body)
         ref = frames_mod._read_vendor_frame(IN_SCOPE_VENDOR, "EQ-5")
@@ -968,7 +1151,8 @@ def _():
     mds_iri — which silently re-forks every IRI in the system."""
     # Mock path — no S3 client wired.
     ref_mock = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-PARITY-001",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-PARITY-001",
         name="Equity Pricing Real Time",
     )
     iri_mock = ref_mock.iri
@@ -976,10 +1160,13 @@ def _():
     # S3 path — same (vendor, product_id) shape lands in the bucket.
     fake, saved = _m8_setup()
     try:
-        body = json.dumps({
-            "vendor": IN_SCOPE_VENDOR, "product_id": "EQ-PARITY-001",
-            "name": "Equity Pricing Real Time",
-        }).encode("utf-8")
+        body = json.dumps(
+            {
+                "vendor": IN_SCOPE_VENDOR,
+                "product_id": "EQ-PARITY-001",
+                "name": "Equity Pricing Real Time",
+            }
+        ).encode("utf-8")
         fake.put("test-bucket", f"{IN_SCOPE_VENDOR}/EQ-PARITY-001.json", body)
         ref_s3 = frames_mod._read_vendor_frame(IN_SCOPE_VENDOR, "EQ-PARITY-001")
         assert ref_s3.iri == iri_mock, (ref_s3.iri, iri_mock)
@@ -1000,7 +1187,8 @@ def _():
     fake.set_score(EQ_PRICES_IRI, 0.95)
 
     ref = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-PROP-1",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-PROP-1",
         name="Equity Prices Real Time",
         source_content_hash="hash-A",
         source_file_audit_id="audit-A",
@@ -1012,7 +1200,9 @@ def _():
 
     # Path: OUT_OF_SCOPE
     ref_oos = VendorProductRef(
-        vendor="NotAVendor", product_id="X", name="x",
+        vendor="NotAVendor",
+        product_id="X",
+        name="x",
         source_content_hash="hash-B",
         source_file_audit_id="audit-B",
     )
@@ -1027,10 +1217,16 @@ def _():
     # the precedent reuse reports hash-A as the audit identity. This is the
     # federated audit chain: decisions are traceable to the frame they were
     # made against, not the frame the matcher happens to see on replay.
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.95)
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.95,
+    )
     ref_next = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-PROP-1",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-PROP-1",
         name="Equity Prices Real Time",
         source_content_hash="hash-C-newer",
         source_file_audit_id="audit-C-newer",
@@ -1045,10 +1241,8 @@ def _():
     # approval made via the mock/inline path with no upstream provenance),
     # the current call's ref values are used. Tests by injecting a precedent
     # that lacks source fields and confirming the reuse path fills from ref.
-    fake._precedent_meta[(IN_SCOPE_VENDOR, "EQ-PROP-1")][
-        "source_content_hash"] = None
-    fake._precedent_meta[(IN_SCOPE_VENDOR, "EQ-PROP-1")][
-        "source_file_audit_id"] = None
+    fake._precedent_meta[(IN_SCOPE_VENDOR, "EQ-PROP-1")]["source_content_hash"] = None
+    fake._precedent_meta[(IN_SCOPE_VENDOR, "EQ-PROP-1")]["source_file_audit_id"] = None
     r_prec_fallback = map_vendor_product(ref_next)
     assert r_prec_fallback.source_content_hash == "hash-C-newer"
     assert r_prec_fallback.source_file_audit_id == "audit-C-newer"
@@ -1063,13 +1257,19 @@ def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
     ref = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-PERSIST",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-PERSIST",
         name="Equity Prices Real Time",
         source_content_hash="sha256:abc123",
         source_file_audit_id="audit-row-7",
     )
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.95)
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.95,
+    )
 
     confirmed = fake.list_confirmed_precedents()
     matches = [c for c in confirmed if c["product_id"] == "EQ-PERSIST"]
@@ -1090,15 +1290,20 @@ def _():
     fake_a = _fresh_store()
     fake_a.set_score(EQ_PRICES_IRI, 0.95)
     ref_a = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-XENV",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-XENV",
         name="Equity Prices Real Time",
         source_content_hash="sha256:envA-original",
         source_file_audit_id="audit-envA-42",
     )
-    apply_decision(ref_a, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.95)
-    bundle = export_bundle(source_env="env-A",
-                           created_at="2026-06-09T00:00:00.000Z")
+    apply_decision(
+        ref_a,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.95,
+    )
+    bundle = export_bundle(source_env="env-A", created_at="2026-06-09T00:00:00.000Z")
 
     # Bundle pattern carries the source fields on provenance.
     assert len(bundle.patterns) == 1
@@ -1115,17 +1320,20 @@ def _():
     # reuse path returns the persisted decision-time identity from env A,
     # NOT what env B's fresh ref happens to carry.
     ref_b_fresh = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-XENV",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-XENV",
         name="Equity Prices Real Time",
         source_content_hash="sha256:envB-stale-different",
         source_file_audit_id="audit-envB-unrelated",
     )
     result_b = map_vendor_product(ref_b_fresh)
     assert result_b.status == MappingStatus.APPROVED
-    assert result_b.source_content_hash == "sha256:envA-original", \
+    assert result_b.source_content_hash == "sha256:envA-original", (
         result_b.source_content_hash
-    assert result_b.source_file_audit_id == "audit-envA-42", \
+    )
+    assert result_b.source_file_audit_id == "audit-envA-42", (
         result_b.source_file_audit_id
+    )
 
 
 @case("M8_inline_path_leaves_source_fields_None")
@@ -1136,8 +1344,10 @@ def _():
     """
     _fresh_store()
     ref = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-INLINE",
-        name="x", description="y",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-INLINE",
+        name="x",
+        description="y",
     )
     assert ref.source_content_hash is None
     assert ref.source_file_audit_id is None
@@ -1148,6 +1358,7 @@ def _():
 # when sandbox access is wired)
 # ──────────────────────────────────────────────────────────────────────────
 
+
 @case("AGENT_scripted_emits_full_well_formed_event_sequence")
 def _():
     """Scripted agent should emit, in order: start → tool_call/tool_result
@@ -1156,7 +1367,8 @@ def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
     ref = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-AGENT-1",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-AGENT-1",
         name="Equity Prices Real Time",
     )
 
@@ -1188,7 +1400,8 @@ def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
     ref = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-AGENT-2",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-AGENT-2",
         name="Equity Prices Real Time",
     )
 
@@ -1201,8 +1414,15 @@ def _():
 
     assert final is not None, "agent did not emit final_result"
     # The matcher is replay-safe, so the dumps compare equal field by field.
-    for k in ("vendor", "product_id", "mapped_node_iri", "mapped_node_label",
-              "status", "confidence", "rationale"):
+    for k in (
+        "vendor",
+        "product_id",
+        "mapped_node_iri",
+        "mapped_node_label",
+        "status",
+        "confidence",
+        "rationale",
+    ):
         assert final[k] == direct[k], (k, final[k], direct[k])
 
 
@@ -1213,7 +1433,9 @@ def _():
     to score it."""
     _fresh_store()
     ref = VendorProductRef(
-        vendor="NotAVendor", product_id="X", name="anything",
+        vendor="NotAVendor",
+        product_id="X",
+        name="anything",
     )
     events = list(ScriptedMappingAgent().run(ref))
     final = next(e for e in events if e.type == "final_result")
@@ -1226,6 +1448,7 @@ def _():
     explicit 'bedrock' returns the Bedrock class (constructor only — its
     .run() is lazy so we don't actually invoke boto3 here)."""
     import os
+
     saved = os.environ.get("SCUDO_AGENT_BACKEND")
     try:
         if saved is not None:
@@ -1258,7 +1481,8 @@ def _():
     """
     _fresh_store()
     ref = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-AGENT-LBL",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-AGENT-LBL",
         name="Equity Prices Real Time",
     )
     first = next(ScriptedMappingAgent().run(ref))
@@ -1271,10 +1495,12 @@ def _():
 # I5 gate (agent-driven AUTO_MAPPED never writes; HITL does).
 # ──────────────────────────────────────────────────────────────────────
 
+
 def _ensure_dev_signing_key():
     """Smoke runs with the dev fallback HMAC key. Production sets
     SCUDO_VERDICT_SIGNING_KEY via Secrets Manager."""
     import os as _os
+
     _os.environ["SCUDO_VERDICT_ALLOW_DEV"] = "1"
 
 
@@ -1282,13 +1508,15 @@ def _ensure_dev_signing_key():
 def _():
     _ensure_dev_signing_key()
     from scudo_mapping_mcp import verdict as v
+
     seal = v.sign(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-1",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-1",
         mapped_node_iri=EQ_PRICES_IRI,
-        status="auto_mapped", confidence=0.95,
+        status="auto_mapped",
+        confidence=0.95,
     )
-    r = v.verify(seal,
-                 expected_vendor=IN_SCOPE_VENDOR, expected_product_id="EQ-1")
+    r = v.verify(seal, expected_vendor=IN_SCOPE_VENDOR, expected_product_id="EQ-1")
     assert r.ok, r.reason
     assert r.payload["mapped_node_iri"] == EQ_PRICES_IRI
     assert r.payload["status"] == "auto_mapped"
@@ -1299,17 +1527,22 @@ def _():
     """Tampering the HMAC bytes (without changing the payload) must
     refuse via seal_mismatch. This is the core forgery-resistance test."""
     import base64
+
     _ensure_dev_signing_key()
     from scudo_mapping_mcp import verdict as v
-    seal = v.sign(vendor=IN_SCOPE_VENDOR, product_id="EQ-1",
-                  mapped_node_iri="cdao:x", status="auto_mapped",
-                  confidence=0.95)
+
+    seal = v.sign(
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-1",
+        mapped_node_iri="cdao:x",
+        status="auto_mapped",
+        confidence=0.95,
+    )
     forged = {
         "payload_b64": seal["payload_b64"],
         "hmac_b64": base64.b64encode(b"X" * 32).decode("ascii"),
     }
-    r = v.verify(forged,
-                 expected_vendor=IN_SCOPE_VENDOR, expected_product_id="EQ-1")
+    r = v.verify(forged, expected_vendor=IN_SCOPE_VENDOR, expected_product_id="EQ-1")
     assert not r.ok
     assert r.reason == "seal_mismatch", r.reason
 
@@ -1320,11 +1553,16 @@ def _():
     can't sit on a verdict for hours and quietly commit later."""
     _ensure_dev_signing_key()
     from scudo_mapping_mcp import verdict as v
-    seal = v.sign(vendor=IN_SCOPE_VENDOR, product_id="EQ-1",
-                  mapped_node_iri="cdao:x", status="auto_mapped",
-                  confidence=0.95, ts_ms=1000)  # 1970
-    r = v.verify(seal,
-                 expected_vendor=IN_SCOPE_VENDOR, expected_product_id="EQ-1")
+
+    seal = v.sign(
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-1",
+        mapped_node_iri="cdao:x",
+        status="auto_mapped",
+        confidence=0.95,
+        ts_ms=1000,
+    )  # 1970
+    r = v.verify(seal, expected_vendor=IN_SCOPE_VENDOR, expected_product_id="EQ-1")
     assert not r.ok
     assert r.reason == "seal_expired", r.reason
 
@@ -1335,11 +1573,15 @@ def _():
     Closes the I8-at-the-seal-boundary hole."""
     _ensure_dev_signing_key()
     from scudo_mapping_mcp import verdict as v
-    seal_a = v.sign(vendor=IN_SCOPE_VENDOR, product_id="A",
-                    mapped_node_iri="cdao:x", status="auto_mapped",
-                    confidence=0.95)
-    r = v.verify(seal_a, expected_vendor=IN_SCOPE_VENDOR,
-                 expected_product_id="B")
+
+    seal_a = v.sign(
+        vendor=IN_SCOPE_VENDOR,
+        product_id="A",
+        mapped_node_iri="cdao:x",
+        status="auto_mapped",
+        confidence=0.95,
+    )
+    r = v.verify(seal_a, expected_vendor=IN_SCOPE_VENDOR, expected_product_id="B")
     assert not r.ok
     assert r.reason == "identity_mismatch", r.reason
 
@@ -1350,10 +1592,10 @@ def _():
     write-side module. If a future change adds `from .feedback import ...`
     or `from .bundle import import_bundle`, this fails — making the trust
     boundary load-bearing, not aspirational."""
-    import ast, pathlib
-    path = pathlib.Path(
-        "scudo_mapping_mcp/ingestion_mcp.py"
-    ).resolve()
+    import ast
+    import pathlib
+
+    path = pathlib.Path("scudo_mapping_mcp/ingestion_mcp.py").resolve()
     src = path.read_text(encoding="utf-8")
     tree = ast.parse(src)
     forbidden = set()
@@ -1363,8 +1605,7 @@ def _():
             if mod.endswith("feedback") or mod.endswith("bundle"):
                 forbidden.add(mod)
             for n in node.names:
-                if n.name in {"apply_decision", "import_bundle",
-                              "upsert_precedent"}:
+                if n.name in {"apply_decision", "import_bundle", "upsert_precedent"}:
                     forbidden.add(f"{mod}.{n.name}")
         elif isinstance(node, ast.Import):
             for n in node.names:
@@ -1379,10 +1620,10 @@ def _():
 def _():
     """Same static check for Match & Verify. The verifier runs here but
     nothing it does should mutate canonical state."""
-    import ast, pathlib
-    path = pathlib.Path(
-        "scudo_mapping_mcp/match_verify_mcp.py"
-    ).resolve()
+    import ast
+    import pathlib
+
+    path = pathlib.Path("scudo_mapping_mcp/match_verify_mcp.py").resolve()
     src = path.read_text(encoding="utf-8")
     tree = ast.parse(src)
     forbidden = set()
@@ -1392,12 +1633,10 @@ def _():
             if mod.endswith("feedback"):
                 forbidden.add(mod)
             for n in node.names:
-                if n.name in {"apply_decision", "import_bundle",
-                              "upsert_precedent"}:
+                if n.name in {"apply_decision", "import_bundle", "upsert_precedent"}:
                     forbidden.add(f"{mod}.{n.name}")
     assert not forbidden, (
-        f"Match & Verify MCP must not import write surfaces; found: "
-        f"{forbidden}"
+        f"Match & Verify MCP must not import write surfaces; found: {forbidden}"
     )
 
 
@@ -1406,25 +1645,20 @@ def _():
     """The inverse: Persistence MCP IS the only writer, so it must
     import feedback (for record_decision) and bundle (for import_bundle).
     Asserts the writer role is co-located, not scattered."""
-    import ast, pathlib
-    path = pathlib.Path(
-        "scudo_mapping_mcp/persistence_mcp.py"
-    ).resolve()
+    import ast
+    import pathlib
+
+    path = pathlib.Path("scudo_mapping_mcp/persistence_mcp.py").resolve()
     src = path.read_text(encoding="utf-8")
     tree = ast.parse(src)
     seen = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             for n in node.names:
-                if n.name in {"apply_decision", "import_bundle",
-                              "export_bundle"}:
+                if n.name in {"apply_decision", "import_bundle", "export_bundle"}:
                     seen.add(n.name)
-    assert "apply_decision" in seen, (
-        "Persistence MCP must own the HITL write path"
-    )
-    assert "import_bundle" in seen, (
-        "Persistence MCP must own bundle import"
-    )
+    assert "apply_decision" in seen, "Persistence MCP must own the HITL write path"
+    assert "import_bundle" in seen, "Persistence MCP must own bundle import"
 
 
 @case("GATE_refuses_agent_driven_auto_mapped_per_I5")
@@ -1441,7 +1675,8 @@ def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
     ref = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-GATE-1",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-GATE-1",
         name="Equity Prices Real Time",
     )
 
@@ -1449,14 +1684,18 @@ def _():
     direct = map_vendor_product(ref)
     assert direct.status == MappingStatus.AUTO_MAPPED, direct.status
     seal = v.sign(
-        vendor=ref.vendor, product_id=ref.product_id,
+        vendor=ref.vendor,
+        product_id=ref.product_id,
         mapped_node_iri=direct.mapped_node_iri,
-        status=direct.status.value, confidence=direct.confidence,
+        status=direct.status.value,
+        confidence=direct.confidence,
     )
 
     params = pm.CommitInput(
-        vendor=ref.vendor, product_id=ref.product_id,
-        verdict=direct.model_dump(mode="json"), seal=seal,
+        vendor=ref.vendor,
+        product_id=ref.product_id,
+        verdict=direct.model_dump(mode="json"),
+        seal=seal,
     )
     result = asyncio.run(pm.commit_mapping(params))
     body = json.loads(result)
@@ -1473,21 +1712,27 @@ def _():
     I5, before any other check. Otherwise an attacker probing refusal
     reasons can fingerprint the gate's policy order."""
     _ensure_dev_signing_key()
-    import asyncio, base64
+    import asyncio
+    import base64
     from scudo_mapping_mcp import verdict as v, persistence_mcp as pm
 
     _fresh_store()
     real_seal = v.sign(
-        vendor=IN_SCOPE_VENDOR, product_id="X",
-        mapped_node_iri="cdao:x", status="auto_mapped", confidence=0.95,
+        vendor=IN_SCOPE_VENDOR,
+        product_id="X",
+        mapped_node_iri="cdao:x",
+        status="auto_mapped",
+        confidence=0.95,
     )
     forged = {
         "payload_b64": real_seal["payload_b64"],
         "hmac_b64": base64.b64encode(b"X" * 32).decode("ascii"),
     }
     params = pm.CommitInput(
-        vendor=IN_SCOPE_VENDOR, product_id="X",
-        verdict={"status": "auto_mapped"}, seal=forged,
+        vendor=IN_SCOPE_VENDOR,
+        product_id="X",
+        verdict={"status": "auto_mapped"},
+        seal=forged,
     )
     body = json.loads(asyncio.run(pm.commit_mapping(params)))
     assert body["committed"] is False
@@ -1506,13 +1751,17 @@ def _():
     fake = _fresh_store()
     fake.set_score(EQ_PRICES_IRI, 0.95)
     ref = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="EQ-HITL-1",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="EQ-HITL-1",
         name="Equity Prices Real Time",
     )
     params = pm.DecisionInput(
-        vendor=ref.vendor, product_id=ref.product_id,
-        decision="approve", decided_by="reviewer@jpmc",
-        node_iri=EQ_PRICES_IRI, name=ref.name,
+        vendor=ref.vendor,
+        product_id=ref.product_id,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=EQ_PRICES_IRI,
+        name=ref.name,
         suggested_confidence=0.95,
     )
     body = json.loads(asyncio.run(pm.record_decision(params)))
@@ -1528,15 +1777,14 @@ def _():
 def _():
     """The scope gate is the only fail-closed gate that fires at every
     layer. Static check: it's imported by all three MCP modules."""
-    import ast, pathlib
+    import pathlib
+
     for mod_name in (
         "ingestion_mcp.py",
         "match_verify_mcp.py",
         "persistence_mcp.py",
     ):
-        path = pathlib.Path(
-            f"scudo_mapping_mcp/{mod_name}"
-        ).resolve()
+        path = pathlib.Path(f"scudo_mapping_mcp/{mod_name}").resolve()
         src = path.read_text(encoding="utf-8")
         # Either check_scope directly imported, OR (for Persistence) the
         # apply_decision import which calls check_scope transitively.
@@ -1562,13 +1810,19 @@ def _():
     fake.set_score(EQUITIES_IRI, 0.30)
 
     calls: list[VendorProductRef] = []
+
     def spy(ref, cands):  # noqa: ANN001
         calls.append(ref)
         return None
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="LADDER-PASS",
-        name="Equity Prices Real Time",
-    ), specialist=spy)
+
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="LADDER-PASS",
+            name="Equity Prices Real Time",
+        ),
+        specialist=spy,
+    )
 
     assert r.status == MappingStatus.AUTO_MAPPED, r.status
     assert r.band == "pass", r.band
@@ -1586,13 +1840,19 @@ def _():
     fake.set_score(EQUITIES_IRI, 0.30)
 
     calls: list[VendorProductRef] = []
+
     def spy(ref, cands):  # noqa: ANN001
         calls.append(ref)
         return None  # abstain
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="LADDER-BORDER",
-        name="Equity Prices Real Time",
-    ), specialist=spy)
+
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="LADDER-BORDER",
+            name="Equity Prices Real Time",
+        ),
+        specialist=spy,
+    )
 
     assert r.band == "borderline", r.band
     assert len(calls) == 1, (
@@ -1609,13 +1869,19 @@ def _():
     fake.set_score(EQUITIES_IRI, 0.30)
 
     calls: list[VendorProductRef] = []
+
     def spy(ref, cands):  # noqa: ANN001
         calls.append(ref)
         return None
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="LADDER-FAIL",
-        name="random gibberish",
-    ), specialist=spy)
+
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="LADDER-FAIL",
+            name="random gibberish",
+        ),
+        specialist=spy,
+    )
 
     assert r.status == MappingStatus.NEEDS_REVIEW, r.status
     assert r.band == "fail", r.band
@@ -1633,8 +1899,8 @@ def _():
     and the specialist's alternative is preserved on the result so the
     reviewer sees BOTH picks (no information loss)."""
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.82)   # sparse ranker would pick this
-    fake.set_score(EQUITIES_IRI, 0.81)    # specialist will pick this instead
+    fake.set_score(EQ_PRICES_IRI, 0.82)  # sparse ranker would pick this
+    fake.set_score(EQUITIES_IRI, 0.81)  # specialist will pick this instead
     fake.set_score(FX_IRI, 0.10)
 
     def disagreeing_specialist(ref, candidates):  # noqa: ANN001
@@ -1642,10 +1908,15 @@ def _():
             node=TaxonomyNode(iri=EQUITIES_IRI, label="Equities"),
             similarity=0.99,  # hallucinated; matcher must ignore
         )
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="LADDER-DISAGREE",
-        name="Equity Prices Real Time",
-    ), specialist=disagreeing_specialist)
+
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="LADDER-DISAGREE",
+            name="Equity Prices Real Time",
+        ),
+        specialist=disagreeing_specialist,
+    )
 
     assert r.band == "borderline", r.band
     assert r.status == MappingStatus.NEEDS_REVIEW, (
@@ -1673,7 +1944,7 @@ def _():
     silently surfaced as an alternative the reviewer might select.
     """
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.82)   # borderline: above floor, below pass
+    fake.set_score(EQ_PRICES_IRI, 0.82)  # borderline: above floor, below pass
     fake.set_score(EQUITIES_IRI, 0.30)
     fake.set_score(FX_IRI, 0.10)
 
@@ -1687,19 +1958,21 @@ def _():
             similarity=0.99,
         )
 
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="LADDER-OFF-LIST",
-        name="Equity Prices Real Time",
-    ), specialist=off_list_specialist)
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="LADDER-OFF-LIST",
+            name="Equity Prices Real Time",
+        ),
+        specialist=off_list_specialist,
+    )
 
     # Routes to NEEDS_REVIEW with the violation reason surfaced.
     assert r.status == MappingStatus.NEEDS_REVIEW, (
-        f"off-list specialist pick must fail closed to NEEDS_REVIEW; "
-        f"got {r.status}"
+        f"off-list specialist pick must fail closed to NEEDS_REVIEW; got {r.status}"
     )
     assert r.invariant_violation == "specialist_off_list", (
-        f"invariant_violation must surface the reason; got "
-        f"{r.invariant_violation!r}"
+        f"invariant_violation must surface the reason; got {r.invariant_violation!r}"
     )
     # Off-list IRI is DISCARDED — abstention means it is NOT surfaced for
     # a reviewer to accidentally select. The violation itself is the signal.
@@ -1729,19 +2002,25 @@ def _():
     A hallucinating LLM returning 0.99 cannot push a 0.78 dense above the
     floor."""
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.82)   # borderline, above floor
+    fake.set_score(EQ_PRICES_IRI, 0.82)  # borderline, above floor
     fake.set_score(EQUITIES_IRI, 0.30)
 
     def concurring_specialist(ref, candidates):  # noqa: ANN001
         return Candidate(
-            node=TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices",
-                              parent_iri=EQUITIES_IRI),
+            node=TaxonomyNode(
+                iri=EQ_PRICES_IRI, label="Equity Prices", parent_iri=EQUITIES_IRI
+            ),
             similarity=0.99,  # specialist claims higher; matcher caps
         )
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="LADDER-CONCUR-CAP",
-        name="Equity Prices Real Time",
-    ), specialist=concurring_specialist)
+
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="LADDER-CONCUR-CAP",
+            name="Equity Prices Real Time",
+        ),
+        specialist=concurring_specialist,
+    )
 
     assert r.band == "borderline", r.band
     assert r.status == MappingStatus.AUTO_MAPPED, r.status
@@ -1758,19 +2037,25 @@ def _():
     confidence -> matcher must NOT auto-map. The specialist cannot inflate
     a sub-floor dense score (I5)."""
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.78)   # borderline, BELOW floor
+    fake.set_score(EQ_PRICES_IRI, 0.78)  # borderline, BELOW floor
     fake.set_score(EQUITIES_IRI, 0.30)
 
     def lying_specialist(ref, candidates):  # noqa: ANN001
         return Candidate(
-            node=TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices",
-                              parent_iri=EQUITIES_IRI),
+            node=TaxonomyNode(
+                iri=EQ_PRICES_IRI, label="Equity Prices", parent_iri=EQUITIES_IRI
+            ),
             similarity=0.99,  # hallucinated; must be ignored for floor check
         )
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="LADDER-LYING-LLM",
-        name="Equity Prices Real Time",
-    ), specialist=lying_specialist)
+
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="LADDER-LYING-LLM",
+            name="Equity Prices Real Time",
+        ),
+        specialist=lying_specialist,
+    )
 
     assert r.band == "borderline", r.band
     assert r.status == MappingStatus.NEEDS_REVIEW, (
@@ -1789,28 +2074,36 @@ def _():
     fake.get_taxonomy_node = lambda iri: None  # identifier_resolves fails
 
     calls: list[VendorProductRef] = []
+
     def spy(ref, cands):  # noqa: ANN001
         calls.append(ref)
         return None
-    r = map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="LADDER-REQFAIL",
-        name="Equity Prices Real Time",
-    ), specialist=spy)
+
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="LADDER-REQFAIL",
+            name="Equity Prices Real Time",
+        ),
+        specialist=spy,
+    )
 
     assert r.band == "fail", r.band
     assert r.status == MappingStatus.NEEDS_REVIEW, r.status
-    assert calls == [], (
-        "required-validation failure must not consult specialist"
-    )
+    assert calls == [], "required-validation failure must not consult specialist"
 
 
 @case("LADDER_out_of_scope_carries_band_na")
 def _():
     """OUT_OF_SCOPE is outside the band model entirely."""
     _fresh_store()
-    r = map_vendor_product(VendorProductRef(
-        vendor="NotAVendor", product_id="x", name="anything",
-    ))
+    r = map_vendor_product(
+        VendorProductRef(
+            vendor="NotAVendor",
+            product_id="x",
+            name="anything",
+        )
+    )
     assert r.status == MappingStatus.OUT_OF_SCOPE
     assert r.band == "n/a", r.band
 
@@ -1896,20 +2189,27 @@ def _():
 @case("VERDICT_seal_carries_band_v2")
 def _():
     """New seals are v=2 and carry the band field."""
-    import base64, json
+    import base64
+    import json
     from .. import verdict as verdict_mod
+
     _ensure_dev_signing_key()
     seal = verdict_mod.sign(
-        vendor=IN_SCOPE_VENDOR, product_id="X",
-        mapped_node_iri="cdao:x", status="auto_mapped",
-        confidence=0.9, band="pass",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="X",
+        mapped_node_iri="cdao:x",
+        status="auto_mapped",
+        confidence=0.9,
+        band="pass",
     )
     payload = json.loads(base64.b64decode(seal["payload_b64"]))
     assert payload["v"] == 2, payload
     assert payload["band"] == "pass", payload
     # Round-trip verify reads the band back.
     result = verdict_mod.verify(
-        seal, expected_vendor=IN_SCOPE_VENDOR, expected_product_id="X",
+        seal,
+        expected_vendor=IN_SCOPE_VENDOR,
+        expected_product_id="X",
     )
     assert result.ok, result.reason
     assert result.payload["band"] == "pass", result.payload
@@ -1919,8 +2219,13 @@ def _():
 def _():
     """Legacy v=1 seals (signed before band existed) must still verify.
     Their band defaults to 'n/a' so persistence gates degrade gracefully."""
-    import base64, hashlib, hmac, json, time as _time
+    import base64
+    import hashlib
+    import hmac
+    import json
+    import time as _time
     from .. import verdict as verdict_mod
+
     _ensure_dev_signing_key()
     # Synthesise a v=1 payload by hand (matches the old sign signature).
     payload = {
@@ -1932,7 +2237,9 @@ def _():
         "ts_ms": int(_time.time() * 1000),
     }
     canonical = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"),
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
     ).encode("utf-8")
     key = verdict_mod._load_signing_key()
     mac = hmac.new(key, canonical, hashlib.sha256).digest()
@@ -1941,7 +2248,9 @@ def _():
         "hmac_b64": base64.b64encode(mac).decode("ascii"),
     }
     result = verdict_mod.verify(
-        seal, expected_vendor=IN_SCOPE_VENDOR, expected_product_id="X",
+        seal,
+        expected_vendor=IN_SCOPE_VENDOR,
+        expected_product_id="X",
     )
     assert result.ok, result.reason
     assert result.payload["band"] == "n/a", result.payload
@@ -1962,22 +2271,30 @@ def _():
     fake.set_score(EQUITIES_IRI, 0.30)
 
     calls_a: list[VendorProductRef] = []
+
     def spy_a(ref, cands):  # noqa: ANN001
         calls_a.append(ref)
         return None
 
     # Call A: passes a spy.
-    map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="PERCALL-A",
-        name="Equity Prices Real Time",
-    ), specialist=spy_a)
+    map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="PERCALL-A",
+            name="Equity Prices Real Time",
+        ),
+        specialist=spy_a,
+    )
     assert len(calls_a) == 1, len(calls_a)
 
     # Call B: borderline range, omits specialist. Must NOT re-invoke spy_a.
-    map_vendor_product(VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="PERCALL-B",
-        name="Equity Prices Real Time",
-    ))
+    map_vendor_product(
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="PERCALL-B",
+            name="Equity Prices Real Time",
+        )
+    )
     assert len(calls_a) == 1, (
         f"specialist must not leak across calls; spy was invoked "
         f"{len(calls_a)} times across both calls"
@@ -1987,6 +2304,7 @@ def _():
 # ──────────────────────────────────────────────────────────────────────────
 # Hydration — pull the canonical M6 bundle from S3 at container startup
 # ──────────────────────────────────────────────────────────────────────────
+
 
 def _hydrate_setup(objects=None, *, bucket="test-bucket"):
     """Wire hydrate._s3_client to a FakeS3Client. Returns (fake, saved_settings).
@@ -2010,11 +2328,17 @@ def _sample_bundle_json(taxonomy_node_iri=EQ_PRICES_IRI):
     _fresh_store() FakeStore knows about, so import_bundle applies it."""
     fake = _fresh_store()
     ref = VendorProductRef(
-        vendor=IN_SCOPE_VENDOR, product_id="HYD-1",
+        vendor=IN_SCOPE_VENDOR,
+        product_id="HYD-1",
         name="Equity Pricing Real Time",
     )
-    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
-                   node_iri=taxonomy_node_iri, suggested_confidence=0.93)
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="reviewer@jpmc",
+        node_iri=taxonomy_node_iri,
+        suggested_confidence=0.93,
+    )
     bundle = export_bundle(
         source_env="test-source",
         created_at="2026-06-09T00:00:00.000Z",
@@ -2080,8 +2404,11 @@ def _():
     """Valid JSON but does not match MappingBundle shape. Hard fail."""
     fake, saved = _hydrate_setup()
     try:
-        fake.put("test-bucket", "canonical/bundle-latest.json",
-                 json.dumps({"foo": "bar"}).encode("utf-8"))
+        fake.put(
+            "test-bucket",
+            "canonical/bundle-latest.json",
+            json.dumps({"foo": "bar"}).encode("utf-8"),
+        )
         try:
             hydrate(strict=True)
         except HydrationError as e:
@@ -2163,6 +2490,45 @@ def _():
         _hydrate_teardown(saved)
 
 
+@case("M6_export_to_s3_round_trips_through_hydrate")
+def _():
+    """export_to_s3 writes the bundle to the exact S3 location hydrate() reads.
+    A fresh store hydrating from the same S3 replays the precedent."""
+    # Populate a store with one confirmed precedent, then export it.
+    fake = _fresh_store()
+    fake.set_score(EQ_PRICES_IRI, 0.95)
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="EQ-1", name="Equity Prices"
+    )
+    apply_decision(
+        ref,
+        decision="approve",
+        decided_by="tester",
+        node_iri=EQ_PRICES_IRI,
+        suggested_confidence=0.93,
+    )
+
+    # Export and write to S3.
+    s3 = FakeS3Client()
+    hydrate_mod._set_s3_client_for_test(s3)
+    saved = _swap_settings(s3_bucket="test-bucket")
+    try:
+        bundle = export_bundle(
+            source_env="mock-local", created_at="2026-01-01T00:00:00Z"
+        )
+        bucket, key = hydrate_mod.export_to_s3(bundle)
+        assert (bucket, key) in s3._objects, "export_to_s3 wrote nothing to S3"
+
+        # Fresh store + hydrate from the same fake S3 replays the precedent.
+        _fresh_store()
+        hydrate_mod._set_s3_client_for_test(s3)
+        result = hydrate_mod.hydrate(strict=True)
+        assert result.applied == 1, f"expected 1 applied, got {result.applied}"
+    finally:
+        _restore_settings(saved)
+        hydrate_mod._set_s3_client_for_test(None)
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # THREE-SEAM vendor-agnostic contract (#18) — pin the env vars wired by the
 # deploy task def (SCUDO_VENDOR_ADAPTERS / SCUDO_TAXONOMY_LOADER /
@@ -2207,13 +2573,18 @@ def _():
     try:
         s = config_mod.Settings.from_env()
         # Hard literal pin — DO NOT derive from the helper.
-        assert s.vendor_adapters == ('lseg', 'sp_global', 'bloomberg', 'ice', 'factset'), \
-            s.vendor_adapters
+        assert s.vendor_adapters == (
+            "lseg",
+            "sp_global",
+            "bloomberg",
+            "ice",
+            "factset",
+        ), s.vendor_adapters
         # Belt + braces: order preserved, count matches.
         assert len(s.vendor_adapters) == len(PRIORITY_VENDORS)
         # And specifically: 'sp_global' (no ampersand) is the canonical form.
-        assert 'sp_global' in s.vendor_adapters
-        assert 's&p_global' not in s.vendor_adapters
+        assert "sp_global" in s.vendor_adapters
+        assert "s&p_global" not in s.vendor_adapters
     finally:
         _restore_env(saved)
 
@@ -2229,9 +2600,7 @@ def _():
         s = config_mod.Settings.from_env()
         assert s.vendor_adapters == ("lseg", "bloomberg"), s.vendor_adapters
         default = tuple(v.lower().replace(" ", "_") for v in PRIORITY_VENDORS)
-        assert s.vendor_adapters != default, (
-            "env override must change the tuple"
-        )
+        assert s.vendor_adapters != default, "env override must change the tuple"
     finally:
         _restore_env(saved)
 
@@ -2259,7 +2628,8 @@ def _():
         s = config_mod.Settings.from_env()
         assert s.store_backend == "falkordb", s.store_backend
         assert s.persist_target == s.store_backend, (
-            s.persist_target, s.store_backend,
+            s.persist_target,
+            s.store_backend,
         )
     finally:
         _restore_env(saved)
@@ -2298,7 +2668,10 @@ def _():
     }
 
     def fake_opus_dense_score(
-        query_label, query_desc, candidate_label, candidate_desc,
+        query_label,
+        query_desc,
+        candidate_label,
+        candidate_desc,
     ):
         for needle, score in KNOWN.items():
             if candidate_label == needle:
@@ -2324,6 +2697,7 @@ def _():
             it) but reuses find_similar_products's logic. The two _ro
             calls (taxonomy scan + RETURN 1 health) and rank_signals_for
             are stubbed inline."""
+
             def __init__(self):  # noqa: D401 — skip super().__init__
                 pass
 
@@ -2344,8 +2718,11 @@ def _():
 
         probe = _DenseProbeStore()
         cands = probe.find_similar_products(
-            VPR(vendor=IN_SCOPE_VENDOR, product_id="WS-B-RAW",
-                name="Equity Prices Real Time"),
+            VPR(
+                vendor=IN_SCOPE_VENDOR,
+                product_id="WS-B-RAW",
+                name="Equity Prices Real Time",
+            ),
             max_results=10,
         )
         assert cands, "expected candidates from the probe store"
@@ -2392,19 +2769,28 @@ def _():
         # Default (unset) -> jaro_winkler; deterministic, no exception.
         os.environ.pop("SCUDO_DENSE_BACKEND", None)
         s_default = opus_dense_mod.opus_dense_score(
-            "Equity Prices", "", "Equity Prices", "",
+            "Equity Prices",
+            "",
+            "Equity Prices",
+            "",
         )
         assert 0.0 <= s_default <= 1.0, s_default
         # Same input -> same output under the deterministic backend.
         s_again = opus_dense_mod.opus_dense_score(
-            "Equity Prices", "", "Equity Prices", "",
+            "Equity Prices",
+            "",
+            "Equity Prices",
+            "",
         )
         assert s_default == s_again, (s_default, s_again)
 
         # Explicit jaro_winkler -> same.
         os.environ["SCUDO_DENSE_BACKEND"] = "jaro_winkler"
         s_jw = opus_dense_mod.opus_dense_score(
-            "Equity Prices", "", "Equity Prices", "",
+            "Equity Prices",
+            "",
+            "Equity Prices",
+            "",
         )
         assert s_jw == s_default, (s_jw, s_default)
 
@@ -2413,7 +2799,10 @@ def _():
         raised = False
         try:
             opus_dense_mod.opus_dense_score(
-                "Equity Prices", "", "Equity Prices", "",
+                "Equity Prices",
+                "",
+                "Equity Prices",
+                "",
             )
         except ValueError:
             raised = True
@@ -2434,7 +2823,6 @@ def _():
 # Pins the SDK-inspired shape: BM25 pre-filters, dense rescores survivors,
 # negative-precedents drop pre-dense, degraded fallback below the floor.
 # ─────────────────────────────────────────────────────────────────────────
-from .. import retrieval as retrieval_mod
 from ..retrieval import multi_path_retrieve
 
 
@@ -2458,8 +2846,9 @@ def _():
         return [Candidate(node=c.node, similarity=0.7) for c in survivors]
 
     result = multi_path_retrieve(
-        VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="X-CAP",
-                         name="Equities Variant 7"),
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR, product_id="X-CAP", name="Equities Variant 7"
+        ),
         fake,
         max_results=10,
         dense_scorer=stub,
@@ -2482,11 +2871,13 @@ def _():
     Opus call is never spent on a node the human already vetoed.
     """
     fake = _fresh_store()
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="X-SURV",
-                           name="Equity Prices Real Time")
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="X-SURV", name="Equity Prices Real Time"
+    )
     # Reject EQ_PRICES_IRI up-front. The orchestrator must drop it.
-    apply_decision(ref, decision="reject", decided_by="reviewer@jpmc",
-                   node_iri=EQ_PRICES_IRI)
+    apply_decision(
+        ref, decision="reject", decided_by="reviewer@jpmc", node_iri=EQ_PRICES_IRI
+    )
 
     seen_iris: list[str] = []
 
@@ -2514,8 +2905,11 @@ def _():
     """
     fake = _fresh_store()
     result = multi_path_retrieve(
-        VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="X-DEGRADED",
-                         name="Equity Prices Real Time"),
+        VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="X-DEGRADED",
+            name="Equity Prices Real Time",
+        ),
         fake,
         dense_scorer=None,  # explicit — this is the degraded path
     )
@@ -2535,10 +2929,10 @@ def _():
     waste budget on a node that's about to be discarded anyway.
     """
     fake = _fresh_store()
-    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="X-ORDER",
-                           name="Equity Prices Real Time")
-    apply_decision(ref, decision="reject", decided_by="reviewer@jpmc",
-                   node_iri=FX_IRI)
+    ref = VendorProductRef(
+        vendor=IN_SCOPE_VENDOR, product_id="X-ORDER", name="Equity Prices Real Time"
+    )
+    apply_decision(ref, decision="reject", decided_by="reviewer@jpmc", node_iri=FX_IRI)
 
     call_log: list[tuple[str, str]] = []
 
@@ -2560,13 +2954,15 @@ def _():
 
     # The first negative-precedent call must precede the first dense call.
     neg_idx = next(
-        (i for i, (name, _) in enumerate(call_log)
-         if name == "get_negative_precedents"),
+        (
+            i
+            for i, (name, _) in enumerate(call_log)
+            if name == "get_negative_precedents"
+        ),
         -1,
     )
     dense_idx = next(
-        (i for i, (name, _) in enumerate(call_log)
-         if name == "dense_scorer"),
+        (i for i, (name, _) in enumerate(call_log) if name == "dense_scorer"),
         -1,
     )
     assert neg_idx >= 0, call_log
@@ -2632,13 +3028,18 @@ def _():
     # Saturation at RANK_BOOST_CAP still holds — boost is bounded so an
     # under-similar node can never overtake a clearly-better one in [0, 1].
     saturated = RetrievalStore.compute_rank_boost_scaled_for_dense(
-        {"cdao:x": 1000}, "cdao:x",
+        {"cdao:x": 1000},
+        "cdao:x",
     )
     assert saturated == RetrievalStore.RANK_BOOST_CAP, saturated
     # Missing node -> 0.0 (the comparable boost for an unranked candidate).
-    assert RetrievalStore.compute_rank_boost_scaled_for_dense(
-        {}, "cdao:absent",
-    ) == 0.0
+    assert (
+        RetrievalStore.compute_rank_boost_scaled_for_dense(
+            {},
+            "cdao:absent",
+        )
+        == 0.0
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -2655,25 +3056,27 @@ def _():
     from scudo_mapping_mcp import dense_scorer as ds
 
     nodes = [
-        TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices",
-                     parent_iri=EQUITIES_IRI),
+        TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices", parent_iri=EQUITIES_IRI),
         TaxonomyNode(iri=EQUITIES_IRI, label="Equities"),
         TaxonomyNode(iri=FX_IRI, label="Foreign Exchange"),
     ]
     cands = [Candidate(node=n, similarity=0.1) for n in nodes]
 
     captured = {}
+
     def fake_model(*, system, user, temperature):
         captured["system"] = system
         captured["user"] = user
         captured["temperature"] = temperature
-        return json.dumps({
-            "scores": [
-                {"iri": EQ_PRICES_IRI, "score": 0.93},
-                {"iri": EQUITIES_IRI, "score": 0.55},
-                {"iri": FX_IRI, "score": 0.10},
-            ],
-        })
+        return json.dumps(
+            {
+                "scores": [
+                    {"iri": EQ_PRICES_IRI, "score": 0.93},
+                    {"iri": EQUITIES_IRI, "score": 0.55},
+                    {"iri": FX_IRI, "score": 0.10},
+                ],
+            }
+        )
 
     out = ds.score_candidates(
         "Equity Prices Real Time feed",
@@ -2683,7 +3086,9 @@ def _():
 
     # Order preserved on the input ordering — load-bearing for the matcher.
     assert [c.node.iri for c in out] == [
-        EQ_PRICES_IRI, EQUITIES_IRI, FX_IRI,
+        EQ_PRICES_IRI,
+        EQUITIES_IRI,
+        FX_IRI,
     ], [c.node.iri for c in out]
     # Similarity replaced by the Opus-derived score.
     assert out[0].similarity == 0.93, out[0].similarity
@@ -2716,13 +3121,16 @@ def _():
     ]
 
     invoked = {"count": 0}
+
     def should_not_be_called(**kwargs):
         invoked["count"] += 1
         return "{}"
 
     try:
         ds.score_candidates(
-            "anything", cands, model_client=should_not_be_called,
+            "anything",
+            cands,
+            model_client=should_not_be_called,
         )
     except ValueError as e:
         assert "max_candidates" in str(e), str(e)
@@ -2752,12 +3160,14 @@ def _():
     def model_returning(text):
         def _fn(**kwargs):
             return text
+
         return _fn
 
     # 1. Not JSON at all.
     try:
         ds.score_candidates(
-            "x", cands,
+            "x",
+            cands,
             model_client=model_returning("not json at all"),
         )
     except ds.DenseScoreError as e:
@@ -2766,12 +3176,16 @@ def _():
         raise AssertionError("expected DenseScoreError on malformed JSON")
 
     # 2. Missing one of the requested IRIs.
-    bad_missing = json.dumps({
-        "scores": [{"iri": EQ_PRICES_IRI, "score": 0.9}],
-    })
+    bad_missing = json.dumps(
+        {
+            "scores": [{"iri": EQ_PRICES_IRI, "score": 0.9}],
+        }
+    )
     try:
         ds.score_candidates(
-            "x", cands, model_client=model_returning(bad_missing),
+            "x",
+            cands,
+            model_client=model_returning(bad_missing),
         )
     except ds.DenseScoreError as e:
         assert "omitted" in str(e).lower() or EQUITIES_IRI in str(e), str(e)
@@ -2779,16 +3193,20 @@ def _():
         raise AssertionError("expected DenseScoreError on missing IRI")
 
     # 3. Hallucinated IRI not in the input set.
-    bad_hallucinated = json.dumps({
-        "scores": [
-            {"iri": EQ_PRICES_IRI, "score": 0.9},
-            {"iri": EQUITIES_IRI, "score": 0.5},
-            {"iri": "cdao:not-in-input", "score": 0.7},
-        ],
-    })
+    bad_hallucinated = json.dumps(
+        {
+            "scores": [
+                {"iri": EQ_PRICES_IRI, "score": 0.9},
+                {"iri": EQUITIES_IRI, "score": 0.5},
+                {"iri": "cdao:not-in-input", "score": 0.7},
+            ],
+        }
+    )
     try:
         ds.score_candidates(
-            "x", cands, model_client=model_returning(bad_hallucinated),
+            "x",
+            cands,
+            model_client=model_returning(bad_hallucinated),
         )
     except ds.DenseScoreError as e:
         msg = str(e).lower()
@@ -2797,15 +3215,19 @@ def _():
         raise AssertionError("expected DenseScoreError on hallucinated IRI")
 
     # 4. Score out of [0, 1] range.
-    bad_range = json.dumps({
-        "scores": [
-            {"iri": EQ_PRICES_IRI, "score": 1.5},
-            {"iri": EQUITIES_IRI, "score": 0.5},
-        ],
-    })
+    bad_range = json.dumps(
+        {
+            "scores": [
+                {"iri": EQ_PRICES_IRI, "score": 1.5},
+                {"iri": EQUITIES_IRI, "score": 0.5},
+            ],
+        }
+    )
     try:
         ds.score_candidates(
-            "x", cands, model_client=model_returning(bad_range),
+            "x",
+            cands,
+            model_client=model_returning(bad_range),
         )
     except ds.DenseScoreError as e:
         assert "out of" in str(e).lower() or "[0,1]" in str(e), str(e)
@@ -2813,16 +3235,20 @@ def _():
         raise AssertionError("expected DenseScoreError on out-of-range score")
 
     # 5. Duplicate IRI in the response.
-    bad_dup = json.dumps({
-        "scores": [
-            {"iri": EQ_PRICES_IRI, "score": 0.9},
-            {"iri": EQ_PRICES_IRI, "score": 0.4},
-            {"iri": EQUITIES_IRI, "score": 0.5},
-        ],
-    })
+    bad_dup = json.dumps(
+        {
+            "scores": [
+                {"iri": EQ_PRICES_IRI, "score": 0.9},
+                {"iri": EQ_PRICES_IRI, "score": 0.4},
+                {"iri": EQUITIES_IRI, "score": 0.5},
+            ],
+        }
+    )
     try:
         ds.score_candidates(
-            "x", cands, model_client=model_returning(bad_dup),
+            "x",
+            cands,
+            model_client=model_returning(bad_dup),
         )
     except ds.DenseScoreError as e:
         msg = str(e).lower()
@@ -2866,41 +3292,41 @@ def _():
     # No auth gate — this is a blueprint-isolation test, not an integration
     # test against the production app.py. The auth gate's coverage is owned
     # by app.py, not by this blueprint.
-    app.register_blueprint(ifusion_bp, url_prefix='/api')
+    app.register_blueprint(ifusion_bp, url_prefix="/api")
     client = app.test_client()
 
     payload = {
-        'vendor': IN_SCOPE_VENDOR,
-        'product_id': 'EQ-RT-PUB-001',
-        'mapping_id': 'mapping-abc-123',
+        "vendor": IN_SCOPE_VENDOR,
+        "product_id": "EQ-RT-PUB-001",
+        "mapping_id": "mapping-abc-123",
     }
 
     # ── First publish: fresh acceptance ────────────────────────────────
-    resp = client.post('/api/ifusion/publish', json=payload)
+    resp = client.post("/api/ifusion/publish", json=payload)
     assert resp.status_code == 200, resp.status_code
     body = resp.get_json()
-    assert body['published'] is True, body
-    assert body['status'] == 'accepted', body
-    assert body['channel'] == 'spi_v2', body
-    pid = body.get('publish_id') or ''
-    assert pid.startswith('mock-pub-'), pid
-    assert body['vendor'] == IN_SCOPE_VENDOR
-    assert body['product_id'] == 'EQ-RT-PUB-001'
-    assert body['mapping_id'] == 'mapping-abc-123'
+    assert body["published"] is True, body
+    assert body["status"] == "accepted", body
+    assert body["channel"] == "spi_v2", body
+    pid = body.get("publish_id") or ""
+    assert pid.startswith("mock-pub-"), pid
+    assert body["vendor"] == IN_SCOPE_VENDOR
+    assert body["product_id"] == "EQ-RT-PUB-001"
+    assert body["mapping_id"] == "mapping-abc-123"
 
     # ── Replay: same tuple must return the SAME publish_id, duplicate ──
-    resp2 = client.post('/api/ifusion/publish', json=payload)
+    resp2 = client.post("/api/ifusion/publish", json=payload)
     assert resp2.status_code == 200, resp2.status_code
     body2 = resp2.get_json()
-    assert body2['publish_id'] == pid, (body2, pid)
-    assert body2['status'] == 'duplicate', body2
+    assert body2["publish_id"] == pid, (body2, pid)
+    assert body2["status"] == "duplicate", body2
 
     # ── /recent surfaces the publish for the UI ───────────────────────
-    resp3 = client.get('/api/ifusion/recent?limit=5')
+    resp3 = client.get("/api/ifusion/recent?limit=5")
     assert resp3.status_code == 200, resp3.status_code
     recent = resp3.get_json()
-    assert recent['count'] >= 1, recent
-    assert any(p['publish_id'] == pid for p in recent['publishes']), recent
+    assert recent["count"] >= 1, recent
+    assert any(p["publish_id"] == pid for p in recent["publishes"]), recent
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -2913,9 +3339,9 @@ def _():
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _host_fake_transport(*, fail_forever: bool = False,
-                         call_log=None, status_code: int = 200,
-                         body=None):
+def _host_fake_transport(
+    *, fail_forever: bool = False, call_log=None, status_code: int = 200, body=None
+):
     """Build a transport stub matching the McpHost transport signature.
 
     Returns (transport_callable, calls_list). The transport records every
@@ -2927,12 +3353,12 @@ def _host_fake_transport(*, fail_forever: bool = False,
         call_log = []
 
     def _transport(method, url, *, json=None, timeout=10.0):  # noqa: A002
-        call_log.append({"method": method, "url": url, "json": json,
-                         "timeout": timeout})
+        call_log.append(
+            {"method": method, "url": url, "json": json, "timeout": timeout}
+        )
         if fail_forever:
             raise RuntimeError("transport down")
-        return status_code, (body if body is not None
-                             else {"ok": True, "echo": json})
+        return status_code, (body if body is not None else {"ok": True, "echo": json})
 
     return _transport, call_log
 
@@ -2950,9 +3376,9 @@ def _():
     transport, calls = _host_fake_transport()
     host = McpHost(
         endpoints_by_tier={
-            "ingestion":    ["http://x:8001/mcp"],
+            "ingestion": ["http://x:8001/mcp"],
             "match_verify": ["http://x:8002/mcp"],
-            "persistence":  ["http://x:8003/mcp"],
+            "persistence": ["http://x:8003/mcp"],
         },
         transport=transport,
     )
@@ -2994,7 +3420,9 @@ def _():
     """
     import asyncio
     from scudo_mapping_mcp.mcp_host import (
-        McpHost, McpHostError, McpHostUnavailable,
+        McpHost,
+        McpHostError,
+        McpHostUnavailable,
     )
 
     transport, calls = _host_fake_transport(fail_forever=True)
@@ -3028,9 +3456,7 @@ def _():
         except McpHostUnavailable:
             pass
         else:
-            raise AssertionError(
-                "expected McpHostUnavailable once breaker open"
-            )
+            raise AssertionError("expected McpHostUnavailable once breaker open")
         assert len(calls) == calls_before, (
             "OPEN breaker must not forward the call to the transport"
         )
@@ -3072,6 +3498,7 @@ def _():
     async def _run():
         # Trip the breaker (2 failures at threshold=2).
         from scudo_mapping_mcp.mcp_host import McpHostError
+
         for _ in range(2):
             try:
                 host.call("match_verify", "t", {})
@@ -3101,6 +3528,7 @@ def _():
         # the full breaker_threshold — proves the failure counter reset.
         healthy["flag"] = False
         from scudo_mapping_mcp.mcp_host import McpHostError as _Err
+
         try:
             host.call("match_verify", "t", {})
         except _Err:
@@ -3183,9 +3611,9 @@ def _():
     transport, _calls = _host_fake_transport()
     host = McpHost(
         endpoints_by_tier={
-            "ingestion":    ["http://x:8001/mcp"],
+            "ingestion": ["http://x:8001/mcp"],
             "match_verify": ["http://x:8002a/mcp", "http://x:8002b/mcp"],
-            "persistence":  ["http://x:8003/mcp"],
+            "persistence": ["http://x:8003/mcp"],
         },
         max_concurrent_per_tier=4,
         breaker_threshold=7,
@@ -3203,7 +3631,9 @@ def _():
     assert m["config"]["timeout_s"] == 10.0, m
 
     assert set(m["tiers"].keys()) == {
-        "ingestion", "match_verify", "persistence",
+        "ingestion",
+        "match_verify",
+        "persistence",
     }, m
     for tier, view in m["tiers"].items():
         assert view["calls_total"] == 0, (tier, view)
@@ -3344,6 +3774,7 @@ def _():
     """
     from scudo_mapping_mcp.store import falkordb_store as fk_mod
     import inspect
+
     src = inspect.getsource(fk_mod.FalkorDBStore.find_similar_products)
     assert "make_opus_dense_scorer" in src, (
         "find_similar_products flag-on branch must call "
@@ -3362,6 +3793,7 @@ def _():
     day can tell which Opus path is the real one.
     """
     from scudo_mapping_mcp import dense_scorer
+
     assert dense_scorer.__doc__ is not None
     assert "DEPRECATED" in dense_scorer.__doc__, (
         "dense_scorer.py must carry a DEPRECATED marker in its docstring"
@@ -3380,21 +3812,22 @@ def _():
     """
     import inspect
     from scudo_mapping_mcp import agent as agent_module
+
     src = inspect.getsource(agent_module)
     # The three M&V tool calls must use match_verify tier + namespaced names.
-    assert "_TIER_MATCH_VERIFY, \"matchverify.find_candidates\"" in src, (
+    assert '_TIER_MATCH_VERIFY, "matchverify.find_candidates"' in src, (
         "find_similar_products call must be re-tiered to match_verify"
     )
-    assert "_TIER_MATCH_VERIFY, \"matchverify.get_node\"" in src, (
+    assert '_TIER_MATCH_VERIFY, "matchverify.get_node"' in src, (
         "get_taxonomy_node call must be re-tiered to match_verify"
     )
-    assert "_TIER_MATCH_VERIFY, \"matchverify.get_neighbourhood\"" in src, (
+    assert '_TIER_MATCH_VERIFY, "matchverify.get_neighbourhood"' in src, (
         "get_ontology_neighbourhood call must be re-tiered to match_verify"
     )
     # No remaining ingestion-tier calls for M&V tools.
-    assert "_TIER_INGESTION, \"find_similar_products\"" not in src
-    assert "_TIER_INGESTION, \"get_taxonomy_node\"" not in src
-    assert "_TIER_INGESTION, \"get_ontology_neighbourhood\"" not in src
+    assert '_TIER_INGESTION, "find_similar_products"' not in src
+    assert '_TIER_INGESTION, "get_taxonomy_node"' not in src
+    assert '_TIER_INGESTION, "get_ontology_neighbourhood"' not in src
 
 
 @case("ARB_B2_dense_rescore_catches_scorer_exception_and_degrades")

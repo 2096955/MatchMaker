@@ -60,6 +60,7 @@ TOOLS
 Run locally with:
     python -m scudo_mapping_mcp.persistence_mcp
 """
+
 from __future__ import annotations
 
 import json
@@ -121,13 +122,12 @@ class _Base(BaseModel):
 
 class CommitInput(_Base):
     """Inputs for ``persist.commit_mapping`` — the agent-driven path."""
+
     vendor: str = Field(...)
     product_id: str = Field(..., min_length=1)
     verdict: dict = Field(
         ...,
-        description=(
-            "The MappingResult JSON returned by matchverify.verify_mapping."
-        ),
+        description=("The MappingResult JSON returned by matchverify.verify_mapping."),
     )
     seal: dict = Field(
         ...,
@@ -140,6 +140,7 @@ class CommitInput(_Base):
 
 class DecisionInput(_Base):
     """Inputs for ``persist.record_decision`` — the HITL path."""
+
     vendor: str = Field(...)
     product_id: str = Field(..., min_length=1)
     decision: str = Field(
@@ -160,10 +161,12 @@ class BundleExportInput(_Base):
 
 def _refusal(reason: str, **detail) -> str:
     """Typed refusal envelope. The agent reasons over `reason`."""
-    return json.dumps({
-        "committed": False,
-        "refusal": {"reason": reason, **detail},
-    })
+    return json.dumps(
+        {
+            "committed": False,
+            "refusal": {"reason": reason, **detail},
+        }
+    )
 
 
 def _validate_vendor(vendor: str) -> Optional[str]:
@@ -172,10 +175,7 @@ def _validate_vendor(vendor: str) -> Optional[str]:
     ``apply_decision`` too — this is the cheap up-front rejection.
     """
     if vendor not in PRIORITY_VENDORS:
-        return (
-            f"unknown vendor {vendor!r} "
-            f"(valid: {', '.join(PRIORITY_VENDORS)})"
-        )
+        return f"unknown vendor {vendor!r} (valid: {', '.join(PRIORITY_VENDORS)})"
     return None
 
 
@@ -247,7 +247,8 @@ async def commit_mapping(params: CommitInput) -> str:
         # I5 ENFORCEMENT — never auto-promote weak-oracle output. Even a
         # cryptographically valid AUTO_MAPPED verdict goes to the reviewer.
         queue_id = _enqueue(
-            params.verdict, reason="auto_mapped_requires_review",
+            params.verdict,
+            reason="auto_mapped_requires_review",
         )
         return _refusal(
             "auto_mapped_requires_review",
@@ -261,7 +262,8 @@ async def commit_mapping(params: CommitInput) -> str:
     if sealed_status == MappingStatus.NEEDS_REVIEW.value:
         queue_id = _enqueue(params.verdict, reason="needs_review")
         return _refusal(
-            "needs_review", queue_id=queue_id,
+            "needs_review",
+            queue_id=queue_id,
             detail="Confidence below floor / required validation failed.",
         )
 
@@ -277,7 +279,10 @@ async def commit_mapping(params: CommitInput) -> str:
 
 @mcp.tool(
     name="persist.record_decision",
-    annotations={"title": "Record a HITL decision (the only canonical write path)", **_RW},
+    annotations={
+        "title": "Record a HITL decision (the only canonical write path)",
+        **_RW,
+    },
 )
 async def record_decision(params: DecisionInput) -> str:
     """The HITL write path. Approve / override / reject from a human.
@@ -293,8 +298,10 @@ async def record_decision(params: DecisionInput) -> str:
         return _refusal("out_of_scope", detail=err)
 
     ref = VendorProductRef(
-        vendor=params.vendor, product_id=params.product_id,
-        name=params.name, description=params.description,
+        vendor=params.vendor,
+        product_id=params.product_id,
+        name=params.name,
+        description=params.description,
     )
     try:
         result = apply_decision(
@@ -306,10 +313,12 @@ async def record_decision(params: DecisionInput) -> str:
         )
     except ValueError as e:
         return _refusal("invalid_decision", detail=str(e))
-    return json.dumps({
-        "committed": True,
-        "result": result.model_dump(mode="json"),
-    })
+    return json.dumps(
+        {
+            "committed": True,
+            "result": result.model_dump(mode="json"),
+        }
+    )
 
 
 @mcp.tool(
@@ -331,6 +340,30 @@ async def export_bundle_tool(params: BundleExportInput) -> str:
 
 
 @mcp.tool(
+    name="persist.publish_bundle",
+    annotations={"title": "Export and publish the M6 bundle to canonical S3", **_RW},
+)
+async def publish_bundle_tool(params: BundleExportInput) -> str:
+    """Build the confirmed-precedent bundle AND write it to the canonical S3
+    key that hydrate() reads at boot. Read-write: the only write side of the
+    export->hydrate cycle. Bucket/key resolve exactly like hydration."""
+    bundle = export_bundle(
+        source_env=params.source_env,
+        created_at=params.created_at,
+    )
+    from .hydrate import export_to_s3
+
+    bucket, key = export_to_s3(bundle)
+    return json.dumps(
+        {
+            "bucket": bucket,
+            "key": key,
+            "patterns": len(bundle.patterns),
+        }
+    )
+
+
+@mcp.tool(
     name="persist.import_bundle",
     annotations={"title": "Import an M6 mapping bundle", **_RW},
 )
@@ -349,10 +382,12 @@ async def import_bundle_tool(bundle: dict) -> str:
         summary = import_bundle(parsed)
     except ValueError as e:
         return _refusal("bundle_format_error", detail=str(e))
-    return json.dumps({
-        "committed": True,
-        "summary": summary.model_dump(mode="json"),
-    })
+    return json.dumps(
+        {
+            "committed": True,
+            "summary": summary.model_dump(mode="json"),
+        }
+    )
 
 
 if __name__ == "__main__":
