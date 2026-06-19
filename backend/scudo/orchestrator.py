@@ -283,7 +283,7 @@ class Orchestrator:
                 result,
                 report,
                 Outcome.RETRY,
-                outcome_reason=f"verifier {total} in 12–15 — retry once then HITL",
+                outcome_reason=f"verifier {total} in {self.verifier_retry_lo}–{self.verifier_retry_hi} — retry once then HITL",
                 pins=pins,
             )
 
