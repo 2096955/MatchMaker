@@ -63,7 +63,6 @@ class Orchestrator:
         ontology_snapshot: str,
         rubric_version: str,
         bundle_assembler=None,
-        verifier_autopublish: int = VERIFIER_AUTOPUBLISH,
         verifier_retry_lo: int = VERIFIER_RETRY_LO,
         verifier_retry_hi: int = VERIFIER_RETRY_HI,
         confidence_floor: float = CONFIDENCE_FLOOR,
@@ -79,7 +78,6 @@ class Orchestrator:
         # bundle_assembler is a callable(IntakeRequest, Route) -> BriefBundle.
         # Smoke tests inject a fake; production wires the JPMC bundle pipeline.
         self._assemble_bundle_fn = bundle_assembler
-        self.verifier_autopublish = verifier_autopublish
         self.verifier_retry_lo = verifier_retry_lo
         self.verifier_retry_hi = verifier_retry_hi
         self.confidence_floor = confidence_floor
@@ -309,7 +307,7 @@ class Orchestrator:
             result,
             report,
             Outcome.PUBLISHED,
-            outcome_reason="verifier >= 16, confidence >= floor",
+            outcome_reason=f"verifier > {self.verifier_retry_hi}, confidence >= {self.confidence_floor:.2f}",
             published_graph=named_graph,
             pins=pins,
         )

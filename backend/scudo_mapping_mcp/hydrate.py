@@ -127,9 +127,7 @@ def _bundle_s3_location() -> tuple[str, str]:
     return bucket, key
 
 
-def export_to_s3(
-    bundle: MappingBundle, *, uri: Optional[str] = None
-) -> tuple[str, str]:
+def export_to_s3(bundle: MappingBundle) -> tuple[str, str]:
     """Persist the canonical bundle JSON to the S3 location ``hydrate()`` reads.
 
     Closes the export->hydrate cycle: ``bundle.export_bundle()`` builds the
@@ -139,20 +137,11 @@ def export_to_s3(
 
     Args:
         bundle: the MappingBundle to persist.
-        uri: optional ``s3://bucket/key`` override; defaults to the canonical
-            location resolved exactly like the reader.
 
     Returns:
         (bucket, key) actually written.
     """
-    if uri:
-        if not uri.startswith("s3://"):
-            raise HydrationError(f"export_to_s3: uri must be s3://… got {uri!r}")
-        bucket, _, key = uri[len("s3://") :].partition("/")
-        if not bucket or not key:
-            raise HydrationError(f"export_to_s3: malformed uri {uri!r}")
-    else:
-        bucket, key = _bundle_s3_location()
+    bucket, key = _bundle_s3_location()
 
     body = bundle.model_dump_json().encode("utf-8")
     try:
