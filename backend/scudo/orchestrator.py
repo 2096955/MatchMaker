@@ -82,6 +82,17 @@ class Orchestrator:
         self.verifier_retry_hi = verifier_retry_hi
         self.confidence_floor = confidence_floor
 
+        if not (0 <= self.verifier_retry_lo <= self.verifier_retry_hi <= 20):
+            raise ValueError(
+                "Gate-2 verifier thresholds must satisfy "
+                f"0 <= retry_lo <= retry_hi <= 20; got "
+                f"lo={self.verifier_retry_lo}, hi={self.verifier_retry_hi}"
+            )
+        if not (0.0 <= self.confidence_floor <= 1.0):
+            raise ValueError(
+                f"confidence_floor must be in [0.0, 1.0]; got {self.confidence_floor}"
+            )
+
     # ── routing — deterministic rule on intake flags ─────────────────────
     @staticmethod
     def route(request: IntakeRequest) -> Route:

@@ -342,7 +342,11 @@ async def export_bundle_tool(params: BundleExportInput) -> str:
 
 @mcp.tool(
     name="persist.publish_bundle",
-    annotations={"title": "Export and publish the M6 bundle to canonical S3", **_RW},
+    annotations={
+        "title": "Export and publish the M6 bundle to canonical S3",
+        **_RW,
+        "idempotentHint": False,  # export_bundle stamps a fresh created_at each call
+    },
 )
 async def publish_bundle_tool(params: BundleExportInput) -> str:
     """Build the confirmed-precedent bundle AND write it to the canonical S3

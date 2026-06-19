@@ -2521,14 +2521,10 @@ def _():
 
         # Verify the written content matches the exported bundle.
         stored = s3._objects[(bucket, key)]
-        written = json.loads(stored["Body"].decode("utf-8"))
-        assert written["version"] == bundle.version, (
-            f"version mismatch: written={written['version']}, bundle={bundle.version}"
-        )
-        assert len(written["patterns"]) == len(bundle.patterns), (
-            f"patterns count mismatch: written={len(written['patterns'])}, "
-            f"bundle={len(bundle.patterns)}"
-        )
+        stored_body = stored["Body"]
+        assert json.loads(stored_body.decode("utf-8")) == json.loads(
+            bundle.model_dump_json()
+        ), "written S3 bytes do not match the exported bundle"
 
         # Fresh store + hydrate from the same fake S3 replays the precedent.
         _fresh_store()
