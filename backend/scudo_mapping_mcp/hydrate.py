@@ -27,6 +27,7 @@ CONTRACT:
 The canonical source is S3 today; once M7 wires Neptune, the canonical source
 becomes a Neptune-side export. Same ``import_bundle`` entry point either way.
 """
+
 from __future__ import annotations
 
 import io
@@ -57,6 +58,7 @@ def _s3_client():
     if _s3_client_for_test is not None:
         return _s3_client_for_test
     import boto3  # lazy — mock-only runs don't need boto3 installed
+
     return boto3.client("s3")
 
 
@@ -67,6 +69,7 @@ class HydrationResult:
     ``skipped_no_bundle`` is True when the canonical S3 key didn't exist
     (cold start). Every other field is zero in that case.
     """
+
     skipped_no_bundle: bool
     bundle_version: Optional[str]
     bundle_taxonomy_version: Optional[str]
@@ -106,7 +109,7 @@ def _bundle_s3_location() -> tuple[str, str]:
             raise HydrationError(
                 f"SCUDO_CANONICAL_BUNDLE_URI must be 's3://bucket/key', got {uri!r}"
             )
-        rest = uri[len("s3://"):]
+        rest = uri[len("s3://") :]
         bucket, _, key = rest.partition("/")
         if not bucket or not key:
             raise HydrationError(
@@ -120,8 +123,45 @@ def _bundle_s3_location() -> tuple[str, str]:
             "Cannot resolve canonical bundle location: neither "
             "SCUDO_CANONICAL_BUNDLE_URI nor S3_WORKING_SET_BUCKET is set."
         )
-    key = (os.getenv("SCUDO_CANONICAL_BUNDLE_KEY") or "").strip() \
-        or _DEFAULT_BUNDLE_KEY
+    key = (os.getenv("SCUDO_CANONICAL_BUNDLE_KEY") or "").strip() or _DEFAULT_BUNDLE_KEY
+    return bucket, key
+
+
+def export_to_s3(bundle: MappingBundle) -> tuple[str, str]:
+    """Persist the canonical bundle JSON to the S3 location ``hydrate()`` reads.
+
+    Closes the export->hydrate cycle: ``bundle.export_bundle()`` builds the
+    snapshot, this writes it to ``s3://<bucket>/<key>``, and the next boot's
+    ``hydrate()`` replays it. Resolution matches ``_bundle_s3_location`` so a
+    writer and reader pointed at the same env round-trip.
+
+    Args:
+        bundle: the MappingBundle to persist.
+
+    Returns:
+        (bucket, key) actually written.
+    """
+    bucket, key = _bundle_s3_location()
+
+    body = bundle.model_dump_json().encode("utf-8")
+    try:
+        _s3_client().put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=body,
+            ContentType="application/json",
+        )
+    except Exception as exc:
+        raise HydrationError(
+            f"export_to_s3: failed to write s3://{bucket}/{key}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+    _log.info(
+        "export_to_s3: wrote canonical bundle to s3://%s/%s (%d bytes)",
+        bucket,
+        key,
+        len(body),
+    )
     return bucket, key
 
 
@@ -187,11 +227,13 @@ def hydrate(strict: bool = True) -> HydrationResult:
             _log.warning(
                 "hydrate: no canonical bundle at s3://%s/%s — cold start; "
                 "FalkorDB stays empty until the first export lands at this key",
-                bucket, key,
+                bucket,
+                key,
             )
             return _empty_result(skipped_no_bundle=True)
-        msg = f"hydrate: failed to read s3://{bucket}/{key}: " \
-              f"{type(exc).__name__}: {exc}"
+        msg = (
+            f"hydrate: failed to read s3://{bucket}/{key}: {type(exc).__name__}: {exc}"
+        )
         if strict:
             raise HydrationError(msg) from exc
         _log.warning("%s (degraded-mode override; container will start empty)", msg)
@@ -216,7 +258,9 @@ def hydrate(strict: bool = True) -> HydrationResult:
     _log.info(
         "hydrate: bundle ok (version=%s, taxonomy_version=%s, "
         "source_env=%s, patterns=%d); replaying via import_bundle",
-        bundle.version, bundle.taxonomy_version, bundle.source_env,
+        bundle.version,
+        bundle.taxonomy_version,
+        bundle.source_env,
         len(bundle.patterns),
     )
 
@@ -229,10 +273,11 @@ def hydrate(strict: bool = True) -> HydrationResult:
         ) from exc
 
     _log.info(
-        "hydrate: applied=%d skipped_unknown_node=%d "
-        "skipped_out_of_scope=%d total=%d",
-        summary.applied, summary.skipped_unknown_node,
-        summary.skipped_out_of_scope, summary.total,
+        "hydrate: applied=%d skipped_unknown_node=%d skipped_out_of_scope=%d total=%d",
+        summary.applied,
+        summary.skipped_unknown_node,
+        summary.skipped_out_of_scope,
+        summary.total,
     )
 
     return HydrationResult(
@@ -263,7 +308,9 @@ def _empty_result(*, skipped_no_bundle: bool) -> HydrationResult:
 if __name__ == "__main__":  # pragma: no cover — operator entry point
     # CLI: python -m scudo_mapping_mcp.hydrate
     # Useful for an init-container or manual operator triage.
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
     try:
         result = hydrate(strict=True)
     except HydrationError as exc:
@@ -274,7 +321,9 @@ if __name__ == "__main__":  # pragma: no cover — operator entry point
         raise SystemExit(0)
     _log.info(
         "hydration: applied %d/%d patterns (bundle version=%s, taxonomy=%s)",
-        result.applied, result.total, result.bundle_version,
+        result.applied,
+        result.total,
+        result.bundle_version,
         result.bundle_taxonomy_version,
     )
     raise SystemExit(0)

@@ -8,6 +8,7 @@ also confirms the catalogue → bundle path is wired correctly.
 Run:
   python -m scudo.tests.smoke
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,9 +31,20 @@ from scudo import sidecar as scudo_sidecar
 from scudo.catalogue import catalogue_mcp_client, get_product_via_mcp
 from scudo.orchestrator import Orchestrator
 from scudo.schemas import (
-    Band, BriefBundle, CandidateNode, ConflictRecord, Evidence, IntakeRequest,
-    MappingResult, Outcome, PrecedentMapping, ProposedTriple, Route,
-    SCHEMA_VERSION, VerifierDimension, VerifierReport, VerifierScore,
+    Band,
+    BriefBundle,
+    CandidateNode,
+    ConflictRecord,
+    Evidence,
+    IntakeRequest,
+    MappingResult,
+    Outcome,
+    PrecedentMapping,
+    ProposedTriple,
+    Route,
+    VerifierDimension,
+    VerifierReport,
+    VerifierScore,
 )
 from scudo.stubs import InMemoryHitlQueue, InMemoryPublishSink, InMemoryResearchQueue
 
@@ -45,6 +57,7 @@ from scudo.stubs import InMemoryHitlQueue, InMemoryPublishSink, InMemoryResearch
 class _FakeAgentResult:
     """Mirrors strands.agent.agent_result.AgentResult — only the field the
     orchestrator reads (`structured_output`) is needed for the fake."""
+
     structured_output: Any = None
 
 
@@ -65,7 +78,9 @@ class FakeAgent:
     def __call__(self, prompt=None, *, structured_output_model=None, **kwargs):
         if structured_output_model is not None:
             return _FakeAgentResult(
-                structured_output=self.structured_output(structured_output_model, prompt or "")
+                structured_output=self.structured_output(
+                    structured_output_model, prompt or ""
+                )
             )
         if self.call_responder is None:
             return f"<fake-agent-response for {(prompt or '')[:40]!r}...>"
@@ -83,8 +98,11 @@ def make_bundle_assembler(mcp_client):
     Mode (real AWS vs in-memory mock) is decided inside scudo.sidecar and
     scudo.authoritative by their own env vars — this assembler is agnostic.
     """
+
     def _assemble(request: IntakeRequest, route: Route) -> BriefBundle:
-        product = get_product_via_mcp(mcp_client, request.vendor, request.vendor_product_ref)
+        product = get_product_via_mcp(
+            mcp_client, request.vendor, request.vendor_product_ref
+        )
 
         # Candidate retrieval — lexical SIDECAR (non-authoritative).
         term = product.get("title") or request.vendor_product_ref
@@ -95,7 +113,8 @@ def make_bundle_assembler(mcp_client):
         precedent: Optional[PrecedentMapping] = None
         if request.has_precedent:
             existing = scudo_authoritative.existing_mapping(
-                vendor=request.vendor, vendor_product_ref=request.vendor_product_ref,
+                vendor=request.vendor,
+                vendor_product_ref=request.vendor_product_ref,
             )
             if existing:
                 precedent = PrecedentMapping(**existing)
@@ -103,7 +122,9 @@ def make_bundle_assembler(mcp_client):
         # Conflicts — AUTHORITATIVE graph; only when the intake flag is set.
         conflict_list = []
         if request.has_conflict:
-            for c in scudo_authoritative.conflicts(vendor_product_ref=request.vendor_product_ref):
+            for c in scudo_authoritative.conflicts(
+                vendor_product_ref=request.vendor_product_ref
+            ):
                 conflict_list.append(ConflictRecord(**c))
 
         return BriefBundle(
@@ -117,6 +138,7 @@ def make_bundle_assembler(mcp_client):
             assembled_at=datetime(2026, 5, 19, 10, 0, 0, tzinfo=timezone.utc),
             bundle_ref=f"bundle-{uuid4()}",
         )
+
     return _assemble
 
 
@@ -131,23 +153,33 @@ def _verifier_with_total(total: int, rubric_version: str):
         s = min(2, remaining)
         remaining -= s
         scores.append(VerifierScore(dimension=dim, score=s))
-    return VerifierReport(scores=scores, total_score=total,
-                           defects=[], rubric_version=rubric_version)
+    return VerifierReport(
+        scores=scores, total_score=total, defects=[], rubric_version=rubric_version
+    )
 
 
 def mapping_responder(
-    *, target_iri: str, confidence: float, requires_review: bool = False,
+    *,
+    target_iri: str,
+    confidence: float,
+    requires_review: bool = False,
     include_evidence: bool = True,
 ):
     def _respond(model_cls, prompt):
-        evidence = [
-            Evidence(
-                claim=f"vendor product maps to {target_iri}",
-                source_iris=[target_iri,
-                             "mds.lseg:9b911986-764b-529c-be8f-9744d86ec0b8"],
-                quote="estimates: I/B/E/S consensus estimates align with EquityResearch",
-            ),
-        ] if include_evidence else []
+        evidence = (
+            [
+                Evidence(
+                    claim=f"vendor product maps to {target_iri}",
+                    source_iris=[
+                        target_iri,
+                        "mds.lseg:9b911986-764b-529c-be8f-9744d86ec0b8",
+                    ],
+                    quote="estimates: I/B/E/S consensus estimates align with EquityResearch",
+                ),
+            ]
+            if include_evidence
+            else []
+        )
         return MappingResult(
             vendor_product_iri="mds.lseg:9b911986-764b-529c-be8f-9744d86ec0b8",
             proposed_target_iri=target_iri,
@@ -165,6 +197,7 @@ def mapping_responder(
                 ),
             ],
         )
+
     return _respond
 
 
@@ -190,7 +223,9 @@ def main() -> None:
 
         assembler = make_bundle_assembler(mcp)
 
-        def _build(*, verifier_total: int, confidence: float, requires_review: bool = False):
+        def _build(
+            *, verifier_total: int, confidence: float, requires_review: bool = False
+        ):
             mapping_agent = FakeAgent(
                 structured_responder=mapping_responder(
                     target_iri=candidate_iri,
@@ -199,7 +234,9 @@ def main() -> None:
                 ),
                 call_responder=lambda p: "RESEARCH write-up (fake).",
             )
-            verifier_agent = FakeAgent(structured_responder=verifier_responder(verifier_total, rubric_version))
+            verifier_agent = FakeAgent(
+                structured_responder=verifier_responder(verifier_total, rubric_version)
+            )
             return Orchestrator(
                 mapping_specialist=mapping_agent,
                 rights_specialist=None,
@@ -214,11 +251,18 @@ def main() -> None:
 
         # 1) High verifier + high confidence → PUBLISHED
         orch = _build(verifier_total=18, confidence=0.91)
-        obj = orch.run({
-            "vendor": "lseg", "vendor_product_ref": "LSEG-IBES-EST-001",
-            "has_precedent": False, "has_conflict": False, "ontology_gap": False,
-        })
-        print(f"\n[1] route={obj.route.value} outcome={obj.outcome.value} reason={obj.outcome_reason}")
+        obj = orch.run(
+            {
+                "vendor": "lseg",
+                "vendor_product_ref": "LSEG-IBES-EST-001",
+                "has_precedent": False,
+                "has_conflict": False,
+                "ontology_gap": False,
+            }
+        )
+        print(
+            f"\n[1] route={obj.route.value} outcome={obj.outcome.value} reason={obj.outcome_reason}"
+        )
         assert obj.outcome is Outcome.PUBLISHED
         assert obj.route is Route.NEW_MAPPING
         assert obj.published_graph == "jpmorgan:data:cdao:graphs:enrichment-2026-05-19"
@@ -226,50 +270,83 @@ def main() -> None:
 
         # 2) Verifier in 12–15 retry band → RETRY
         orch = _build(verifier_total=14, confidence=0.85)
-        obj = orch.run({
-            "vendor": "lseg", "vendor_product_ref": "LSEG-IBES-EST-001",
-            "has_precedent": True, "has_conflict": False, "ontology_gap": False,
-        })
-        print(f"[2] route={obj.route.value} outcome={obj.outcome.value} reason={obj.outcome_reason}")
+        obj = orch.run(
+            {
+                "vendor": "lseg",
+                "vendor_product_ref": "LSEG-IBES-EST-001",
+                "has_precedent": True,
+                "has_conflict": False,
+                "ontology_gap": False,
+            }
+        )
+        print(
+            f"[2] route={obj.route.value} outcome={obj.outcome.value} reason={obj.outcome_reason}"
+        )
         assert obj.outcome is Outcome.RETRY
         assert obj.route is Route.EXTEND_MAPPING
 
         # 3) Confidence below floor → HITL
         orch = _build(verifier_total=18, confidence=0.70)
-        obj = orch.run({
-            "vendor": "lseg", "vendor_product_ref": "LSEG-IBES-EST-001",
-            "has_precedent": False, "has_conflict": False, "ontology_gap": False,
-        })
-        print(f"[3] route={obj.route.value} outcome={obj.outcome.value} reason={obj.outcome_reason}")
+        obj = orch.run(
+            {
+                "vendor": "lseg",
+                "vendor_product_ref": "LSEG-IBES-EST-001",
+                "has_precedent": False,
+                "has_conflict": False,
+                "ontology_gap": False,
+            }
+        )
+        print(
+            f"[3] route={obj.route.value} outcome={obj.outcome.value} reason={obj.outcome_reason}"
+        )
         assert obj.outcome is Outcome.HITL
         assert obj.hitl_ticket and obj.hitl_ticket.startswith("HITL-")
 
         # 4) self-flag (requires_human_review=True) → HITL even with high scores
         orch = _build(verifier_total=20, confidence=0.95, requires_review=True)
-        obj = orch.run({
-            "vendor": "lseg", "vendor_product_ref": "LSEG-IBES-EST-001",
-            "has_precedent": False, "has_conflict": False, "ontology_gap": False,
-        })
-        print(f"[4] route={obj.route.value} outcome={obj.outcome.value} reason={obj.outcome_reason}")
+        obj = orch.run(
+            {
+                "vendor": "lseg",
+                "vendor_product_ref": "LSEG-IBES-EST-001",
+                "has_precedent": False,
+                "has_conflict": False,
+                "ontology_gap": False,
+            }
+        )
+        print(
+            f"[4] route={obj.route.value} outcome={obj.outcome.value} reason={obj.outcome_reason}"
+        )
         assert obj.outcome is Outcome.HITL
 
         # 5) ontology_gap → RESEARCH (never publishes)
         orch = _build(verifier_total=20, confidence=0.95)
-        obj = orch.run({
-            "vendor": "lseg", "vendor_product_ref": "LSEG-IBES-EST-001",
-            "has_precedent": False, "has_conflict": False, "ontology_gap": True,
-        })
-        print(f"[5] route={obj.route.value} outcome={obj.outcome.value} reason={obj.outcome_reason}")
+        obj = orch.run(
+            {
+                "vendor": "lseg",
+                "vendor_product_ref": "LSEG-IBES-EST-001",
+                "has_precedent": False,
+                "has_conflict": False,
+                "ontology_gap": True,
+            }
+        )
+        print(
+            f"[5] route={obj.route.value} outcome={obj.outcome.value} reason={obj.outcome_reason}"
+        )
         assert obj.route is Route.RESEARCH
         assert obj.outcome is Outcome.RESEARCH_QUEUED
         assert orch.publisher.published == [], "RESEARCH must never publish"
 
         # 6) has_conflict → RECONCILE_CONFLICT routing
         orch = _build(verifier_total=18, confidence=0.91)
-        obj = orch.run({
-            "vendor": "lseg", "vendor_product_ref": "LSEG-IBES-EST-001",
-            "has_precedent": False, "has_conflict": True, "ontology_gap": False,
-        })
+        obj = orch.run(
+            {
+                "vendor": "lseg",
+                "vendor_product_ref": "LSEG-IBES-EST-001",
+                "has_precedent": False,
+                "has_conflict": True,
+                "ontology_gap": False,
+            }
+        )
         print(f"[6] route={obj.route.value} outcome={obj.outcome.value}")
         assert obj.route is Route.RECONCILE_CONFLICT
 
@@ -277,14 +354,23 @@ def main() -> None:
         #    score, but pre-verifier defects should surface (smoke that the
         #    orchestrator's pre-checks fire).
         from scudo.orchestrator import Orchestrator as O
+
         bad_iri = "jpmorgan:data:cdao:NotInBundle"
-        mapping_agent = FakeAgent(structured_responder=mapping_responder(target_iri=bad_iri, confidence=0.95))
-        verifier_agent = FakeAgent(structured_responder=verifier_responder(20, rubric_version))
+        mapping_agent = FakeAgent(
+            structured_responder=mapping_responder(target_iri=bad_iri, confidence=0.95)
+        )
+        verifier_agent = FakeAgent(
+            structured_responder=verifier_responder(20, rubric_version)
+        )
         orch7 = O(
-            mapping_specialist=mapping_agent, rights_specialist=None,
-            verifier=verifier_agent, hitl_queue=InMemoryHitlQueue(),
-            research_queue=InMemoryResearchQueue(), publish_sink=InMemoryPublishSink(),
-            ontology_snapshot=ontology_snapshot, rubric_version=rubric_version,
+            mapping_specialist=mapping_agent,
+            rights_specialist=None,
+            verifier=verifier_agent,
+            hitl_queue=InMemoryHitlQueue(),
+            research_queue=InMemoryResearchQueue(),
+            publish_sink=InMemoryPublishSink(),
+            ontology_snapshot=ontology_snapshot,
+            rubric_version=rubric_version,
             bundle_assembler=assembler,
         )
         bundle = assembler(
@@ -299,19 +385,29 @@ def main() -> None:
 
         # 8) Verifier total recomputed if model returns inconsistent sum.
         from scudo.schemas import VerifierReport as VR
+
         bad_report = VR(
             scores=[VerifierScore(dimension=d, score=2) for d in VerifierDimension],
             total_score=5,  # inconsistent — should be 20
-            defects=[], rubric_version=rubric_version,
+            defects=[],
+            rubric_version=rubric_version,
         )
         # Build a one-off orchestrator and call the private path.
         v_agent = FakeAgent(structured_responder=lambda mc, p: bad_report)
-        m_agent = FakeAgent(structured_responder=mapping_responder(target_iri=candidate_iri, confidence=0.95))
+        m_agent = FakeAgent(
+            structured_responder=mapping_responder(
+                target_iri=candidate_iri, confidence=0.95
+            )
+        )
         orch8 = O(
-            mapping_specialist=m_agent, rights_specialist=None, verifier=v_agent,
-            hitl_queue=InMemoryHitlQueue(), research_queue=InMemoryResearchQueue(),
+            mapping_specialist=m_agent,
+            rights_specialist=None,
+            verifier=v_agent,
+            hitl_queue=InMemoryHitlQueue(),
+            research_queue=InMemoryResearchQueue(),
             publish_sink=InMemoryPublishSink(),
-            ontology_snapshot=ontology_snapshot, rubric_version=rubric_version,
+            ontology_snapshot=ontology_snapshot,
+            rubric_version=rubric_version,
             bundle_assembler=assembler,
         )
         result8 = m_agent.structured_output(MappingResult, "")
@@ -321,21 +417,27 @@ def main() -> None:
         )
         report8 = orch8._call_verifier(result8, defects_pre=[], bundle=bundle8)
         print(f"[8] inconsistent verifier total recomputed: {report8.total_score}")
-        assert report8.total_score == 20, "orchestrator must recompute model's inconsistent total"
+        assert report8.total_score == 20, (
+            "orchestrator must recompute model's inconsistent total"
+        )
 
         # 9) RejectRawQueryHook now catches openCypher signatures too.
         from scudo.hooks import _RAW_QUERY_MARKERS
+
         sentinel_inputs = [
-            {"term": "MATCH (n) RETURN n"},                     # raw cypher
-            {"q": "MERGE (a {x:1})"},                           # raw cypher
-            {"sparql": "SELECT ?s WHERE { ?s ?p ?o }"},         # raw sparql
-            {"turtle": "@prefix ex: <http://example/> ."},      # raw turtle
+            {"term": "MATCH (n) RETURN n"},  # raw cypher
+            {"q": "MERGE (a {x:1})"},  # raw cypher
+            {"sparql": "SELECT ?s WHERE { ?s ?p ?o }"},  # raw sparql
+            {"turtle": "@prefix ex: <http://example/> ."},  # raw turtle
         ]
         hits = sum(
-            1 for inp in sentinel_inputs
+            1
+            for inp in sentinel_inputs
             if any(m in repr(inp).lower() for m in _RAW_QUERY_MARKERS)
         )
-        print(f"\n[9] raw-query markers caught {hits}/{len(sentinel_inputs)} sentinel payloads")
+        print(
+            f"\n[9] raw-query markers caught {hits}/{len(sentinel_inputs)} sentinel payloads"
+        )
         assert hits == len(sentinel_inputs)
 
         # 10) Mock facade actually supplied bundle candidates (proof the
@@ -348,7 +450,9 @@ def main() -> None:
 
         # 11) Pre-verify defect: confidence > 0.5 with empty evidence is flagged.
         bad_evidence_responder = mapping_responder(
-            target_iri=candidate_iri, confidence=0.85, include_evidence=False,
+            target_iri=candidate_iri,
+            confidence=0.85,
+            include_evidence=False,
         )
         bad_result = bad_evidence_responder(MappingResult, "")
         orch_ev = _build(verifier_total=18, confidence=0.85)
@@ -360,14 +464,56 @@ def main() -> None:
 
         # 12) Band must match confidence — a mismatched band is flagged.
         from scudo.schemas import Band
+
         wrong_band = bad_evidence_responder(MappingResult, "").model_copy(
-            update={"band": Band.LOW, "evidence": [
-                Evidence(claim="x", source_iris=[candidate_iri])
-            ]},
+            update={
+                "band": Band.LOW,
+                "evidence": [Evidence(claim="x", source_iris=[candidate_iri])],
+            },
         )
         band_defects = orch_ev._pre_verify_defects(wrong_band, sample_bundle)
         print(f"[12] band-mismatch defects: {band_defects}")
         assert any("disagrees with confidence" in d for d in band_defects)
+
+        # 13) Gate-2 thresholds are per-instance: raising verifier_retry_hi to
+        #     17 turns a verifier total of 16 — normally PUBLISHED — into a RETRY.
+        mapping_agent_13 = FakeAgent(
+            structured_responder=mapping_responder(
+                target_iri=candidate_iri,
+                confidence=0.91,
+                requires_review=False,
+            ),
+            call_responder=lambda p: "RESEARCH write-up (fake).",
+        )
+        verifier_agent_13 = FakeAgent(
+            structured_responder=verifier_responder(16, rubric_version)
+        )
+        orch_13 = Orchestrator(
+            mapping_specialist=mapping_agent_13,
+            rights_specialist=None,
+            verifier=verifier_agent_13,
+            hitl_queue=InMemoryHitlQueue(),
+            research_queue=InMemoryResearchQueue(),
+            publish_sink=InMemoryPublishSink(),
+            ontology_snapshot=ontology_snapshot,
+            rubric_version=rubric_version,
+            bundle_assembler=assembler,
+            verifier_retry_hi=17,
+        )
+        obj_13 = orch_13.run(
+            {
+                "vendor": "lseg",
+                "vendor_product_ref": "LSEG-IBES-EST-001",
+                "has_precedent": False,
+                "has_conflict": False,
+                "ontology_gap": False,
+            }
+        )
+        print(
+            f"[13] route={obj_13.route.value} outcome={obj_13.outcome.value} reason={obj_13.outcome_reason}"
+        )
+        assert obj_13.outcome is Outcome.RETRY, f"expected RETRY, got {obj_13.outcome}"
+        assert obj_13.route is Route.NEW_MAPPING
 
     print("\nSCUDO SMOKE OK")
 

@@ -10,13 +10,12 @@ The orchestrator depends on protocols (HitlQueue, ResearchQueue, PublishSink)
 and on agents whose only public surface is `structured_output(Model, prompt)` —
 so the smoke test injects fake agents without touching Strands or Bedrock.
 """
+
 from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
 from typing import Any, Optional
-from uuid import uuid4
 
 from pydantic import ValidationError
 
@@ -35,9 +34,9 @@ from .stubs import HitlQueue, PublishSink, ResearchQueue
 
 log = logging.getLogger("scudo.orchestrator")
 
-VERIFIER_AUTOPUBLISH = 16          # blueprint §9
+VERIFIER_AUTOPUBLISH = 16  # blueprint §9
 VERIFIER_RETRY_LO, VERIFIER_RETRY_HI = 12, 15
-CONFIDENCE_FLOOR = 0.80            # clarif. F31
+CONFIDENCE_FLOOR = 0.80  # clarif. F31
 
 # Only IRIs matching one of these patterns can flow through publish.
 # `mds.<vendor>:<uuid>` for vendor products, `jpmorgan:data:cdao:` for CDAO nodes.
@@ -64,6 +63,9 @@ class Orchestrator:
         ontology_snapshot: str,
         rubric_version: str,
         bundle_assembler=None,
+        verifier_retry_lo: int = VERIFIER_RETRY_LO,
+        verifier_retry_hi: int = VERIFIER_RETRY_HI,
+        confidence_floor: float = CONFIDENCE_FLOOR,
     ) -> None:
         self.mapping = mapping_specialist
         self.rights = rights_specialist
@@ -76,6 +78,20 @@ class Orchestrator:
         # bundle_assembler is a callable(IntakeRequest, Route) -> BriefBundle.
         # Smoke tests inject a fake; production wires the JPMC bundle pipeline.
         self._assemble_bundle_fn = bundle_assembler
+        self.verifier_retry_lo = verifier_retry_lo
+        self.verifier_retry_hi = verifier_retry_hi
+        self.confidence_floor = confidence_floor
+
+        if not (0 <= self.verifier_retry_lo <= self.verifier_retry_hi <= 20):
+            raise ValueError(
+                "Gate-2 verifier thresholds must satisfy "
+                f"0 <= retry_lo <= retry_hi <= 20; got "
+                f"lo={self.verifier_retry_lo}, hi={self.verifier_retry_hi}"
+            )
+        if not (0.0 <= self.confidence_floor <= 1.0):
+            raise ValueError(
+                f"confidence_floor must be in [0.0, 1.0]; got {self.confidence_floor}"
+            )
 
     # ── routing — deterministic rule on intake flags ─────────────────────
     @staticmethod
@@ -92,8 +108,12 @@ class Orchestrator:
     def run(self, request_payload: dict) -> MappingObject:
         request = IntakeRequest.model_validate(request_payload)
         route = self.route(request)
-        log.info("scudo route=%s vendor=%s vpr=%s",
-                 route.value, request.vendor, request.vendor_product_ref)
+        log.info(
+            "scudo route=%s vendor=%s vpr=%s",
+            route.value,
+            request.vendor,
+            request.vendor_product_ref,
+        )
 
         bundle = self._assemble_bundle(request, route)
         pins = {
@@ -125,10 +145,13 @@ class Orchestrator:
         # Backfill the version pins if the assembler omitted them so every
         # downstream call (mapping, verifier, MappingObject) has them.
         if not bundle.ontology_snapshot or not bundle.rubric_version:
-            bundle = bundle.model_copy(update={
-                "ontology_snapshot": bundle.ontology_snapshot or self.ontology_snapshot,
-                "rubric_version": bundle.rubric_version or self.rubric_version,
-            })
+            bundle = bundle.model_copy(
+                update={
+                    "ontology_snapshot": bundle.ontology_snapshot
+                    or self.ontology_snapshot,
+                    "rubric_version": bundle.rubric_version or self.rubric_version,
+                }
+            )
         try:
             BriefBundle.model_validate(bundle.model_dump())
         except ValidationError as e:
@@ -149,10 +172,13 @@ class Orchestrator:
         return getattr(result, "structured_output", result)
 
     def _call_mapping(self, bundle: BriefBundle) -> MappingResult:
-        return self._structured_call(self.mapping, MappingResult, mapping_prompt(bundle))
+        return self._structured_call(
+            self.mapping, MappingResult, mapping_prompt(bundle)
+        )
 
-    def _call_verifier(self, result: MappingResult, *, defects_pre: list[str],
-                       bundle: BriefBundle) -> VerifierReport:
+    def _call_verifier(
+        self, result: MappingResult, *, defects_pre: list[str], bundle: BriefBundle
+    ) -> VerifierReport:
         prompt = verifier_prompt(
             result,
             rubric_version=self.rubric_version,
@@ -170,7 +196,8 @@ class Orchestrator:
         if recomputed != report.total_score:
             log.warning(
                 "Verifier total %d inconsistent with sum %d — overriding.",
-                report.total_score, recomputed,
+                report.total_score,
+                recomputed,
             )
             report = report.model_copy(update={"total_score": recomputed})
         return report
@@ -182,13 +209,20 @@ class Orchestrator:
     def _pre_verify_defects(result: MappingResult, bundle: BriefBundle) -> list[str]:
         defects: list[str] = []
         candidate_iris = {c.iri for c in bundle.candidates}
-        if result.proposed_target_iri and candidate_iris and result.proposed_target_iri not in candidate_iris:
+        if (
+            result.proposed_target_iri
+            and candidate_iris
+            and result.proposed_target_iri not in candidate_iris
+        ):
             defects.append(
                 f"proposed_target_iri {result.proposed_target_iri!r} is not in "
                 "bundle.candidates — specialists must select from the candidates."
             )
         # Evidence-when-confident: every confident assertion needs cited evidence.
-        if result.confidence > Orchestrator.EVIDENCE_REQUIRED_ABOVE and not result.evidence:
+        if (
+            result.confidence > Orchestrator.EVIDENCE_REQUIRED_ABOVE
+            and not result.evidence
+        ):
             defects.append(
                 f"confidence={result.confidence:.2f} exceeds the "
                 f"{Orchestrator.EVIDENCE_REQUIRED_ABOVE} evidence-required floor "
@@ -206,7 +240,9 @@ class Orchestrator:
             )
         for t in result.proposed_triples:
             if not t.graph:
-                defects.append("a proposed triple is missing its named graph (no provenance).")
+                defects.append(
+                    "a proposed triple is missing its named graph (no provenance)."
+                )
             if not _IRI_DETERMINISM.match(t.subject):
                 defects.append(f"non-deterministic triple subject IRI: {t.subject!r}")
         return defects
@@ -224,20 +260,41 @@ class Orchestrator:
         conf = result.confidence
 
         # Floor breach OR self-flag → HITL, no retry path.
-        if total < VERIFIER_RETRY_LO or conf < CONFIDENCE_FLOOR or result.requires_human_review:
+        if (
+            total < self.verifier_retry_lo
+            or conf < self.confidence_floor
+            or result.requires_human_review
+        ):
             reason = (
                 f"floor breach (verifier={total}, confidence={conf:.2f}, "
                 f"self_flag={result.requires_human_review})"
             )
-            ticket = self.hitl.enqueue(mapping_result=result, verifier_report=report, reason=reason)
-            return self._object(route, bundle, result, report, Outcome.HITL, reason, hitl_ticket=ticket, pins=pins)
+            ticket = self.hitl.enqueue(
+                mapping_result=result, verifier_report=report, reason=reason
+            )
+            return self._object(
+                route,
+                bundle,
+                result,
+                report,
+                Outcome.HITL,
+                reason,
+                hitl_ticket=ticket,
+                pins=pins,
+            )
 
-        if VERIFIER_RETRY_LO <= total <= VERIFIER_RETRY_HI:
+        if self.verifier_retry_lo <= total <= self.verifier_retry_hi:
             # Single retry then HITL — the orchestrator stamps the retry marker
             # so the caller (or a calling workflow) can re-invoke run().
-            return self._object(route, bundle, result, report, Outcome.RETRY,
-                                outcome_reason=f"verifier {total} in 12–15 — retry once then HITL",
-                                pins=pins)
+            return self._object(
+                route,
+                bundle,
+                result,
+                report,
+                Outcome.RETRY,
+                outcome_reason=f"verifier {total} in {self.verifier_retry_lo}–{self.verifier_retry_hi} — retry once then HITL",
+                pins=pins,
+            )
 
         # total >= 16 and conf >= floor → attempt publish. Final, unconditional
         # invariant checks run again here so a malformed result cannot publish
@@ -255,9 +312,16 @@ class Orchestrator:
             named_graph=named_graph,
             triples=[t.model_dump() for t in result.proposed_triples],
         )
-        return self._object(route, bundle, result, report, Outcome.PUBLISHED,
-                            outcome_reason="verifier >= 16, confidence >= floor",
-                            published_graph=named_graph, pins=pins)
+        return self._object(
+            route,
+            bundle,
+            result,
+            report,
+            Outcome.PUBLISHED,
+            outcome_reason=f"verifier > {self.verifier_retry_hi}, confidence >= {self.confidence_floor:.2f}",
+            published_graph=named_graph,
+            pins=pins,
+        )
 
     @staticmethod
     def _named_graph_for(result: MappingResult) -> str:
@@ -266,7 +330,9 @@ class Orchestrator:
         if not graphs:
             raise PublishGateError("MappingResult carries no triples to publish.")
         if len(graphs) > 1:
-            raise PublishGateError(f"proposed_triples span multiple graphs: {sorted(graphs)}")
+            raise PublishGateError(
+                f"proposed_triples span multiple graphs: {sorted(graphs)}"
+            )
         return next(iter(graphs))
 
     # ── RESEARCH path: write up, queue for ontology owner, never publish ──
@@ -274,7 +340,9 @@ class Orchestrator:
         # The mapping specialist doubles as the research writer for the v1
         # scaffold. Production will split this out per blueprint §4.2.
         writeup = self.mapping(research_prompt(bundle))
-        ticket = self.research.enqueue(writeup=str(writeup), bundle_ref=bundle.bundle_ref)
+        ticket = self.research.enqueue(
+            writeup=str(writeup), bundle_ref=bundle.bundle_ref
+        )
         return self._object(
             route=Route.RESEARCH,
             bundle=bundle,
@@ -315,6 +383,10 @@ class Orchestrator:
 
 
 __all__ = [
-    "Orchestrator", "PublishGateError",
-    "VERIFIER_AUTOPUBLISH", "VERIFIER_RETRY_LO", "VERIFIER_RETRY_HI", "CONFIDENCE_FLOOR",
+    "Orchestrator",
+    "PublishGateError",
+    "VERIFIER_AUTOPUBLISH",
+    "VERIFIER_RETRY_LO",
+    "VERIFIER_RETRY_HI",
+    "CONFIDENCE_FLOOR",
 ]
