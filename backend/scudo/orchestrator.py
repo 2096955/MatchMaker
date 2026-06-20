@@ -105,7 +105,17 @@ class Orchestrator:
         return Route.NEW_MAPPING
 
     # ── run — end to end ─────────────────────────────────────────────────
-    def run(self, request_payload: dict) -> MappingObject:
+    def run(
+        self, request_payload: dict, *, prior_rejection: str | None = None
+    ) -> MappingObject:
+        """Map one vendor product end to end.
+
+        `prior_rejection` is the self-verifying-loop's requeue signal: when a
+        batch re-runs a unit that previously scored in the retry band, the prior
+        rejection reason rides back in so the maker knows what to fix. It steers
+        the *maker* only (never the verifier — that would break verifier
+        independence). Default None keeps the single-product path unchanged.
+        """
         request = IntakeRequest.model_validate(request_payload)
         route = self.route(request)
         log.info(
@@ -126,7 +136,7 @@ class Orchestrator:
         if route is Route.RESEARCH:
             return self._handle_research(bundle, pins)
 
-        result = self._call_mapping(bundle)
+        result = self._call_mapping(bundle, prior_rejection=prior_rejection)
         # Two cheap guards BEFORE the verifier — failing them never wastes a
         # verifier call. The verifier itself can still flag them via dimensions.
         defects_pre = self._pre_verify_defects(result, bundle)
@@ -171,10 +181,19 @@ class Orchestrator:
         # New API returns an AgentResult; unwrap the structured payload.
         return getattr(result, "structured_output", result)
 
-    def _call_mapping(self, bundle: BriefBundle) -> MappingResult:
-        return self._structured_call(
-            self.mapping, MappingResult, mapping_prompt(bundle)
-        )
+    def _call_mapping(
+        self, bundle: BriefBundle, *, prior_rejection: str | None = None
+    ) -> MappingResult:
+        prompt = mapping_prompt(bundle)
+        if prior_rejection:
+            # Mirror how _call_verifier appends defects_pre — the reason is a
+            # maker-steering signal, appended to the maker prompt only.
+            prompt += (
+                "\n\nThis is a re-attempt. A previous mapping for this product "
+                "was rejected for the following reason — address it directly:\n  - "
+                + prior_rejection
+            )
+        return self._structured_call(self.mapping, MappingResult, prompt)
 
     def _call_verifier(
         self, result: MappingResult, *, defects_pre: list[str], bundle: BriefBundle

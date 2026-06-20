@@ -9,6 +9,7 @@ Schema versioning: bump `SCHEMA_VERSION` on any breaking change; the orchestrato
 stamps it into `invocation_state` so a replayed run with a different schema is
 detectable (clarif. G39).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -35,6 +36,7 @@ class Route(str, Enum):
 # ────────────────────────────────────────────────────────────────────────────
 class IntakeRequest(BaseModel):
     """The deterministic intake stamps these flags before any agent reasons."""
+
     model_config = ConfigDict(extra="forbid")
 
     vendor: str = Field(..., examples=["lseg"])
@@ -51,7 +53,9 @@ class CandidateNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
     iri: str = Field(..., examples=["jpmorgan:data:cdao:EquityResearch"])
     label: str
-    score: float = Field(..., ge=0.0, le=1.0, description="Retrieval score from Neptune.")
+    score: float = Field(
+        ..., ge=0.0, le=1.0, description="Retrieval score from Neptune."
+    )
 
 
 class PrecedentMapping(BaseModel):
@@ -76,11 +80,14 @@ class BriefBundle(BaseModel):
     Carrying the bundle is the structural guard against the rediscovery
     failure mode (the hook caps Neptune reads as defence-in-depth).
     """
+
     model_config = ConfigDict(extra="forbid")
 
     request: IntakeRequest
     route: Route
-    vendor_product_iri: str = Field(..., description="mds.<vendor>:<uuid> from catalogue MCP.")
+    vendor_product_iri: str = Field(
+        ..., description="mds.<vendor>:<uuid> from catalogue MCP."
+    )
     vendor_assertion: dict = Field(
         ..., description="NormalisedProduct payload from the catalogue MCP, as dict."
     )
@@ -88,7 +95,9 @@ class BriefBundle(BaseModel):
     precedent: Optional[PrecedentMapping] = None
     conflicts: list[ConflictRecord] = Field(default_factory=list)
     assembled_at: datetime
-    bundle_ref: str = Field(..., description="Replay-safe handle for the assembled bundle.")
+    bundle_ref: str = Field(
+        ..., description="Replay-safe handle for the assembled bundle."
+    )
     # Version pins — carried explicitly so the specialist can cite them in
     # evidence and the verifier can score taxonomy_freshness on real evidence
     # rather than an absence. Default to "" so existing assemblers don't break;
@@ -108,6 +117,7 @@ class BriefBundle(BaseModel):
 # ────────────────────────────────────────────────────────────────────────────
 class ProposedTriple(BaseModel):
     """Triple plus its named graph (no graph → no provenance → blocked at publish)."""
+
     model_config = ConfigDict(extra="forbid")
     subject: str
     predicate: str
@@ -118,6 +128,7 @@ class ProposedTriple(BaseModel):
 class Band(str, Enum):
     """Confidence band — high / medium / low, per the taxonomy-mapping skill.
     Threshold: high ≥ 0.8 ; medium 0.5 ≤ c < 0.8 ; low < 0.5."""
+
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
@@ -139,6 +150,7 @@ class Evidence(BaseModel):
     which authoritative node supported the call). Evidence-free = hallucination;
     the orchestrator's pre-verifier check rejects it.
     """
+
     model_config = ConfigDict(extra="forbid")
 
     claim: str = Field(..., min_length=1, description="What this evidence supports.")
@@ -152,7 +164,7 @@ class Evidence(BaseModel):
     quote: Optional[str] = Field(
         default=None,
         description="Optional verbatim span from a source (vendor product, "
-                    "CDAO definition, precedent rationale, etc.).",
+        "CDAO definition, precedent rationale, etc.).",
     )
 
 
@@ -160,11 +172,13 @@ class MappingResult(BaseModel):
     """What the Mapping Specialist returns. Carries everything the publish gate
     needs to decide auto-publish vs. retry vs. HITL.
     """
+
     model_config = ConfigDict(extra="forbid")
 
     vendor_product_iri: str
     proposed_target_iri: str = Field(
-        ..., examples=["jpmorgan:data:cdao:EquityResearch"],
+        ...,
+        examples=["jpmorgan:data:cdao:EquityResearch"],
         description="Selected CDAO node, or empty when route is RESEARCH.",
     )
     rationale: str = Field(..., min_length=1)
@@ -227,6 +241,7 @@ class Outcome(str, Enum):
 
 class MappingObject(BaseModel):
     """The replay-safe envelope persisted at the end of every run (clarif. L69)."""
+
     model_config = ConfigDict(extra="forbid")
 
     schema_version: str = Field(default=SCHEMA_VERSION)
@@ -241,10 +256,101 @@ class MappingObject(BaseModel):
     invocation_pins: dict = Field(default_factory=dict)
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Batch ledger — the self-verifying-loop's explicit requeue ledger.
+#
+# A swarm with no ledger has exactly one quality setting: whatever the worst
+# unit produced. The ledger makes every pass, every requeue reason, and every
+# quarantined unit inspectable after the fact (the `loops` skill's run-history
+# observability) instead of living in the model's head. Additive to the schema:
+# nothing here is embedded in MappingObject, so SCHEMA_VERSION is unchanged.
+# ────────────────────────────────────────────────────────────────────────────
+class UnitStatus(str, Enum):
+    """Terminal state of a single batch unit. PASSED = verified clean and
+    published; RESEARCH = escalated to the ontology owner (terminal, never
+    published, *not* verified-clean); QUARANTINED = needs a human (HITL self-flag
+    / floor breach, or a retry budget exhausted); REQUEUED = transient, in flight."""
+
+    PASSED = "passed"
+    REQUEUED = "requeued"
+    QUARANTINED = "quarantined"
+    RESEARCH = "research"
+
+
+class RejectedUnit(BaseModel):
+    """A unit that did not pass, carrying the reason so it rides back into the
+    rerun (self-verifying-loop) and becomes the quarantine note if it never passes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    unit_key: str = Field(
+        ..., description="vendor + vendor_product_ref, collision-safe join."
+    )
+    reason: str = Field(
+        ..., min_length=1, description="Why the unit was rejected this pass."
+    )
+    last_outcome: Outcome
+
+
+class LedgerPass(BaseModel):
+    """One pass of the verify→requeue cycle over the pending units."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pass_no: int = Field(..., ge=1)
+    checked: int = Field(..., ge=0)
+    passed: int = Field(..., ge=0)
+    requeued: int = Field(..., ge=0)
+    rejected: list[RejectedUnit] = Field(default_factory=list)
+
+
+class BatchLedger(BaseModel):
+    """The auditable record of a batch run. Source of truth for resume: a unit in
+    `passed`/`research`/`quarantined` is terminal and is skipped on a resumed run
+    (the `loops` checkpoint property — no re-call of the LLM for done units)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    schema_version: str = Field(default=SCHEMA_VERSION)
+    retry_budget: int = Field(..., ge=1)
+    passes: list[LedgerPass] = Field(default_factory=list)
+    passed: list[str] = Field(default_factory=list, description="unit_keys published.")
+    research: list[str] = Field(
+        default_factory=list, description="unit_keys escalated to ontology owner."
+    )
+    quarantined: list[RejectedUnit] = Field(
+        default_factory=list, description="unit_keys needing a human, with last reason."
+    )
+
+    def terminal_keys(self) -> set[str]:
+        """All unit_keys that have reached a terminal state — used to skip work on resume."""
+        return (
+            set(self.passed)
+            | set(self.research)
+            | {r.unit_key for r in self.quarantined}
+        )
+
+
 __all__ = [
-    "SCHEMA_VERSION", "Route", "IntakeRequest",
-    "CandidateNode", "PrecedentMapping", "ConflictRecord", "BriefBundle",
-    "ProposedTriple", "Band", "Evidence", "MappingResult",
-    "VerifierDimension", "VerifierScore", "VerifierReport",
-    "Outcome", "MappingObject",
+    "SCHEMA_VERSION",
+    "Route",
+    "IntakeRequest",
+    "CandidateNode",
+    "PrecedentMapping",
+    "ConflictRecord",
+    "BriefBundle",
+    "ProposedTriple",
+    "Band",
+    "Evidence",
+    "MappingResult",
+    "VerifierDimension",
+    "VerifierScore",
+    "VerifierReport",
+    "Outcome",
+    "MappingObject",
+    "UnitStatus",
+    "RejectedUnit",
+    "LedgerPass",
+    "BatchLedger",
 ]
