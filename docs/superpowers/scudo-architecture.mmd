@@ -1,0 +1,82 @@
+flowchart TB
+    subgraph vendors["5 Vendor Feeds"]
+        v_cat["Catalogue MCP - STUB"]
+        v_feeds["LSEG / S&P / ICE / FactSet / Bloomberg"]
+    end
+
+    subgraph ingestion["Ingestion"]
+        i_read["Readers JSON XML CSV Parquet XLSX - OK"]
+        i_etl["ETL normalize map - OK"]
+        i_s3["AWS S3 transfer - PARTIAL"]
+        i_sched["Scheduler - MISSING"]
+    end
+
+    subgraph storage["Storage and Metadata"]
+        s_graph["Graph seam Falkor Neptune memory - OK"]
+        s_s3r["S3 read - OK"]
+        s_s3w["S3 write - MISSING"]
+        s_meta["Metadata DB MySQL not Aurora - PARTIAL"]
+        s_bundle["Bundle hydrate export - OK"]
+    end
+
+    subgraph scudo["SCUDO CORE - working data plane"]
+        subgraph orch["Orchestrator"]
+            o_agent["agent.py host matcher gates - OK"]
+            o_strands["Strands scaffold - STUB"]
+        end
+
+        subgraph matcher["Mapping Engine"]
+            m_fuzzy["Fuzzy exact Jaro-Winkler BM25 - OK"]
+            m_sem["Semantic Opus dense judge - OK"]
+            m_rrf["RRF ranking neg-precedent - OK"]
+            m_conf["Confidence floor 0.80 bands - OK"]
+            m_fb["Approved overrides - OK"]
+            m_rules["Vendor rules - PARTIAL"]
+            m_aoss["AOSS vectors NLP - MISSING"]
+        end
+
+        subgraph verify["Verifier Gate"]
+            v_gate["Deterministic gate - OK"]
+            v_hmac["HMAC signed verdict - OK"]
+            v_rubric["10-dim LLM rubric advisory - PARTIAL"]
+        end
+
+        subgraph graph["Graph RDF ODRL"]
+            g_onto["Neptune ontology CDAO - OK"]
+            g_sparql["SPARQL templates - OK"]
+            g_dcat["RDF DCAT SHACL stub - PARTIAL"]
+            g_odrl["ODRL rights edges - STUB"]
+            g_sem["Neptune semantic retrieval sim 0 - STUB"]
+        end
+
+        subgraph loop["Self-Improving Loop"]
+            l_prec["Precedent write - OK"]
+            l_rank["rank_signals_for consult - OK"]
+            l_dist["Distill refuter memory - OK"]
+        end
+
+        o_agent --> m_fuzzy
+        m_fuzzy --> o_agent
+        o_agent --> v_gate
+        m_fuzzy --> g_onto
+        v_gate --> l_prec
+        l_rank --> m_fuzzy
+    end
+
+    subgraph fusion["Fusion Ecosystem"]
+        f_nept["Neptune Fusion integration - PARTIAL"]
+        f_pub["iFusion publish mock - STUB"]
+        f_spi["SPI V2 client - STUB"]
+        f_json["Fusion JSON output - MISSING"]
+        f_pull["iFusion consumer pull - MISSING"]
+    end
+
+    dq["DQ Framework - ENTIRELY MISSING"]
+
+    v_feeds --> i_read
+    v_cat --> i_read
+    i_read --> i_etl
+    i_etl --> s_graph
+    s_graph --> o_agent
+    scudo --> f_spi
+    ingestion -.-> dq

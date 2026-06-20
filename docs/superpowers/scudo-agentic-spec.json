@@ -1,0 +1,706 @@
+{
+  "components": [
+    {
+      "id": "lambda_handler",
+      "label": "Lambda HTTP Handler",
+      "group": "entrypoint",
+      "status": "working",
+      "role": "AWS Lambda POST /run; validates x-api-key; assembles BriefBundle from the request body + in-memory sidecar mock; builds BARE Bedrock agents (NO tools wired); caches them across warm invocations; calls orchestrator.run() (lambda_handler.py:131,203)"
+    },
+    {
+      "id": "mapping_mcp_runtime",
+      "label": "Mapping-MCP agent runner (entry)",
+      "group": "entrypoint",
+      "status": "working",
+      "role": "scudo_mapping_mcp/agent.py: ScriptedMappingAgent / BedrockMappingAgent.run(ref) drives the 4-tool loop; reached by MCP clients via the 3 tiers. Separate process from the Lambda orchestrator."
+    },
+    {
+      "id": "orchestrator_run",
+      "label": "Orchestrator.run() router + bundle",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "Routes IntakeRequest (RESEARCH|NEW|EXTEND|RECONCILE); assembles BriefBundle with candidates, precedents, conflicts; pins ontology_snapshot & rubric_version"
+    },
+    {
+      "id": "call_mapping",
+      "label": "Mapping specialist (bare LLM)",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "Single _structured_call(MappingResult) to a BARE Bedrock Opus agent — NO tool loop, NO matcher gate (orchestrator.py:151). Lambda's system prompt tells it to set proposed_triples=[] (lambda_handler.py:144). The 4-tool loop + matcher are a SEPARATE runtime (scudo_mapping_mcp)."
+    },
+    {
+      "id": "agent_orchestrator_loop",
+      "label": "Agent tool loop (mapping-MCP)",
+      "group": "mcp_agent_host",
+      "status": "working",
+      "role": "SEPARATE runtime (scudo_mapping_mcp/agent.py). Scripted default walks 4 tools IN ORDER (find_similar_products → get_taxonomy_node → get_ontology_neighbourhood → map_vendor_product); Bedrock backend lets the LLM choose order/count, matcher still runs last. map_vendor_product → deterministic matcher gate."
+    },
+    {
+      "id": "agent_bedrock",
+      "label": "BedrockMappingAgent",
+      "group": "llm",
+      "status": "partial",
+      "role": "Strands Agents SDK wrapping Claude Opus 4.8 on Bedrock (eu-west-2); lazy-imported when SCUDO_AGENT_BACKEND=bedrock; routes tool calls via host"
+    },
+    {
+      "id": "agent_scripted",
+      "label": "ScriptedMappingAgent",
+      "group": "llm",
+      "status": "working",
+      "role": "Deterministic walk over the 4 MCP tools; no Bedrock dependency; DEFAULT backend when SCUDO_AGENT_BACKEND is unset (agent.py:124,140). final_result is the matcher's MappingResult verbatim — 'agent surfaces, matcher gates'."
+    },
+    {
+      "id": "matcher_gate",
+      "label": "map_vendor_product (matcher)",
+      "group": "matcher",
+      "status": "working",
+      "role": "Deterministic 5-rung cost ladder: scope (layer 2) → precedent → dense+lexical fusion → borderline specialist → floor 0.80; signs verdict"
+    },
+    {
+      "id": "rung1_scope",
+      "label": "Scope gate (layers 1-3)",
+      "group": "matcher",
+      "status": "working",
+      "role": "Deterministic vendor whitelist (PRIORITY_VENDORS: LSEG, S&P, Bloomberg, ICE, FactSet); enforced in ingestion, match_verify, persistence MCPs"
+    },
+    {
+      "id": "rung2_precedent",
+      "label": "Precedent reuse (I5 check)",
+      "group": "matcher",
+      "status": "working",
+      "role": "Filters CONFIRMED HITL prior decisions (APPROVED/OVERRIDDEN/REJECTED); excludes provisional auto_mapped edges; preserves audit fields (source_content_hash, source_file_audit_id)"
+    },
+    {
+      "id": "rung3_retrieval",
+      "label": "find_similar_products (Rung 3)",
+      "group": "matcher",
+      "status": "working",
+      "role": "Multi-path retrieve: BM25 prefilter → drop negative-precedents → dense rescore (Opus or Jaro-Winkler) → RRF fusion (k=60) → rank-signal tilt → top-N"
+    },
+    {
+      "id": "dense_arm",
+      "label": "Opus dense judge",
+      "group": "llm",
+      "status": "working",
+      "role": "Bedrock invoke on Claude Opus 4.8; returns semantic [0,1] alignment; fallback Jaro-Winkler when SCUDO_DENSE_FALLBACK=1 or invoke fails"
+    },
+    {
+      "id": "specialist",
+      "label": "Specialist scorer (borderline)",
+      "group": "llm",
+      "status": "partial",
+      "role": "Per-call DI callable invoked ONLY on borderline band (0.75–0.85); anchored to top-N; confidence capped as min(dense, specialist); disagreement routes NEEDS_REVIEW"
+    },
+    {
+      "id": "confidence_bands",
+      "label": "3-band gate (I4)",
+      "group": "matcher",
+      "status": "working",
+      "role": "PASS (≥0.85): AUTO_MAPPED, no specialist. BORDERLINE (0.75–0.85): consult specialist if wired. FAIL (<0.75): NEEDS_REVIEW"
+    },
+    {
+      "id": "validations_layer",
+      "label": "run_validations (I6)",
+      "group": "verifier",
+      "status": "working",
+      "role": "5 deterministic checks (scope_compatible, identifier_resolves, data_class_match, name_length, description_length); required failures force NEEDS_REVIEW"
+    },
+    {
+      "id": "verdict_seal",
+      "label": "HMAC-SHA256 verdict seal",
+      "group": "verifier",
+      "status": "working",
+      "role": "Signs (input_hash, mapped_node_iri, status, confidence, band, ts_ms); v=2 carries band; verify checks shape, HMAC, staleness (max 300s), identity binding"
+    },
+    {
+      "id": "pre_verify_defects",
+      "label": "Pre-verifier guards",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "IRI determinism check, evidence-when-confident >0.5, confidence band validation, named-graph presence, proposed_target_iri in candidates"
+    },
+    {
+      "id": "call_verifier",
+      "label": "Verifier agent (10-dim rubric)",
+      "group": "verifier",
+      "status": "working",
+      "role": "Claude Opus 4.8 scores 10 dimensions (SEMANTIC_FIT, EVIDENCE_USE, CANDIDATE_COVERAGE, etc.) 0/1/2 each; total recomputed to guard arithmetic"
+    },
+    {
+      "id": "gate_and_decide",
+      "label": "Publish gate + routing",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "Deterministic: total<12 OR conf<0.80 OR requires_human_review → HITL; 12≤total≤15 → RETRY; total≥16 AND conf≥0.80 → publish branch (re-checks triples). PublishGateError (empty/malformed triples) propagates to Lambda → HTTP 500 (orchestrator.py:227,262; lambda_handler.py:231)."
+    },
+    {
+      "id": "determinism_check",
+      "label": "IRI determinism regex",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "Validates ^(mds\\.[a-z0-9_]+:[0-9a-f-]{36}|jpmorgan:data:cdao:.+)$; checked pre-verify and in publish gate"
+    },
+    {
+      "id": "named_graph_minter",
+      "label": "Named-graph determinism",
+      "group": "orchestrator",
+      "status": "partial",
+      "role": "orchestrator._named_graph_for reads the single shared graph from proposed_triples; in the Lambda path triples are EMPTY so this raises PublishGateError (orchestrator.py:262). uuid5-based minting is target-state."
+    },
+    {
+      "id": "rdf_serializer",
+      "label": "RDF serializer (DCAT stub)",
+      "group": "graph_rdf_odrl",
+      "status": "stub",
+      "role": "Fake DCAT serializer (scudo/rdf/fake.py) — deterministic triples + validate_shapes. NOT wired into the live Lambda agents (_build_agents passes no tools; mapper emits proposed_triples=[]). Target-state."
+    },
+    {
+      "id": "shacl_validator",
+      "label": "SHACL shapes (stub)",
+      "group": "graph_rdf_odrl",
+      "status": "stub",
+      "role": "Flags only empty/malformed lists; real shapes in /modules/rdf/shapes/ when available"
+    },
+    {
+      "id": "research_queue",
+      "label": "Research queue",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "Routes ontology_gap=True to ResearchQueue; outcome=RESEARCH_QUEUED, never publishes"
+    },
+    {
+      "id": "hitl_queue",
+      "label": "HITL queue",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "Routes verifier<12 OR conf<0.80 OR requires_human_review; hitl.enqueue(mapping_result, verifier_report, reason)"
+    },
+    {
+      "id": "publish_sink",
+      "label": "Publish sink",
+      "group": "orchestrator",
+      "status": "partial",
+      "role": "PublishSink protocol; Lambda wires InMemoryPublishSink (appends to a list, stubs.py:70). Production neptune_publish_triples raises NotImplementedError (tools.py:145) — no real publish path yet."
+    },
+    {
+      "id": "mapping_object_output",
+      "label": "MappingObject final output",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "schema_version, route, bundle_ref, mapping_result, verifier_report, outcome (PUBLISHED|HITL|RETRY|RESEARCH_QUEUED), published_graph, hitl_ticket"
+    },
+    {
+      "id": "bundle_schema",
+      "label": "BriefBundle + IntakeRequest",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "IntakeRequest(vendor, vendor_product_ref, has_precedent, has_conflict, ontology_gap); BriefBundle carries candidates, precedent, conflicts, ontology_snapshot, rubric_version"
+    },
+    {
+      "id": "mcp_host",
+      "label": "McpHost (transport layer)",
+      "group": "mcp_agent_host",
+      "status": "working",
+      "role": "Optional round-robin + circuit breaker + semaphore; routes to 3 MCP tiers (ingestion, match_verify, persistence); gated by SCUDO_MCP_HOST_ENABLED"
+    },
+    {
+      "id": "ingestion_mcp",
+      "label": "Ingestion MCP (tier 1)",
+      "group": "mcp_agent_host",
+      "status": "working",
+      "role": "Scope gate layer 1; ingest.list_frames, ingest.get_frame; normalises vendor frames"
+    },
+    {
+      "id": "match_verify_mcp",
+      "label": "Match & Verify MCP (tier 2)",
+      "group": "mcp_agent_host",
+      "status": "working",
+      "role": "Scope gate layer 2; 4 read-only tools: find_candidates, get_node, get_neighbourhood, verify_mapping; signs verdicts"
+    },
+    {
+      "id": "persistence_mcp",
+      "label": "Persistence MCP (tier 3)",
+      "group": "mcp_agent_host",
+      "status": "working",
+      "role": "Sole writer; scope gate layer 3; 4 tools: commit_mapping (agent path, refuses AUTO_MAPPED), record_decision (HITL path), export_bundle, import_bundle"
+    },
+    {
+      "id": "hitl_decision",
+      "label": "apply_decision (HITL feedback)",
+      "group": "self_improving",
+      "status": "working",
+      "role": "Records human verdict (approve/override/reject) as MAPPED_TO/NOT_MAPPED_TO precedent edge; atomic with upsert_precedent (I5)"
+    },
+    {
+      "id": "upsert_precedent",
+      "label": "upsert_precedent (write seam)",
+      "group": "self_improving",
+      "status": "working",
+      "role": "Atomic Cypher: single-positive-precedent invariant; signature denormalised; source_content_hash + source_file_audit_id (M8) persisted"
+    },
+    {
+      "id": "rank_signals_for",
+      "label": "rank_signals_for (derived)",
+      "group": "self_improving",
+      "status": "working",
+      "role": "Counts DISTINCT VendorProducts per node+signature with CONFIRMED MAPPED_TO; idempotent; atomic with precedent write; tilts sort order"
+    },
+    {
+      "id": "bundle_export",
+      "label": "export_bundle (snapshot)",
+      "group": "self_improving",
+      "status": "working",
+      "role": "Reads list_confirmed_precedents, snapshots rank signals, returns a versioned bundle as a JSON string/object with field-normalisation + validation diagnostics — does NOT put_object to S3 (caller persists)."
+    },
+    {
+      "id": "bundle_import",
+      "label": "import_bundle (replay)",
+      "group": "self_improving",
+      "status": "working",
+      "role": "Replays CONFIRMED precedents via upsert_precedent (idempotent); skips unknown nodes; rank signals re-derived"
+    },
+    {
+      "id": "hydrate",
+      "label": "hydrate (S3 → FalkorDB)",
+      "group": "self_improving",
+      "status": "working",
+      "role": "Container startup: fetches the canonical bundle from S3 (read path), calls import_bundle, blocks the health check until complete."
+    },
+    {
+      "id": "persist_commit_mapping",
+      "label": "persist.commit_mapping",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "Verifies verdict seal, layer-3 scope gate, refuses agent AUTO_MAPPED (I5 enforcement); holds agent verdicts in reviewer queue"
+    },
+    {
+      "id": "persist_record_decision",
+      "label": "persist.record_decision",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "Calls apply_decision for human approvals; only path that writes CONFIRMED precedents to canon"
+    },
+    {
+      "id": "reviewer_queue",
+      "label": "Reviewer queue",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "Holds agent-driven AUTO_MAPPED verdicts until human review; not written to canon until persist.record_decision"
+    },
+    {
+      "id": "ingest_bytes",
+      "label": "ingest_bytes (frame parse)",
+      "group": "ingestion",
+      "status": "working",
+      "role": "Parses vendor frames, calls upsert_vendor_product; denormalises vendor_signature for rank-signal derivation"
+    },
+    {
+      "id": "store_seam",
+      "label": "RetrievalStore (abstract)",
+      "group": "storage",
+      "status": "working",
+      "role": "13 abstract methods + shared retrieval HELPERS (RRF k=60, BM25, clamps, vendor_signature). Contract: health, close, upsert_taxonomy_node, upsert_vendor_product, upsert_precedent, rank_signals_for, get_negative_precedents, get_taxonomy_node, find_similar_products, get_ontology_neighbourhood, get_precedent_mapping, list_confirmed_precedents, list_taxonomy_nodes (base.py:49-206)."
+    },
+    {
+      "id": "falkordb_impl",
+      "label": "FalkorDBStore",
+      "group": "storage",
+      "status": "working",
+      "role": "Local graph store (Cypher); Jaro-Winkler dense, BM25 lexical, RRF fusion; negative-precedent drop; rank-signal tilt on sort key only"
+    },
+    {
+      "id": "neptune_impl",
+      "label": "NeptuneStore",
+      "group": "storage",
+      "status": "partial",
+      "role": "Production AWS Neptune (SPARQL); same contract as FalkorDB; Neptune semantic retrieval is stub (sim=0.0, M9)"
+    },
+    {
+      "id": "memory_impl",
+      "label": "MemoryStore",
+      "group": "storage",
+      "status": "working",
+      "role": "In-memory implementation; DEV/DEMO only; full ladder on laptop"
+    },
+    {
+      "id": "store_factory",
+      "label": "get_store() factory",
+      "group": "storage",
+      "status": "working",
+      "role": "Single swap point (lru_cache); reads STORE_BACKEND env var; returns FalkorDBStore | NeptuneStore | MemoryStore"
+    },
+    {
+      "id": "s3_bundle",
+      "label": "S3 canonical bundle",
+      "group": "storage",
+      "status": "partial",
+      "role": "Canonical snapshot in S3. READ path live (hydrate fetches on boot). WRITE path absent — export_bundle returns JSON, no put_object (bundle.py:113); an external caller uploads."
+    },
+    {
+      "id": "authoritative_mcp",
+      "label": "Authoritative graph (Neptune)",
+      "group": "graph_rdf_odrl",
+      "status": "working",
+      "role": "Neptune MCP openCypher parameterised queries (CANDIDATE_BY_TERM, NODE_BY_IRI, EXISTING_MAPPING_BY_VENDOR_PRODUCT, CONFLICTS_BY_VENDOR_PRODUCT_REF)"
+    },
+    {
+      "id": "bedrock_lambda",
+      "label": "Bedrock — Lambda path",
+      "group": "llm",
+      "status": "working",
+      "role": "backend/scudo/shared/bedrock.py: DEFAULTS us.anthropic.claude-opus-4-8 @ us-east-1 (override BEDROCK_LLM_MODEL_ID / AWS_REGION). Bare mapping + verifier agents; cached across warm invocations."
+    },
+    {
+      "id": "bedrock_mapping_mcp",
+      "label": "Bedrock — mapping-MCP path",
+      "group": "llm",
+      "status": "partial",
+      "role": "scudo_mapping_mcp/agent.py:120: DEFAULT_BEDROCK_MODEL_ID=eu.anthropic.claude-opus-4-8 (eu-west-2). BedrockMappingAgent only when SCUDO_AGENT_BACKEND=bedrock (default is scripted)."
+    },
+    {
+      "id": "config",
+      "label": "Settings (config.py)",
+      "group": "orchestrator",
+      "status": "working",
+      "role": "Single source of truth: STORE_BACKEND, confidence floor 0.80, borderline ±0.05, PRIORITY_VENDORS, SCUDO_USE_OPUS_DENSE, SCUDO_AGENT_BACKEND, etc."
+    }
+  ],
+  "edges": [
+    {
+      "source": "lambda_handler",
+      "target": "orchestrator_run",
+      "label": "orch.run(request_payload)"
+    },
+    {
+      "source": "orchestrator_run",
+      "target": "bundle_schema",
+      "label": "validate IntakeRequest, create BriefBundle"
+    },
+    {
+      "source": "orchestrator_run",
+      "target": "call_mapping",
+      "label": "non-RESEARCH routes"
+    },
+    {
+      "source": "orchestrator_run",
+      "target": "research_queue",
+      "label": "ontology_gap=True route"
+    },
+    {
+      "source": "agent_orchestrator_loop",
+      "target": "agent_bedrock",
+      "label": "Bedrock invoke (or scripted walk)"
+    },
+    {
+      "source": "agent_orchestrator_loop",
+      "target": "agent_scripted",
+      "label": "scripted default backend"
+    },
+    {
+      "source": "agent_orchestrator_loop",
+      "target": "mcp_host",
+      "label": "routes via McpHost when SCUDO_MCP_HOST_ENABLED=True"
+    },
+    {
+      "source": "agent_bedrock",
+      "target": "bedrock_mapping_mcp",
+      "label": "uses Opus 4.8 on Bedrock"
+    },
+    {
+      "source": "agent_orchestrator_loop",
+      "target": "rung3_retrieval",
+      "label": "tool step (1): find_similar_products"
+    },
+    {
+      "source": "rung3_retrieval",
+      "target": "store_seam",
+      "label": "read candidates + rank_signals_for"
+    },
+    {
+      "source": "store_seam",
+      "target": "falkordb_impl",
+      "label": "backend selection via factory"
+    },
+    {
+      "source": "store_seam",
+      "target": "neptune_impl",
+      "label": "backend selection via factory"
+    },
+    {
+      "source": "store_seam",
+      "target": "memory_impl",
+      "label": "backend selection via factory"
+    },
+    {
+      "source": "store_factory",
+      "target": "store_seam",
+      "label": "returns concrete implementation"
+    },
+    {
+      "source": "rung3_retrieval",
+      "target": "dense_arm",
+      "label": "dense rescore (Opus or Jaro-Winkler)"
+    },
+    {
+      "source": "rank_signals_for",
+      "target": "rung3_retrieval",
+      "label": "consults rank signals to tilt sort"
+    },
+    {
+      "source": "agent_orchestrator_loop",
+      "target": "matcher_gate",
+      "label": "tool step (4): map_vendor_product (matcher gates)"
+    },
+    {
+      "source": "matcher_gate",
+      "target": "rung1_scope",
+      "label": "Rung 1: scope gate layer 2"
+    },
+    {
+      "source": "matcher_gate",
+      "target": "rung2_precedent",
+      "label": "Rung 2: precedent reuse"
+    },
+    {
+      "source": "matcher_gate",
+      "target": "rung3_retrieval",
+      "label": "Rung 3: retrieval"
+    },
+    {
+      "source": "matcher_gate",
+      "target": "specialist",
+      "label": "Rung 4: specialist if borderline"
+    },
+    {
+      "source": "matcher_gate",
+      "target": "confidence_bands",
+      "label": "Rung 5: 3-band gate"
+    },
+    {
+      "source": "matcher_gate",
+      "target": "validations_layer",
+      "label": "run_validations; failures force NEEDS_REVIEW"
+    },
+    {
+      "source": "matcher_gate",
+      "target": "verdict_seal",
+      "label": "signs MappingResult before returning"
+    },
+    {
+      "source": "call_mapping",
+      "target": "pre_verify_defects",
+      "label": "result → IRI/evidence/band/graph checks"
+    },
+    {
+      "source": "pre_verify_defects",
+      "target": "call_verifier",
+      "label": "defects_pre passed with prompt"
+    },
+    {
+      "source": "call_verifier",
+      "target": "bedrock_lambda",
+      "label": "Agent.structured_output(VerifierReport)"
+    },
+    {
+      "source": "call_verifier",
+      "target": "gate_and_decide",
+      "label": "report with total_score & defects"
+    },
+    {
+      "source": "gate_and_decide",
+      "target": "determinism_check",
+      "label": "verify IRI pattern"
+    },
+    {
+      "source": "gate_and_decide",
+      "target": "named_graph_minter",
+      "label": "when total≥16"
+    },
+    {
+      "source": "named_graph_minter",
+      "target": "rdf_serializer",
+      "label": "(target-state) deterministic DCAT triples"
+    },
+    {
+      "source": "rdf_serializer",
+      "target": "shacl_validator",
+      "label": "(target-state) validate_shapes"
+    },
+    {
+      "source": "gate_and_decide",
+      "target": "publish_sink",
+      "label": "publish() if triples; empty → PublishGateError → 500"
+    },
+    {
+      "source": "gate_and_decide",
+      "target": "hitl_queue",
+      "label": "total<12 OR conf<0.80 OR requires_human_review"
+    },
+    {
+      "source": "gate_and_decide",
+      "target": "mapping_object_output",
+      "label": "MappingObject(outcome, reason, pins)"
+    },
+    {
+      "source": "mapping_object_output",
+      "target": "lambda_handler",
+      "label": "JSON response + exec_time_ms"
+    },
+    {
+      "source": "mcp_host",
+      "target": "ingestion_mcp",
+      "label": "tier 1 round-robin"
+    },
+    {
+      "source": "mcp_host",
+      "target": "match_verify_mcp",
+      "label": "tier 2 round-robin"
+    },
+    {
+      "source": "mcp_host",
+      "target": "persistence_mcp",
+      "label": "tier 3 round-robin (sole writer)"
+    },
+    {
+      "source": "match_verify_mcp",
+      "target": "matcher_gate",
+      "label": "verify_mapping tool calls matcher"
+    },
+    {
+      "source": "ingestion_mcp",
+      "target": "ingest_bytes",
+      "label": "ingest.get_frame"
+    },
+    {
+      "source": "ingest_bytes",
+      "target": "store_seam",
+      "label": "upsert_vendor_product with signature"
+    },
+    {
+      "source": "persist_commit_mapping",
+      "target": "verdict_seal",
+      "label": "verify seal before write"
+    },
+    {
+      "source": "persist_commit_mapping",
+      "target": "reviewer_queue",
+      "label": "hold agent AUTO_MAPPED (I5)"
+    },
+    {
+      "source": "persist_record_decision",
+      "target": "hitl_decision",
+      "label": "call apply_decision"
+    },
+    {
+      "source": "hitl_decision",
+      "target": "upsert_precedent",
+      "label": "atomic write MAPPED_TO/NOT_MAPPED_TO"
+    },
+    {
+      "source": "upsert_precedent",
+      "target": "store_seam",
+      "label": "write precedent edge"
+    },
+    {
+      "source": "upsert_precedent",
+      "target": "rank_signals_for",
+      "label": "rank signal re-derived from edge"
+    },
+    {
+      "source": "bundle_export",
+      "target": "store_seam",
+      "label": "read list_confirmed_precedents"
+    },
+    {
+      "source": "bundle_export",
+      "target": "rank_signals_for",
+      "label": "snapshot approval counts"
+    },
+    {
+      "source": "bundle_export",
+      "target": "s3_bundle",
+      "label": "returns JSON (no put_object; caller uploads)"
+    },
+    {
+      "source": "bundle_import",
+      "target": "upsert_precedent",
+      "label": "replay precedents"
+    },
+    {
+      "source": "hydrate",
+      "target": "s3_bundle",
+      "label": "fetch canonical bundle"
+    },
+    {
+      "source": "hydrate",
+      "target": "bundle_import",
+      "label": "parse & call import_bundle"
+    },
+    {
+      "source": "hydrate",
+      "target": "mcp_host",
+      "label": "blocks health check until complete"
+    },
+    {
+      "source": "reviewer_queue",
+      "target": "persist_record_decision",
+      "label": "human picks → approve/override/reject"
+    },
+    {
+      "source": "persist_record_decision",
+      "target": "bundle_export",
+      "label": "on next scheduled run"
+    },
+    {
+      "source": "persistence_mcp",
+      "target": "persist_commit_mapping",
+      "label": "tool: persist.commit_mapping"
+    },
+    {
+      "source": "persistence_mcp",
+      "target": "persist_record_decision",
+      "label": "tool: persist.record_decision"
+    },
+    {
+      "source": "persistence_mcp",
+      "target": "bundle_export",
+      "label": "tool: persist.export_bundle"
+    },
+    {
+      "source": "persistence_mcp",
+      "target": "bundle_import",
+      "label": "tool: persist.import_bundle"
+    },
+    {
+      "source": "config",
+      "target": "matcher_gate",
+      "label": "PRIORITY_VENDORS, confidence_floor, borderline_band, SCUDO_USE_OPUS_DENSE"
+    },
+    {
+      "source": "config",
+      "target": "bedrock_lambda",
+      "label": "BEDROCK_LLM_MODEL_ID, AWS_REGION"
+    },
+    {
+      "source": "config",
+      "target": "store_factory",
+      "label": "STORE_BACKEND env var"
+    },
+    {
+      "source": "call_mapping",
+      "target": "bedrock_lambda",
+      "label": "structured_output(MappingResult); no tools"
+    },
+    {
+      "source": "config",
+      "target": "bedrock_mapping_mcp",
+      "label": "SCUDO_AGENT_BACKEND, SCUDO_BEDROCK_MODEL_ID"
+    },
+    {
+      "source": "mapping_mcp_runtime",
+      "target": "agent_orchestrator_loop",
+      "label": "run(ref) → tool events"
+    }
+  ],
+  "notes": "CONSOLIDATED ARCHITECTURE (merged 4 specs + gap analysis authority + dedup):\n\n**Status Resolution (gap analysis as authority):**\n- Verifier: ✅ REAL (orchestrator.py:154 _call_verifier + orchestrator.py:215 _gate_and_decide with 10-dim rubric, score recompute, deterministic gate); NOT advisory-only.\n- Neptune semantic retrieval: 🟠 STUB (find_similar_products returns sim=0.0, marked M9 in gap analysis).\n- Strands skeleton (scudo_strands_app.py): Retired from arch (raises NotImplementedError; real orchestrators already exist in scudo/orchestrator.py + agent.py+matching.py).\n- Two real orchestrators consolidate into single narrative: lambda_handler → orchestrator_run → _call_mapping → _call_verifier → _gate_and_decide (scudo/); agent tool loop is sub-narrative (agent.py + matching.py as matcher gate).\n\n**Deduplication:**\n- 'Orchestrator' split into: orchestrator_run (routing+bundle), call_mapping (agent), pre_verify_defects, call_verifier, gate_and_decide (publish gate).\n- 'Agent' split into: agent_orchestrator_loop (4-tool sequence), agent_bedrock (Bedrock backend), agent_scripted (testing backend).\n- 'Matcher' unified: matcher_gate (5-rung ladder) + its rungs (scope, precedent, retrieval, specialist, bands).\n- 'Verifier' spans: verdict_seal (HMAC), validations_layer (I6), call_verifier (10-dim LLM), gate_and_decide (deterministic code gate).\n- 'Storage' seam: store_seam (abstract contract), falkordb/neptune/memory (implementations), factory (swap point).\n- 'Self-improving' loop: upsert_precedent → rank_signals_for → retrieval → matcher (cycles back).\n\n**Agent Tool Loop (agent_orchestrator_loop):**\nStep 1: find_similar_products (Rung 3 retrieval, dense arm, rank-signal tilt).\nStep 2: get_taxonomy_node (visibility, context for agent narration).\nStep 3: get_ontology_neighbourhood (shape visibility).\nStep 4: map_vendor_product (matcher gates; final authoritative call).\nAgent cannot disagree by construction (contract line 18–26 agent.py).\n\n**Self-Improving Cycle (verdict → precedent → consult → matcher):**\n1. persist_record_decision (HITL human pick) → apply_decision → upsert_precedent (MAPPED_TO/NOT_MAPPED_TO edge, atomic, I5 enforcement).\n2. rank_signals_for: DERIVED from CONFIRMED edges (count distinct VendorProducts); idempotent; tilts sort order (not similarity).\n3. rung3_retrieval consults rank_signals_for to boost candidates (capped boost, subfloor candidates cannot escape 0.80 floor).\n4. Next matcher call uses updated signals; CONFIRMED precedent drop filters negative-precedent edges.\n\n**Determinism Invariants:**\n- I3 (scope gate, layers 1-3): fail-closed in ingestion_mcp, match_verify_mcp, persistence_mcp; no LLM vote.\n- I4 (0.80 floor): upsert_precedent is write-only; rank boost touches sort key only, never Candidate.similarity.\n- I5 (HITL-only for auto_mapped): agent AUTO_MAPPED held in reviewer_queue; only persist_record_decision writes to canon.\n- I6 (invariants outside model): validations_layer is Python determinism; run_validations required failures force NEEDS_REVIEW regardless of similarity.\n- I8 (identity binding): precedent keys + verdict seals flow through vendor+product_id; deterministic IRI regex enforced pre-verify and publish gate.\n\n**MCP Tiers & Scope Gates:**\n- Tier 1 (ingestion_mcp): layer 1 scope gate; ingest_bytes normalises vendor data.\n- Tier 2 (match_verify_mcp): layer 2 scope gate; match_vendor_product (matcher) gates result.\n- Tier 3 (persistence_mcp): layer 3 scope gate (sole writer); persist_commit_mapping refuses agent AUTO_MAPPED; persist_record_decision writes CONFIRMED.\n- McpHost (optional): round-robin + circuit-breaker + semaphore across 3 tiers when SCUDO_MCP_HOST_ENABLED=True.\n\n**Verdict Seal (HMAC-SHA256):**\nSigns (input_hash, mapped_node_iri, status, confidence, band, ts_ms); v=2 carries band; verify checks shape, HMAC, staleness (max 300s), identity binding via (vendor, product_id).\nStored in VerdictResult; verified by persist_commit_mapping before write (layer-3 gate).\n\n**Named-Graph Determinism:**\nuuid5(NAMESPACE_URL, vendor_product_iri:ontology_snapshot) → jpmorgan:data:cdao:graphs:enrichment:<uuid5>.\nEnsures idempotent publish: re-running same mapping yields same named-graph IRI + triples.\n\n**Cold-Start Hydration (hydrate → bundle_import):**\nContainer startup: hydrate fetches canonical bundle from S3, calls bundle_import to replay CONFIRMED precedents via upsert_precedent (idempotent MERGE).\nRank signals re-derived from imported edges (no separate signal write needed).\nHealth check blocks until complete (prevents confident-but-empty serves).\n\n**Bedrock Wiring:**\nBedrockModel(model_id=eu.anthropic.claude-opus-4-8, region_name=eu-west-2); cross-region inference for on-demand throughput.\nMapping agent (call_mapping) + Verifier agent (call_verifier) both use Opus 4.8.\nAgents cached globally (line 160 lambda_handler.py), reused across warm Lambda invocations (avoids cold-start cost).\n\n**Unresolved Contradictions (gap analysis notes):**\n1. Neptune semantic retrieval (find_similar_products:547): marked M9 (placeholder); returns sim=0.0; real implementation pending.\n2. SHACL shapes: validate_shapes is stub (flags only empty/malformed); real shapes in /modules/rdf/shapes/.\n3. S3 write path: bundle_export exports JSON string to S3 in code, but gap analysis notes 'write/put_object path absent'; confirm actual S3 put in persistence_mcp.py:329 or is it in-memory only.\n4. Specialist scorer: marked 'partial' because per-call DI callable wiring is optional (SpecialistScorer type in matching.py:124, but only invoked if borderline AND wired).\n5. BedrockMappingAgent: marked 'partial' because lazy-imported when SCUDO_AGENT_BACKEND=bedrock; default is scripted (testing). Bedrock access pending real cloud integration.\n\n**Files referenced (absolute paths):**\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo/orchestrator.py (orchestrator_run, call_mapping, pre_verify_defects, call_verifier, gate_and_decide, determinism_check, named_graph_minter, research_queue, hitl_queue, publish_sink, mapping_object_output, bundle_schema).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo/lambda_handler.py (lambda_handler, bedrock_wiring).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/agent.py (agent_orchestrator_loop, agent_bedrock, agent_scripted, matcher_gate).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/matching.py (matcher_gate, rung1_scope, rung2_precedent, confidence_bands, validations_layer, verdict_seal).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/retrieval.py (rung3_retrieval).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/opus_dense.py (dense_arm).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/store/base.py (store_seam, rank_signals_for).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/store/falkordb_store.py (falkordb_impl).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/store/neptune_store.py (neptune_impl).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/store/memory_store.py (memory_impl).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/store/factory.py (store_factory).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/feedback.py (hitl_decision).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/bundle.py (bundle_export, bundle_import).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/hydrate.py (hydrate).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/persistence_mcp.py (persistence_mcp, persist_commit_mapping, persist_record_decision).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/match_verify_mcp.py (match_verify_mcp).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/ingestion_mcp.py (ingestion_mcp, ingest_bytes).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/mcp_host.py (mcp_host).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo_mapping_mcp/config.py (config).\n- /Users/anthropic/MatchMaker/MatchMaker/backend/scudo/authoritative/mcp.py (authoritative_mcp).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo/rdf/fake.py (rdf_serializer, shacl_validator).\n- /Users/anthonylui/MatchMaker/MatchMaker/backend/scudo/schemas.py (bundle_schema, mapping_object_output).\"\n\n=== CODEX REVIEW CORRECTIONS (2026-06-18, all verified vs source) ===\n1. TWO RUNTIMES separated (was conflated). (A) Lambda orchestrator (backend/scudo): bare Bedrock agents via structured_output, NO tool loop, NO matcher gate (lambda_handler.py:131; orchestrator.py:151). (B) mapping-MCP agent runner (scudo_mapping_mcp/agent.py): the 4-tool loop + 5-rung matcher. Removed the false call_mapping→agent_loop edge.\n2. Bedrock config split: Lambda defaults us.anthropic.claude-opus-4-8 @ us-east-1 (shared/bedrock.py:19,26); mapping-MCP defaults eu.anthropic.claude-opus-4-8 @ eu-west-2 (agent.py:120).\n3. publish_sink → partial: InMemoryPublishSink wired (stubs.py:70); neptune_publish_triples raises NotImplementedError (tools.py:145).\n4. RDF serialise + SHACL → stub/target-state: rdf/fake.py-backed and NOT wired into the live Lambda agents; mapper emits proposed_triples=[].\n5. named_graph_minter → partial: empty triples raise PublishGateError → Lambda 500 (orchestrator.py:262; lambda_handler.py:231).\n6. s3_bundle → partial: READ path live (hydrate); WRITE path absent — export_bundle returns JSON, no put_object (bundle.py:113).\n7. store_seam: 13 abstract methods + concrete retrieval helpers (RRF/BM25/clamps), not '15-method contract' (base.py:49-206).\n8. '4 tools in order' is scripted-only; Bedrock backend chooses order (agent.py).\nConfirmed-accurate (no change): verifier 10-dim 0/1/2 ≤20 with recompute; HMAC verdict signs (input_hash, mapped_node_iri, status, confidence, band, ts_ms), 300s staleness; matcher PASS≥0.85/BORDERLINE 0.75–0.85/FAIL<0.75, floor 0.80; gate 12/16 thresholds."
+}
