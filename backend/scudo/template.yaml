@@ -35,6 +35,32 @@ Parameters:
     Type: String
     Default: ''
     Description: Optional existing Aurora cluster ARN for audit-log/outbox projection.
+  AuroraSecretArn:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Optional Aurora master/user secret ARN for the RDS Data API.
+  AuroraDatabaseName:
+    Type: String
+    Default: scudo
+  NeptuneEndpoint:
+    Type: String
+    Default: ''
+    Description: Optional Neptune cluster endpoint host used by signed SPARQL writers.
+  OpenSearchIndexName:
+    Type: String
+    Default: scudo-catalog
+  EmbeddingsModelId:
+    Type: String
+    Default: amazon.titan-embed-text-v2:0
+    Description: Titan embedding model for OpenSearch k-NN documents.
+  AppSyncApiUrl:
+    Type: String
+    Default: ''
+  AppSyncApiKey:
+    Type: String
+    Default: ''
+    NoEcho: true
 
 Globals:
   Function:
@@ -61,8 +87,16 @@ Globals:
         SCUDO_OUTBOX_TABLE: !Ref TransactionOutboxTable
         SCUDO_EVENT_BUS_NAME: !Ref ScudoEventBus
         SCUDO_NEPTUNE_SPARQL_ENDPOINT: !Ref NeptuneSparqlEndpoint
+        SCUDO_NEPTUNE_ENDPOINT: !Ref NeptuneEndpoint
+        NEPTUNE_ENDPOINT: !Ref NeptuneEndpoint
         SCUDO_OPENSEARCH_ENDPOINT: !Ref OpenSearchEndpoint
+        SCUDO_OPENSEARCH_INDEX: !Ref OpenSearchIndexName
         SCUDO_AURORA_CLUSTER_ARN: !Ref AuroraClusterArn
+        SCUDO_AURORA_SECRET_ARN: !Ref AuroraSecretArn
+        SCUDO_AURORA_DATABASE_NAME: !Ref AuroraDatabaseName
+        SCUDO_EMBEDDINGS_MODEL_ID: !Ref EmbeddingsModelId
+        SCUDO_APPSYNC_API_URL: !Ref AppSyncApiUrl
+        SCUDO_APPSYNC_API_KEY: !Ref AppSyncApiKey
 
 Resources:
   # ----------------------------------------------------------------------
@@ -464,6 +498,63 @@ Resources:
       DockerContext: ..
       Dockerfile: scudo/Dockerfile
 
+  ProjectionFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-projection-worker'
+      PackageType: Image
+      Architectures: [x86_64]
+      Timeout: 180
+      ImageConfig:
+        Command:
+          - scudo.projection_handler.handler
+      VpcConfig:
+        SubnetIds: !Split [',', !ImportValue scudo-poc-private-subnets]
+        SecurityGroupIds:
+          - !ImportValue scudo-poc-lambda-sg
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+                - rds-data:BeginTransaction
+                - rds-data:CommitTransaction
+                - rds-data:RollbackTransaction
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+                - secretsmanager:DescribeSecret
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - neptune-db:*
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - es:ESHttpGet
+                - es:ESHttpHead
+                - es:ESHttpPost
+                - es:ESHttpPut
+                - es:ESHttpPatch
+                - es:ESHttpDelete
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+      Events:
+        ProjectionQueueSource:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt PersistenceProjectionQueue.Arn
+            BatchSize: 5
+    Metadata:
+      DockerTag: latest
+      DockerContext: ..
+      Dockerfile: scudo/Dockerfile
+
   ScudoApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -488,6 +579,12 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-etl-worker'
       RetentionInDays: 14
 
+  ProjectionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-projection-worker'
+      RetentionInDays: 14
+
 Outputs:
   ApiUrl:
     Description: Base URL of the SCUDO API.
@@ -502,6 +599,8 @@ Outputs:
     Value: !Ref ScudoFn
   EtlFunctionName:
     Value: !Ref EtlFn
+  ProjectionFunctionName:
+    Value: !Ref ProjectionFn
   LogGroup:
     Value: !Ref ScudoLogGroup
   RawFeedBucketName:

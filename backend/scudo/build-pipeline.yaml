@@ -1,11 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  SCUDO scudo-poc build pipeline (Option A). A single VPC-attached CodeBuild
-  project that, in one run: clones the public repo, builds the Lambda container
-  image (vendoring scudo + scudo_mapping_mcp + falkordb), redeploys the
-  scudo-poc app stack (new image + Lambda VpcConfig + FalkorDB env), and —
-  running INSIDE the scudo-poc-net VPC — seeds the CDAO taxonomy into FalkorDB
-  at falkordb.scudo.local:6379. Teardown: delete this stack.
+  SCUDO scudo-poc build pipeline. A single VPC-attached CodeBuild project that,
+  in one run: clones the public repo, provisions/updates the paid data platform
+  stack (Aurora + Neptune + OpenSearch + AppSync), builds the Lambda container
+  image, redeploys the scudo-poc app stack with those data endpoints, seeds
+  FalkorDB, and bootstraps the target-state stores from the CDAO catalogue.
 
   Depends on the scudo-poc-net stack exports (vpc-id / private-subnets /
   lambda-sg) being present. Trigger with:
@@ -41,6 +40,16 @@ Resources:
                   - events:*
                   - sqs:*
                   - dynamodb:*
+                  - rds:*
+                  - rds-data:*
+                  - neptune:*
+                  - neptune-db:*
+                  - es:*
+                  - opensearch:*
+                  - appsync:*
+                  - secretsmanager:*
+                  - kms:*
+                  - bedrock:InvokeModel
                   - ecs:*
                   - servicediscovery:*
                   - ec2:*
@@ -54,7 +63,7 @@ Resources:
     Properties:
       Name: scudo-poc-build
       ServiceRole: !GetAtt BuildRole.Arn
-      TimeoutInMinutes: 40
+      TimeoutInMinutes: 180
       Artifacts:
         Type: NO_ARTIFACTS
       Environment:
@@ -83,10 +92,24 @@ Resources:
                 - cd "$CODEBUILD_SRC_DIR/repo/backend/scudo"
                 - echo "Preserving the existing API key from the deployed Lambda..."
                 - API_KEY=$(aws lambda get-function-configuration --function-name scudo-poc-orchestrator --region "$AWS_REGION" --query 'Environment.Variables.API_KEY' --output text)
+                - NEPTUNE_INSTANCE_CLASS=$(aws neptune describe-orderable-db-instance-options --engine neptune --region "$AWS_REGION" --query "OrderableDBInstanceOptions[?DBInstanceClass=='db.t4g.medium'].DBInstanceClass|[0]" --output text)
+                - if [ -z "$NEPTUNE_INSTANCE_CLASS" ] || [ "$NEPTUNE_INSTANCE_CLASS" = "None" ]; then NEPTUNE_INSTANCE_CLASS=db.t3.medium; fi
+                - echo "Deploying/refreshing scudo-poc-data (Aurora, Neptune, OpenSearch, AppSync)..."
+                - aws cloudformation deploy --stack-name scudo-poc-data --template-file data-platform.yaml --capabilities CAPABILITY_IAM --region "$AWS_REGION" --no-fail-on-empty-changeset --parameter-overrides "NeptuneInstanceClass=$NEPTUNE_INSTANCE_CLASS"
+                - AURORA_CLUSTER_ARN=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='AuroraClusterArn'].OutputValue|[0]" --output text)
+                - AURORA_SECRET_ARN=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='AuroraSecretArn'].OutputValue|[0]" --output text)
+                - AURORA_DATABASE_NAME=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='AuroraDatabaseName'].OutputValue|[0]" --output text)
+                - NEPTUNE_ENDPOINT=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='NeptuneEndpoint'].OutputValue|[0]" --output text)
+                - NEPTUNE_SPARQL_ENDPOINT=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='NeptuneSparqlEndpoint'].OutputValue|[0]" --output text)
+                - OPENSEARCH_ENDPOINT=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='OpenSearchEndpoint'].OutputValue|[0]" --output text)
+                - OPENSEARCH_INDEX=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='OpenSearchIndexName'].OutputValue|[0]" --output text)
+                - EMBEDDINGS_MODEL_ID=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='EmbeddingsModelId'].OutputValue|[0]" --output text)
+                - APPSYNC_API_URL=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='AppSyncApiUrl'].OutputValue|[0]" --output text)
+                - APPSYNC_API_KEY=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='AppSyncApiKey'].OutputValue|[0]" --output text)
                 - echo "sam build (image vendors scudo + scudo_mapping_mcp + falkordb)..."
                 - sam build
-                - echo "sam deploy (new image + Lambda VpcConfig + FalkorDB env)..."
-                - sam deploy --stack-name scudo-poc --region "$AWS_REGION" --no-confirm-changeset --no-fail-on-empty-changeset --capabilities CAPABILITY_IAM --resolve-image-repos --resolve-s3 --parameter-overrides "ApiKey=$API_KEY"
+                - echo "sam deploy (app stack + projection worker + data platform env)..."
+                - sam deploy --stack-name scudo-poc --region "$AWS_REGION" --no-confirm-changeset --no-fail-on-empty-changeset --capabilities CAPABILITY_IAM --resolve-image-repos --resolve-s3 --parameter-overrides "ApiKey=$API_KEY" "AuroraClusterArn=$AURORA_CLUSTER_ARN" "AuroraSecretArn=$AURORA_SECRET_ARN" "AuroraDatabaseName=$AURORA_DATABASE_NAME" "NeptuneEndpoint=$NEPTUNE_ENDPOINT" "NeptuneSparqlEndpoint=$NEPTUNE_SPARQL_ENDPOINT" "OpenSearchEndpoint=$OPENSEARCH_ENDPOINT" "OpenSearchIndexName=$OPENSEARCH_INDEX" "EmbeddingsModelId=$EMBEDDINGS_MODEL_ID" "AppSyncApiUrl=$APPSYNC_API_URL" "AppSyncApiKey=$APPSYNC_API_KEY"
             post_build:
               commands:
                 - echo "Uploading mock CDAO catalogue to S3, then seeding FalkorDB from S3 (in-VPC)..."
@@ -95,6 +118,8 @@ Resources:
                 - echo "CDAO catalogue bucket = $CDAO_BUCKET"
                 - aws s3 cp scudo/fixtures/cdao_catalogue.json "s3://$CDAO_BUCKET/catalogue/cdao_catalogue.json"
                 - STORE_BACKEND=falkordb FALKORDB_URL=falkordb://falkordb.scudo.local:6379 GRAPH_NAME=scudo_mapping python -m scudo.seed_falkordb "s3://$CDAO_BUCKET/catalogue/cdao_catalogue.json"
+                - echo "Bootstrapping Aurora, Neptune, and OpenSearch from the same CDAO catalogue..."
+                - SCUDO_AURORA_CLUSTER_ARN="$AURORA_CLUSTER_ARN" SCUDO_AURORA_SECRET_ARN="$AURORA_SECRET_ARN" SCUDO_AURORA_DATABASE_NAME="$AURORA_DATABASE_NAME" SCUDO_NEPTUNE_ENDPOINT="$NEPTUNE_ENDPOINT" NEPTUNE_ENDPOINT="$NEPTUNE_ENDPOINT" SCUDO_OPENSEARCH_ENDPOINT="$OPENSEARCH_ENDPOINT" SCUDO_OPENSEARCH_INDEX="$OPENSEARCH_INDEX" SCUDO_EMBEDDINGS_MODEL_ID="$EMBEDDINGS_MODEL_ID" GRAPH_NAME=scudo_mapping python -m scudo.init_data_platform "s3://$CDAO_BUCKET/catalogue/cdao_catalogue.json"
 
 Outputs:
   ProjectName:

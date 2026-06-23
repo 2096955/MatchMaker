@@ -1,0 +1,360 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  SCUDO target-state data platform for the scudo-poc deployment. Provisions the
+  paid backing stores that sit behind the matching engine: Aurora PostgreSQL for
+  audit/catalog/persistent memory, Neptune for canonical RDF/SPARQL, OpenSearch
+  for lexical + k-NN retrieval, and AppSync for the data-steward publish stream.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: scudo-poc
+  DatabaseName:
+    Type: String
+    Default: scudo
+  AuroraMinCapacity:
+    Type: Number
+    Default: 0.5
+  AuroraMaxCapacity:
+    Type: Number
+    Default: 1
+  NeptuneInstanceClass:
+    Type: String
+    Default: db.t3.medium
+  OpenSearchInstanceType:
+    Type: String
+    Default: t3.small.search
+  ReviewTableName:
+    Type: String
+    Default: scudo-poc-human-review
+  EmbeddingsModelId:
+    Type: String
+    Default: amazon.titan-embed-text-v2:0
+  OpenSearchIndexName:
+    Type: String
+    Default: scudo-catalog
+
+Resources:
+  DataStoreSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SCUDO Aurora, Neptune, and OpenSearch endpoints
+      VpcId: !ImportValue scudo-poc-vpc-id
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${StackPrefix}-data-sg'
+
+  AuroraIngressFromLambda:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DataStoreSg
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !ImportValue scudo-poc-lambda-sg
+
+  NeptuneIngressFromLambda:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DataStoreSg
+      IpProtocol: tcp
+      FromPort: 8182
+      ToPort: 8182
+      SourceSecurityGroupId: !ImportValue scudo-poc-lambda-sg
+
+  OpenSearchIngressFromLambda:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DataStoreSg
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !ImportValue scudo-poc-lambda-sg
+
+  DataSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: SCUDO private Aurora subnets
+      SubnetIds: !Split [',', !ImportValue scudo-poc-private-subnets]
+      Tags:
+        - Key: Name
+          Value: !Sub '${StackPrefix}-aurora-subnets'
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBClusterIdentifier: !Sub '${StackPrefix}-aurora'
+      Engine: aurora-postgresql
+      DatabaseName: !Ref DatabaseName
+      MasterUsername: scudo_admin
+      ManageMasterUserPassword: true
+      EnableHttpEndpoint: true
+      BackupRetentionPeriod: 1
+      DeletionProtection: false
+      DBSubnetGroupName: !Ref DataSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DataStoreSg
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref AuroraMinCapacity
+        MaxCapacity: !Ref AuroraMaxCapacity
+      StorageEncrypted: true
+
+  AuroraWriter:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceIdentifier: !Sub '${StackPrefix}-aurora-writer'
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+
+  NeptuneSubnetGroup:
+    Type: AWS::Neptune::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: SCUDO private Neptune subnets
+      SubnetIds: !Split [',', !ImportValue scudo-poc-private-subnets]
+
+  NeptuneCluster:
+    Type: AWS::Neptune::DBCluster
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBClusterIdentifier: !Sub '${StackPrefix}-neptune'
+      DBSubnetGroupName: !Ref NeptuneSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DataStoreSg
+      BackupRetentionPeriod: 1
+      DeletionProtection: false
+      StorageEncrypted: true
+
+  NeptuneWriter:
+    Type: AWS::Neptune::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBClusterIdentifier: !Ref NeptuneCluster
+      DBInstanceIdentifier: !Sub '${StackPrefix}-neptune-writer'
+      DBInstanceClass: !Ref NeptuneInstanceClass
+
+  OpenSearchDomain:
+    Type: AWS::OpenSearchService::Domain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DomainName: !Sub '${StackPrefix}-catalog'
+      EngineVersion: OpenSearch_2.13
+      ClusterConfig:
+        InstanceCount: 1
+        InstanceType: !Ref OpenSearchInstanceType
+        ZoneAwarenessEnabled: false
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: 10
+        VolumeType: gp3
+      VPCOptions:
+        SubnetIds:
+          - !Select [0, !Split [',', !ImportValue scudo-poc-private-subnets]]
+        SecurityGroupIds:
+          - !Ref DataStoreSg
+      EncryptionAtRestOptions:
+        Enabled: true
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+        TLSSecurityPolicy: Policy-Min-TLS-1-2-2019-07
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'es:*'
+            Resource: !Sub 'arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${StackPrefix}-catalog/*'
+
+  StewardApi:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      Name: !Sub '${StackPrefix}-steward'
+      AuthenticationType: API_KEY
+      LogConfig:
+        CloudWatchLogsRoleArn: !GetAtt AppSyncLogsRole.Arn
+        FieldLogLevel: ERROR
+      XrayEnabled: true
+
+  StewardApiKey:
+    Type: AWS::AppSync::ApiKey
+    Properties:
+      ApiId: !GetAtt StewardApi.ApiId
+      Description: SCUDO steward UI/API bootstrap key
+
+  StewardSchema:
+    Type: AWS::AppSync::GraphQLSchema
+    Properties:
+      ApiId: !GetAtt StewardApi.ApiId
+      Definition: |
+        schema {
+          query: Query
+          mutation: Mutation
+          subscription: Subscription
+        }
+
+        type Query {
+          listReviewTickets(limit: Int): [ReviewTicket!]!
+        }
+
+        type Mutation {
+          publishMapping(eventId: ID!, payload: AWSJSON!): PublishEvent!
+        }
+
+        type Subscription {
+          onPublish: PublishEvent @aws_subscribe(mutations: ["publishMapping"])
+        }
+
+        type ReviewTicket {
+          ticket: ID!
+          status: String
+          created_at_ms: Float
+          payload: AWSJSON
+        }
+
+        type PublishEvent {
+          eventId: ID!
+          payload: AWSJSON!
+        }
+
+  AppSyncLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSAppSyncPushToCloudWatchLogs
+
+  StewardDynamoRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: steward-review-read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Scan
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ReviewTableName}'
+
+  StewardReviewDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt StewardApi.ApiId
+      Name: review_table
+      Type: AMAZON_DYNAMODB
+      ServiceRoleArn: !GetAtt StewardDynamoRole.Arn
+      DynamoDBConfig:
+        AwsRegion: !Ref AWS::Region
+        TableName: !Ref ReviewTableName
+
+  StewardNoneDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt StewardApi.ApiId
+      Name: publish_bus
+      Type: NONE
+
+  ListReviewTicketsResolver:
+    Type: AWS::AppSync::Resolver
+    DependsOn: StewardSchema
+    Properties:
+      ApiId: !GetAtt StewardApi.ApiId
+      TypeName: Query
+      FieldName: listReviewTickets
+      DataSourceName: review_table
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "operation": "Scan",
+          "limit": $util.defaultIfNull($ctx.args.limit, 25)
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($ctx.result.items)
+
+  PublishMappingResolver:
+    Type: AWS::AppSync::Resolver
+    DependsOn: StewardSchema
+    Properties:
+      ApiId: !GetAtt StewardApi.ApiId
+      TypeName: Mutation
+      FieldName: publishMapping
+      DataSourceName: publish_bus
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "payload": {
+            "eventId": $util.toJson($ctx.args.eventId),
+            "payload": $util.toJson($ctx.args.payload)
+          }
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($ctx.result)
+
+Outputs:
+  AuroraClusterArn:
+    Value: !Sub 'arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${AuroraCluster}'
+    Export:
+      Name: scudo-poc-aurora-cluster-arn
+  AuroraSecretArn:
+    Value: !GetAtt AuroraCluster.MasterUserSecret.SecretArn
+    Export:
+      Name: scudo-poc-aurora-secret-arn
+  AuroraDatabaseName:
+    Value: !Ref DatabaseName
+    Export:
+      Name: scudo-poc-aurora-database-name
+  AuroraEndpoint:
+    Value: !GetAtt AuroraCluster.Endpoint.Address
+  NeptuneEndpoint:
+    Value: !GetAtt NeptuneCluster.Endpoint
+    Export:
+      Name: scudo-poc-neptune-endpoint
+  NeptuneSparqlEndpoint:
+    Value: !Sub 'https://${NeptuneCluster.Endpoint}:8182/sparql'
+  OpenSearchEndpoint:
+    Value: !GetAtt OpenSearchDomain.DomainEndpoint
+    Export:
+      Name: scudo-poc-opensearch-endpoint
+  OpenSearchIndexName:
+    Value: !Ref OpenSearchIndexName
+    Export:
+      Name: scudo-poc-opensearch-index
+  EmbeddingsModelId:
+    Value: !Ref EmbeddingsModelId
+  AppSyncApiUrl:
+    Value: !GetAtt StewardApi.GraphQLUrl
+    Export:
+      Name: scudo-poc-appsync-url
+  AppSyncApiKey:
+    Value: !GetAtt StewardApiKey.ApiKey
+  AppSyncApiId:
+    Value: !GetAtt StewardApi.ApiId

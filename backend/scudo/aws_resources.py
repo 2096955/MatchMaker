@@ -50,8 +50,14 @@ def env_resource_summary() -> dict[str, str | None]:
         "SCUDO_EVENT_BUS_NAME",
         "SCUDO_PERSISTENCE_QUEUE_URL",
         "SCUDO_NEPTUNE_SPARQL_ENDPOINT",
+        "SCUDO_NEPTUNE_ENDPOINT",
         "SCUDO_OPENSEARCH_ENDPOINT",
+        "SCUDO_OPENSEARCH_INDEX",
         "SCUDO_AURORA_CLUSTER_ARN",
+        "SCUDO_AURORA_SECRET_ARN",
+        "SCUDO_AURORA_DATABASE_NAME",
+        "SCUDO_EMBEDDINGS_MODEL_ID",
+        "SCUDO_APPSYNC_API_URL",
     ]
     return {key: os.environ.get(key) for key in keys}
 
