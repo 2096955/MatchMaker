@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  SCUDO scudo-poc build pipeline (Option A). A single VPC-attached CodeBuild
+  project that, in one run: clones the public repo, builds the Lambda container
+  image (vendoring scudo + scudo_mapping_mcp + falkordb), redeploys the
+  scudo-poc app stack (new image + Lambda VpcConfig + FalkorDB env), and —
+  running INSIDE the scudo-poc-net VPC — seeds the CDAO taxonomy into FalkorDB
+  at falkordb.scudo.local:6379. Teardown: delete this stack.
+
+  Depends on the scudo-poc-net stack exports (vpc-id / private-subnets /
+  lambda-sg) being present. Trigger with:
+    aws codebuild start-build --project-name scudo-poc-build --region us-east-1
+
+Resources:
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: scudo-poc-build-broad
+          PolicyDocument:
+            Version: '2012-10-17'
+            # Broad by design: this build role runs `sam deploy` over the full
+            # scudo-poc app stack (Lambda, API GW, IAM roles, S3, EventBridge,
+            # SQS, DynamoDB, ECR) and must create VPC ENIs for the VPC build.
+            # Scoped to the services involved; acceptable for a sandbox PoC.
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                  - cloudformation:*
+                  - ecr:*
+                  - lambda:*
+                  - apigateway:*
+                  - s3:*
+                  - events:*
+                  - sqs:*
+                  - dynamodb:*
+                  - ecs:*
+                  - servicediscovery:*
+                  - ec2:*
+                  - iam:*
+                  - sts:GetCallerIdentity
+                  - codebuild:*
+                Resource: '*'
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: scudo-poc-build
+      ServiceRole: !GetAtt BuildRole.Arn
+      TimeoutInMinutes: 40
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        PrivilegedMode: true          # needed for `sam build` (docker build)
+      VpcConfig:
+        VpcId: !ImportValue scudo-poc-vpc-id
+        Subnets: !Split [',', !ImportValue scudo-poc-private-subnets]
+        SecurityGroupIds:
+          - !ImportValue scudo-poc-lambda-sg   # already allowed into FalkorDB:6379
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                python: 3.12
+              commands:
+                - pip install --quiet aws-sam-cli falkordb
+                - git clone --branch scudo-phase0-foundations --depth 1 https://github.com/2096955/MatchMaker.git "$CODEBUILD_SRC_DIR/repo"
+            build:
+              commands:
+                - cd "$CODEBUILD_SRC_DIR/repo/backend/scudo"
+                - echo "Preserving the existing API key from the deployed Lambda..."
+                - API_KEY=$(aws lambda get-function-configuration --function-name scudo-poc-orchestrator --region "$AWS_REGION" --query 'Environment.Variables.API_KEY' --output text)
+                - echo "sam build (image vendors scudo + scudo_mapping_mcp + falkordb)..."
+                - sam build
+                - echo "sam deploy (new image + Lambda VpcConfig + FalkorDB env)..."
+                - sam deploy --stack-name scudo-poc --region "$AWS_REGION" --no-confirm-changeset --no-fail-on-empty-changeset --capabilities CAPABILITY_IAM --resolve-image-repos --resolve-s3 --parameter-overrides "ApiKey=$API_KEY"
+            post_build:
+              commands:
+                - echo "Seeding CDAO taxonomy into FalkorDB (in-VPC)..."
+                - cd "$CODEBUILD_SRC_DIR/repo/backend"
+                - STORE_BACKEND=falkordb FALKORDB_URL=falkordb://falkordb.scudo.local:6379 GRAPH_NAME=scudo_mapping python -m scudo.seed_falkordb
+
+Outputs:
+  ProjectName:
+    Value: !Ref BuildProject
+  StartBuildCmd:
+    Value: !Sub 'aws codebuild start-build --project-name ${BuildProject} --region ${AWS::Region}'
+  LogsCmd:
+    Value: !Sub 'aws logs tail /aws/codebuild/${BuildProject} --region ${AWS::Region} --since 15m --follow'
