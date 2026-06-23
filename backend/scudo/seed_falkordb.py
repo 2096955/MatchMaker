@@ -117,21 +117,62 @@ def _redact_url(url: str) -> str:
     return f"{scheme}{sep}{creds}@{host}" if creds else f"{scheme}{sep}{host}"
 
 
-def _load_fixture(path: str) -> list[dict[str, Any]]:
-    """Load taxonomy node dicts from a JSON fixture file.
+def _read_source(path: str) -> bytes:
+    """Read fixture bytes from a local path or an ``s3://bucket/key`` URI.
 
-    Accepts either a top-level list of node objects, or an object with a
-    ``"nodes"`` key holding that list. Raises a clear error on a malformed
-    fixture rather than letting a cryptic KeyError surface downstream.
+    boto3 is imported lazily so offline import stays clean; the in-VPC CodeBuild
+    seed step reads the catalogue straight from the cdao-catalog S3 bucket.
     """
-    with open(path, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    if isinstance(data, dict) and "nodes" in data:
-        data = data["nodes"]
+    if path.startswith("s3://"):
+        bucket, _, key = path[len("s3://") :].partition("/")
+        if not bucket or not key:
+            raise ValueError(f"malformed s3 uri {path!r} (need s3://bucket/key)")
+        import boto3  # lazy
+
+        return boto3.client("s3").get_object(Bucket=bucket, Key=key)["Body"].read()
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+def _coerce_ref(value: Any) -> Optional[str]:
+    """A JSON-LD reference may be a bare IRI string or a {"@id": ...} object."""
+    if isinstance(value, dict):
+        value = value.get("@id")
+    return str(value) if value else None
+
+
+def _normalize_node(raw: dict[str, Any]) -> dict[str, Any]:
+    """Normalise a flat node ({iri,label,parent_iri}) OR a CDAO JSON-LD node
+    ({@id, @type, label/prefLabel/title, inSubdomain/inDomain}) to the flat
+    {iri,label,parent_iri} shape the store persists. Parent is the nearest
+    container (subdomain before domain) so the taxonomy keeps its hierarchy."""
+    iri = _coerce_ref(raw.get("iri") or raw.get("@id"))
+    label = raw.get("label") or raw.get("prefLabel") or raw.get("title")
+    parent = _coerce_ref(
+        raw.get("parent_iri") or raw.get("inSubdomain") or raw.get("inDomain")
+    )
+    if not label and iri:
+        # Derive a readable label from the last IRI segment as a last resort.
+        label = iri.rsplit(":", 1)[-1].replace("-", " ").replace("_", " ").title()
+    return {"iri": iri, "label": label, "parent_iri": parent}
+
+
+def _load_fixture(path: str) -> list[dict[str, Any]]:
+    """Load taxonomy node dicts from a JSON/JSON-LD fixture (local path or s3://).
+
+    Accepts a top-level list, or an object with a ``nodes`` or ``@graph`` list.
+    Each entry may be a flat {iri,label} node or a CDAO JSON-LD node; both are
+    normalised. Raises a clear error on a malformed fixture rather than letting
+    a cryptic KeyError surface downstream.
+    """
+    data = json.loads(_read_source(path).decode("utf-8"))
+    if isinstance(data, dict):
+        data = data.get("nodes") or data.get("@graph") or []
     if not isinstance(data, list):
         raise ValueError(
             f"Taxonomy fixture {path!r} must be a JSON list of node objects "
-            f"(or an object with a 'nodes' list), got {type(data).__name__}."
+            f"(or an object with a 'nodes'/'@graph' list), "
+            f"got {type(data).__name__}."
         )
     nodes: list[dict[str, Any]] = []
     for i, raw in enumerate(data):
@@ -139,12 +180,13 @@ def _load_fixture(path: str) -> list[dict[str, Any]]:
             raise ValueError(
                 f"Taxonomy fixture {path!r} entry {i} is not an object: {raw!r}"
             )
-        if not raw.get("iri") or not raw.get("label"):
+        node = _normalize_node(raw)
+        if not node.get("iri") or not node.get("label"):
             raise ValueError(
-                f"Taxonomy fixture {path!r} entry {i} is missing required "
-                f"'iri' and/or 'label': {raw!r}"
+                f"Taxonomy fixture {path!r} entry {i} is missing an IRI "
+                f"(iri/@id) and/or label: {raw!r}"
             )
-        nodes.append(raw)
+        nodes.append(node)
     return nodes
 
 

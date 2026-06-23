@@ -1,0 +1,30 @@
+{
+  "@context": "https://catalogue.jpm/ontology/cdao/v3.2",
+  "_meta": {
+    "note": "MOCK CDAO catalogue for the scudo-poc PoC. Replace with the authoritative CDAO export when available. Shape mirrors the ETL JSON-LD: each node has @id (IRI), @type (Domain|Subdomain|Concept), label, and a container ref (inDomain/inSubdomain) that becomes the taxonomy parent edge.",
+    "ontologyVersion": "v3.2"
+  },
+  "@graph": [
+    { "@id": "urn:cdao:domain:marketing", "@type": "Domain", "label": "Marketing" },
+    { "@id": "urn:cdao:subdomain:marketing-assets", "@type": "Subdomain", "label": "Marketing Assets", "inDomain": "urn:cdao:domain:marketing" },
+    { "@id": "urn:cdao:concept:marketing-asset", "@type": "Concept", "label": "Marketing Asset", "inSubdomain": "urn:cdao:subdomain:marketing-assets" },
+    { "@id": "urn:cdao:concept:marketing-campaign", "@type": "Concept", "label": "Marketing Campaign", "inSubdomain": "urn:cdao:subdomain:marketing-assets" },
+    { "@id": "urn:cdao:concept:creative-content", "@type": "Concept", "label": "Creative Content and Collateral", "inSubdomain": "urn:cdao:subdomain:marketing-assets" },
+
+    { "@id": "urn:cdao:domain:market-data", "@type": "Domain", "label": "Market Data" },
+    { "@id": "urn:cdao:subdomain:pricing", "@type": "Subdomain", "label": "Pricing", "inDomain": "urn:cdao:domain:market-data" },
+    { "@id": "urn:cdao:concept:equity-prices", "@type": "Concept", "label": "Equity Prices", "inSubdomain": "urn:cdao:subdomain:pricing" },
+    { "@id": "urn:cdao:concept:fixed-income-prices", "@type": "Concept", "label": "Fixed Income Prices", "inSubdomain": "urn:cdao:subdomain:pricing" },
+    { "@id": "urn:cdao:concept:fx-rates", "@type": "Concept", "label": "FX Rates", "inSubdomain": "urn:cdao:subdomain:pricing" },
+    { "@id": "urn:cdao:subdomain:indices", "@type": "Subdomain", "label": "Indices and Benchmarks", "inDomain": "urn:cdao:domain:market-data" },
+    { "@id": "urn:cdao:concept:benchmark-index", "@type": "Concept", "label": "Benchmark Index", "inSubdomain": "urn:cdao:subdomain:indices" },
+
+    { "@id": "urn:cdao:domain:reference-data", "@type": "Domain", "label": "Reference Data" },
+    { "@id": "urn:cdao:subdomain:instruments", "@type": "Subdomain", "label": "Instrument Reference Data", "inDomain": "urn:cdao:domain:reference-data" },
+    { "@id": "urn:cdao:concept:security-master", "@type": "Concept", "label": "Security Master", "inSubdomain": "urn:cdao:subdomain:instruments" },
+    { "@id": "urn:cdao:concept:corporate-actions", "@type": "Concept", "label": "Corporate Actions", "inSubdomain": "urn:cdao:subdomain:instruments" },
+    { "@id": "urn:cdao:subdomain:entities", "@type": "Subdomain", "label": "Entity Reference Data", "inDomain": "urn:cdao:domain:reference-data" },
+    { "@id": "urn:cdao:concept:legal-entity", "@type": "Concept", "label": "Legal Entity", "inSubdomain": "urn:cdao:subdomain:entities" },
+    { "@id": "urn:cdao:concept:counterparty", "@type": "Concept", "label": "Counterparty", "inSubdomain": "urn:cdao:subdomain:entities" }
+  ]
+}

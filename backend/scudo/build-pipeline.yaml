@@ -89,9 +89,12 @@ Resources:
                 - sam deploy --stack-name scudo-poc --region "$AWS_REGION" --no-confirm-changeset --no-fail-on-empty-changeset --capabilities CAPABILITY_IAM --resolve-image-repos --resolve-s3 --parameter-overrides "ApiKey=$API_KEY"
             post_build:
               commands:
-                - echo "Seeding CDAO taxonomy into FalkorDB (in-VPC)..."
+                - echo "Uploading mock CDAO catalogue to S3, then seeding FalkorDB from S3 (in-VPC)..."
                 - cd "$CODEBUILD_SRC_DIR/repo/backend"
-                - STORE_BACKEND=falkordb FALKORDB_URL=falkordb://falkordb.scudo.local:6379 GRAPH_NAME=scudo_mapping python -m scudo.seed_falkordb
+                - CDAO_BUCKET=$(aws cloudformation describe-stacks --stack-name scudo-poc --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='CdaoCatalogBucketName'].OutputValue|[0]" --output text)
+                - echo "CDAO catalogue bucket = $CDAO_BUCKET"
+                - aws s3 cp scudo/fixtures/cdao_catalogue.json "s3://$CDAO_BUCKET/catalogue/cdao_catalogue.json"
+                - STORE_BACKEND=falkordb FALKORDB_URL=falkordb://falkordb.scudo.local:6379 GRAPH_NAME=scudo_mapping python -m scudo.seed_falkordb "s3://$CDAO_BUCKET/catalogue/cdao_catalogue.json"
 
 Outputs:
   ProjectName:
