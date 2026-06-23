@@ -117,7 +117,11 @@ class FalkorDBStore(RetrievalStore):
     # --- lifecycle -------------------------------------------------------
     def health(self) -> bool:
         try:
-            self._ro("RETURN 1")
+            # A graph read such as ``RETURN 1`` fails against an empty FalkorDB
+            # key with "Invalid graph operation on empty key"; the seeder calls
+            # health() before the graph exists. Ping the server connection
+            # instead so an empty-but-reachable database is considered healthy.
+            self._db.connection.ping()
             return True
         except Exception:
             return False
