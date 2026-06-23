@@ -285,7 +285,9 @@ Resources:
 
   ListReviewTicketsResolver:
     Type: AWS::AppSync::Resolver
-    DependsOn: StewardSchema
+    DependsOn:
+      - StewardSchema
+      - StewardReviewDataSource
     Properties:
       ApiId: !GetAtt StewardApi.ApiId
       TypeName: Query
@@ -302,7 +304,9 @@ Resources:
 
   PublishMappingResolver:
     Type: AWS::AppSync::Resolver
-    DependsOn: StewardSchema
+    DependsOn:
+      - StewardSchema
+      - StewardNoneDataSource
     Properties:
       ApiId: !GetAtt StewardApi.ApiId
       TypeName: Mutation
