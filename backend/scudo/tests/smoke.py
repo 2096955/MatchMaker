@@ -164,6 +164,7 @@ def mapping_responder(
     confidence: float,
     requires_review: bool = False,
     include_evidence: bool = True,
+    include_triples: bool = True,
 ):
     def _respond(model_cls, prompt):
         evidence = (
@@ -188,14 +189,18 @@ def mapping_responder(
             band=Band.for_confidence(confidence),
             requires_human_review=requires_review,
             evidence=evidence,
-            proposed_triples=[
-                ProposedTriple(
-                    subject="mds.lseg:9b911986-764b-529c-be8f-9744d86ec0b8",
-                    predicate="dcat:theme",
-                    object=target_iri,
-                    graph="jpmorgan:data:cdao:graphs:enrichment-2026-05-19",
-                ),
-            ],
+            proposed_triples=(
+                [
+                    ProposedTriple(
+                        subject="mds.lseg:9b911986-764b-529c-be8f-9744d86ec0b8",
+                        predicate="dcat:theme",
+                        object=target_iri,
+                        graph="jpmorgan:data:cdao:graphs:enrichment-2026-05-19",
+                    ),
+                ]
+                if include_triples
+                else []
+            ),
         )
 
     return _respond
@@ -224,13 +229,18 @@ def main() -> None:
         assembler = make_bundle_assembler(mcp)
 
         def _build(
-            *, verifier_total: int, confidence: float, requires_review: bool = False
+            *,
+            verifier_total: int,
+            confidence: float,
+            requires_review: bool = False,
+            include_triples: bool = True,
         ):
             mapping_agent = FakeAgent(
                 structured_responder=mapping_responder(
                     target_iri=candidate_iri,
                     confidence=confidence,
                     requires_review=requires_review,
+                    include_triples=include_triples,
                 ),
                 call_responder=lambda p: "RESEARCH write-up (fake).",
             )
@@ -250,7 +260,7 @@ def main() -> None:
             )
 
         # 1) High verifier + high confidence → PUBLISHED
-        orch = _build(verifier_total=18, confidence=0.91)
+        orch = _build(verifier_total=18, confidence=0.91, include_triples=False)
         obj = orch.run(
             {
                 "vendor": "lseg",
@@ -265,8 +275,11 @@ def main() -> None:
         )
         assert obj.outcome is Outcome.PUBLISHED
         assert obj.route is Route.NEW_MAPPING
-        assert obj.published_graph == "jpmorgan:data:cdao:graphs:enrichment-2026-05-19"
+        assert obj.published_graph.startswith(
+            "jpmorgan:data:cdao:graphs:enrichment:"
+        )
         assert orch.publisher.published[0]["graph"] == obj.published_graph
+        assert orch.publisher.published[0]["triples"]
 
         # 2) Verifier in 12–15 retry band → RETRY
         orch = _build(verifier_total=14, confidence=0.85)

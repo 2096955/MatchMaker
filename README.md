@@ -2,7 +2,7 @@
 
 Deterministic vendor-to-canonical product mapping with a three-MCP trust gradient, a five-rung cost ladder, and a verifier gate.
 
-> **Status:** 86 mapping + 8 auth smoke tests passing. Deploy is **GREEN** in the Cognizant cloudboost sandbox (`954976331678`, `eu-west-2`). ALB: `scudo-dev-alb-2025833982.eu-west-2.elb.amazonaws.com`. **This is a dev sandbox**, **not** the JPMC SCUDO production account. Treat all thresholds, dense-arm similarity, and Neptune retrieval as uncalibrated stand-ins until the production cutover.
+> **Status:** 86 mapping + 8 auth smoke tests passing. The current AWS target is the Cognizant cloudboost account `954976331678` in `us-east-1`, with stack `scudo-poc` providing the Lambda/API and the event-driven ETL substrate. The older ECS/Fargate dev templates remain under `infra/` for the `eu-west-2` sandbox. **This is a dev sandbox**, **not** the JPMC SCUDO production account. Treat all thresholds, dense-arm similarity, and Neptune retrieval as uncalibrated stand-ins until the production cutover.
 
 ## SCUDO as the visibility platform
 
@@ -149,6 +149,12 @@ backend/
   Dockerfile               # Single image, four entrypoints (Flask + 3 MCPs)
   requirements.txt
 
+backend/scudo/
+  template.yaml             # us-east-1 SAM stack: API + ETL/EventBridge/SQS/S3/DynamoDB substrate
+  lambda_handler.py         # API Gateway /run + /health; writes audit/outbox/review records when wired
+  etl_handler.py            # SQS-backed raw S3 object processor: clean canonical or quarantine
+  aws_resources.py          # Lazy boto3 adapter for audit/events/table writes
+
 infra/
   scudo-dev-foundation.yaml  # VPC, IAM roles, Neptune, S3, ECR, Secrets, DynamoDB queue
   scudo-dev-deploy.yaml      # ECS cluster, 5 services, ALB w/ 4 listener rules, Cloud Map
@@ -216,7 +222,31 @@ Switching to Neptune locally is not supported — Neptune is reachable only from
 
 ---
 
-## Deploy to AWS dev sandbox
+## Deploy to AWS cloudboost account
+
+Current connected account: `954976331678` (`cb4115669a-genaipocs-aw`) in `us-east-1`.
+
+The deployable AIA stack is [`backend/scudo/template.yaml`](backend/scudo/template.yaml). It matches the target diagram's first AWS slice: raw/clean/quarantine/catalog S3 buckets, EventBridge + SQS routing, ETL Lambda, DynamoDB audit/facts/HITL/outbox tables, and the Bedrock-backed matching Lambda/API. See [`backend/scudo/DEPLOY.md`](backend/scudo/DEPLOY.md) for exact CloudShell commands.
+
+```mermaid
+flowchart LR
+    raw[S3 raw feed] --> eb[EventBridge object-created rule]
+    eb --> q[SQS ETL queue]
+    q --> etl[ETL Lambda worker]
+    etl --> clean[S3 clean canonical metadata]
+    etl --> quarantine[S3 quarantine]
+    etl --> facts[DynamoDB facts + job tracking]
+    api[API Gateway /run] --> match[SCUDO matching Lambda]
+    match --> audit[DynamoDB audit log]
+    match --> review[DynamoDB human review]
+    match --> outbox[DynamoDB transaction outbox]
+    match --> bus[SCUDO EventBridge bus]
+    bus --> projection[SQS projection queue]
+```
+
+Cost-bearing always-on stores from the full target architecture are exposed as parameters, not created by default: `NeptuneSparqlEndpoint`, `OpenSearchEndpoint`, and `AuroraClusterArn`. Pass existing endpoints during deploy when those managed stores are ready.
+
+### Legacy ECS dev sandbox
 
 Target: `954976331678` / `eu-west-2` (Cognizant cloudboost). **Not JPMC.**
 
@@ -263,6 +293,7 @@ Be honest. Engineering, not marketing.
 - **The dense arm is not dense.** `falkordb_store.py` uses Jaro-Winkler as a stand-in for vector similarity. The 0.80 floor and the ±0.05 borderline bands were chosen for the Jaro-Winkler distribution. When real embeddings arrive, the floor and bands must be **re-derived against a golden set** as a coupled swap — do not assume the numbers carry over.
 - **No golden-set evaluation harness.** Smoke tests cover wiring; they do not measure precision / recall.
 - **CloudFront frontend stack pending deploy.** `scudo-dev-frontend.yaml` (S3 + CloudFront + ALB passthrough) is written and being shipped under WS-A; once applied to the dev sandbox the CloudFront URL will replace this bullet. Until then the SPA is reachable directly via the ALB.
+- **Aurora, Neptune, and OpenSearch are not created by the SAM stack default.** The stack exposes endpoint/ARN seams and provisions the event backbone. Create or import the managed stores explicitly before switching those parameters away from empty strings.
 - **No production secret rotation.** `VERDICT_SIGNING_KEY` is dev-only; KMS-backed rotation hooks are stubbed.
 - **Q1 (validations as candidate-set filter) is the next matching-ladder code task** — validations currently gate the single best candidate, not the full surviving set.
 
@@ -288,4 +319,4 @@ The ARB review pack at [`backend/scudo_mapping_mcp/docs/architecture/arb-review-
 - **LLM:** Bedrock — Claude Opus 4.8 (specialist arm, BORDERLINE band only); Titan v2 embeddings (planned for the dense arm swap)
 - **Persistence:** S3 (vendor frames + canonical bundles), DynamoDB (reviewer queue), MySQL via PyMySQL (Flask app-side relational store for auth / dataset / session metadata)
 - **Auth / integrity:** Gateway-header principal resolution (`auth.py`); HMAC-SHA256 verdict seals (`verdict.py`, v=2); Secrets Manager + KMS
-- **Infra:** AWS CloudFormation, ECS Fargate, ALB, VPC endpoints (Bedrock, ECR, Logs), Cloud Map private DNS, CodeBuild for cloud-side image builds
+- **Infra:** AWS SAM/CloudFormation for the `us-east-1` AIA Lambda stack; legacy CloudFormation for ECS Fargate, ALB, VPC endpoints (Bedrock, ECR, Logs), Cloud Map private DNS, and CodeBuild

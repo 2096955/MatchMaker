@@ -1,18 +1,18 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  SCUDO enrichment box — Bedrock Opus 4.8 behind API Gateway.
-  PoC scope: open HTTP API with shared-secret header, in-memory mocks for
-  the catalogue + Neptune. Bedrock calls are real.
+  SCUDO MatchMaker AIA stack for the us-east-1 cloudboost account. Provisions
+  the event-driven ETL + matching substrate shown in the target architecture:
+  S3 raw/clean/quarantine/catalogue stores, EventBridge/SQS routing,
+  DynamoDB audit/review/outbox tables, an ETL worker Lambda, and the existing
+  Bedrock-backed matching Lambda API.
 
 Parameters:
   ApiKey:
     Type: String
     NoEcho: true
     MinLength: 16
-    Description: >
-      Shared secret expected on x-api-key header. Generate with
-      `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+    Description: Shared secret expected on x-api-key header.
   BedrockModelId:
     Type: String
     Default: us.anthropic.claude-opus-4-8
@@ -23,14 +23,331 @@ Parameters:
   RubricVersion:
     Type: String
     Default: v1
+  NeptuneSparqlEndpoint:
+    Type: String
+    Default: ''
+    Description: Optional existing Neptune SPARQL endpoint; empty keeps the PoC on in-memory mocks.
+  OpenSearchEndpoint:
+    Type: String
+    Default: ''
+    Description: Optional existing OpenSearch endpoint for lexical/vector projection.
+  AuroraClusterArn:
+    Type: String
+    Default: ''
+    Description: Optional existing Aurora cluster ARN for audit-log/outbox projection.
 
 Globals:
   Function:
     Timeout: 90
     MemorySize: 3008
     Tracing: Active
+    Environment:
+      Variables:
+        BEDROCK_LLM_MODEL_ID: !Ref BedrockModelId
+        AWS_REGION_OVERRIDE: !Ref AWS::Region
+        SCUDO_ONTOLOGY_SNAPSHOT: !Ref OntologySnapshot
+        SCUDO_RUBRIC_VERSION: !Ref RubricVersion
+        SCUDO_RAW_BUCKET: !Ref RawFeedBucket
+        SCUDO_CLEAN_BUCKET: !Ref CleanCanonicalBucket
+        SCUDO_QUARANTINE_BUCKET: !Ref QuarantineBucket
+        SCUDO_VENDOR_CATALOG_BUCKET: !Ref VendorCatalogBucket
+        SCUDO_CDAO_CATALOG_BUCKET: !Ref CdaoCatalogBucket
+        SCUDO_ETL_QUEUE_URL: !Ref EtlQueue
+        SCUDO_PERSISTENCE_QUEUE_URL: !Ref PersistenceProjectionQueue
+        SCUDO_JOB_TABLE: !Ref JobTrackingTable
+        SCUDO_FACTS_TABLE: !Ref FactsTable
+        SCUDO_AUDIT_TABLE: !Ref AuditLogTable
+        SCUDO_REVIEW_TABLE: !Ref HumanReviewTable
+        SCUDO_OUTBOX_TABLE: !Ref TransactionOutboxTable
+        SCUDO_EVENT_BUS_NAME: !Ref ScudoEventBus
+        SCUDO_NEPTUNE_SPARQL_ENDPOINT: !Ref NeptuneSparqlEndpoint
+        SCUDO_OPENSEARCH_ENDPOINT: !Ref OpenSearchEndpoint
+        SCUDO_AURORA_CLUSTER_ARN: !Ref AuroraClusterArn
 
 Resources:
+  # ----------------------------------------------------------------------
+  # ETL object stores
+  # ----------------------------------------------------------------------
+  RawFeedBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-raw-feed-${AWS::AccountId}-${AWS::Region}'
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  CleanCanonicalBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-clean-canonical-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  QuarantineBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-quarantine-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  VendorCatalogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-vendor-catalog-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  CdaoCatalogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-cdao-catalog-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  # ----------------------------------------------------------------------
+  # Queues + event backbone
+  # ----------------------------------------------------------------------
+  ScudoEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub '${AWS::StackName}-events'
+
+  EtlDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-etl-dlq'
+      MessageRetentionPeriod: 1209600
+
+  EtlQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-etl'
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EtlDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  PersistenceProjectionDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-projection-dlq'
+      MessageRetentionPeriod: 1209600
+
+  PersistenceProjectionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-projection'
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PersistenceProjectionDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  RawFeedIngressRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Route raw S3 object-created events into the ETL queue.
+      EventPattern:
+        source: [aws.s3]
+        detail-type: [Object Created]
+        detail:
+          bucket:
+            name:
+              - !Ref RawFeedBucket
+      State: ENABLED
+      Targets:
+        - Id: etl-sqs
+          Arn: !GetAtt EtlQueue.Arn
+
+  RawFeedIngressQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref EtlQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt EtlQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt RawFeedIngressRule.Arn
+
+  PersistenceProjectionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Route completed mappings/canonical metadata into the projection queue.
+      EventBusName: !Ref ScudoEventBus
+      EventPattern:
+        source: [scudo.matchmaker]
+        detail-type:
+          - MappingCompleted
+          - CanonicalMetadataReady
+      State: ENABLED
+      Targets:
+        - Id: persistence-projection-sqs
+          Arn: !GetAtt PersistenceProjectionQueue.Arn
+
+  PersistenceProjectionQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref PersistenceProjectionQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt PersistenceProjectionQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt PersistenceProjectionRule.Arn
+
+  # ----------------------------------------------------------------------
+  # State, audit, HITL, and outbox tables
+  # ----------------------------------------------------------------------
+  JobTrackingTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-jobs'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  FactsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-facts'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  AuditLogTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-audit-log'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  HumanReviewTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-human-review'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: ticket
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ticket
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  TransactionOutboxTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-transaction-outbox'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: event_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: event_id
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # ----------------------------------------------------------------------
+  # Lambda/API runtime
+  # ----------------------------------------------------------------------
   ScudoFn:
     Type: AWS::Serverless::Function
     Properties:
@@ -39,11 +356,15 @@ Resources:
       Architectures: [x86_64]
       Environment:
         Variables:
-          BEDROCK_LLM_MODEL_ID: !Ref BedrockModelId
-          AWS_REGION_OVERRIDE: !Ref AWS::Region
-          SCUDO_ONTOLOGY_SNAPSHOT: !Ref OntologySnapshot
-          SCUDO_RUBRIC_VERSION: !Ref RubricVersion
           API_KEY: !Ref ApiKey
+          SCUDO_USE_FALKORDB: 'true'
+          STORE_BACKEND: falkordb
+          FALKORDB_URL: falkordb://falkordb.scudo.local:6379
+          GRAPH_NAME: scudo_mapping
+      VpcConfig:
+        SubnetIds: !Split [',', !ImportValue scudo-poc-private-subnets]
+        SecurityGroupIds:
+          - !ImportValue scudo-poc-lambda-sg
       Policies:
         - Statement:
             - Effect: Allow
@@ -52,7 +373,33 @@ Resources:
                 - bedrock:InvokeModelWithResponseStream
                 - bedrock:Converse
                 - bedrock:ConverseStream
-              Resource: '*'  # PoC: any Bedrock model. Tighten to the inference profile ARN for prod.
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource:
+                - !Sub '${RawFeedBucket.Arn}/*'
+                - !Sub '${CleanCanonicalBucket.Arn}/*'
+                - !Sub '${QuarantineBucket.Arn}/*'
+                - !Sub '${VendorCatalogBucket.Arn}/*'
+                - !Sub '${CdaoCatalogBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:GetItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt JobTrackingTable.Arn
+                - !GetAtt FactsTable.Arn
+                - !GetAtt AuditLogTable.Arn
+                - !GetAtt HumanReviewTable.Arn
+                - !GetAtt TransactionOutboxTable.Arn
+            - Effect: Allow
+              Action:
+                - events:PutEvents
+              Resource: !GetAtt ScudoEventBus.Arn
       Events:
         RunMapping:
           Type: HttpApi
@@ -69,8 +416,53 @@ Resources:
             Path: /health
     Metadata:
       DockerTag: latest
-      DockerContext: .
-      Dockerfile: Dockerfile
+      DockerContext: ..
+      Dockerfile: scudo/Dockerfile
+
+  EtlFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-etl-worker'
+      PackageType: Image
+      Architectures: [x86_64]
+      ImageConfig:
+        Command:
+          - scudo.etl_handler.handler
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: !Sub '${RawFeedBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource:
+                - !Sub '${CleanCanonicalBucket.Arn}/*'
+                - !Sub '${QuarantineBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:GetItem
+              Resource:
+                - !GetAtt JobTrackingTable.Arn
+                - !GetAtt FactsTable.Arn
+                - !GetAtt AuditLogTable.Arn
+            - Effect: Allow
+              Action:
+                - events:PutEvents
+              Resource: !GetAtt ScudoEventBus.Arn
+      Events:
+        EtlQueueSource:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt EtlQueue.Arn
+            BatchSize: 5
+    Metadata:
+      DockerTag: latest
+      DockerContext: ..
+      Dockerfile: scudo/Dockerfile
 
   ScudoApi:
     Type: AWS::Serverless::HttpApi
@@ -90,9 +482,15 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-orchestrator'
       RetentionInDays: 14
 
+  EtlLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-etl-worker'
+      RetentionInDays: 14
+
 Outputs:
   ApiUrl:
-    Description: Base URL of the SCUDO API (append /prod/run for the mapping endpoint).
+    Description: Base URL of the SCUDO API.
     Value: !Sub 'https://${ScudoApi}.execute-api.${AWS::Region}.amazonaws.com/prod'
   RunUrl:
     Description: Full URL for the mapping endpoint.
@@ -102,5 +500,33 @@ Outputs:
     Value: !Sub 'https://${ScudoApi}.execute-api.${AWS::Region}.amazonaws.com/prod/health'
   FunctionName:
     Value: !Ref ScudoFn
+  EtlFunctionName:
+    Value: !Ref EtlFn
   LogGroup:
     Value: !Ref ScudoLogGroup
+  RawFeedBucketName:
+    Value: !Ref RawFeedBucket
+  CleanCanonicalBucketName:
+    Value: !Ref CleanCanonicalBucket
+  QuarantineBucketName:
+    Value: !Ref QuarantineBucket
+  VendorCatalogBucketName:
+    Value: !Ref VendorCatalogBucket
+  CdaoCatalogBucketName:
+    Value: !Ref CdaoCatalogBucket
+  EtlQueueUrl:
+    Value: !Ref EtlQueue
+  PersistenceProjectionQueueUrl:
+    Value: !Ref PersistenceProjectionQueue
+  EventBusName:
+    Value: !Ref ScudoEventBus
+  JobTrackingTableName:
+    Value: !Ref JobTrackingTable
+  FactsTableName:
+    Value: !Ref FactsTable
+  AuditLogTableName:
+    Value: !Ref AuditLogTable
+  HumanReviewTableName:
+    Value: !Ref HumanReviewTable
+  TransactionOutboxTableName:
+    Value: !Ref TransactionOutboxTable
