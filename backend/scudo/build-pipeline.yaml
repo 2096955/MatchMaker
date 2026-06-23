@@ -92,7 +92,7 @@ Resources:
                 - cd "$CODEBUILD_SRC_DIR/repo/backend/scudo"
                 - echo "Preserving the existing API key from the deployed Lambda..."
                 - API_KEY=$(aws lambda get-function-configuration --function-name scudo-poc-orchestrator --region "$AWS_REGION" --query 'Environment.Variables.API_KEY' --output text)
-                - NEPTUNE_INSTANCE_CLASS=$(aws neptune describe-orderable-db-instance-options --engine neptune --region "$AWS_REGION" --query "OrderableDBInstanceOptions[?DBInstanceClass=='db.t4g.medium'].DBInstanceClass|[0]" --output text)
+                - NEPTUNE_INSTANCE_CLASS=$(aws neptune describe-orderable-db-instance-options --engine neptune --region "$AWS_REGION" --query "OrderableDBInstanceOptions[?DBInstanceClass=='db.t4g.medium'].DBInstanceClass" --output text | tr '\t' '\n' | awk 'NF && $0 != "None" { print; exit }')
                 - if [ -z "$NEPTUNE_INSTANCE_CLASS" ] || [ "$NEPTUNE_INSTANCE_CLASS" = "None" ]; then NEPTUNE_INSTANCE_CLASS=db.t3.medium; fi
                 - aws iam create-service-linked-role --aws-service-name es.amazonaws.com --description "Allows Amazon OpenSearch Service to access VPC resources for SCUDO" || true
                 - DATA_STACK_STATUS=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo NONE)
