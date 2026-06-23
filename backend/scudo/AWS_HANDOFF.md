@@ -1,73 +1,166 @@
-# SCUDO `scudo-poc` AWS Handoff — Verified Review Notes
+# SCUDO `scudo-poc` AWS Handoff - Verified Review Notes
 
-> **For the next agent.** This supplements `DEPLOY.md` (how to deploy) with an
-> **independent verification** of what was actually built, produced via a
-> self-verifying loop (maker swarm → independent verifier → hand-verify of
-> load-bearing findings). Every claim below was checked against the committed
-> code/template. **Live AWS was NOT re-queried** — the local shell has no
-> credentials (`aws sts get-caller-identity` → `NoCredentials`); re-verify the
-> running stack from CloudShell. The deploy success itself is self-reported by
-> the deploying agent (ran from an authenticated CloudShell).
+Updated: 2026-06-23
 
-Verified 2026-06-22 against the working tree (this work is **uncommitted** — see §6).
+This is the handoff for the AWS-hosted SCUDO/MatchMaker PoC in the Cognizant
+cloudboost sandbox account. These notes were verified from AWS CloudShell in
+`us-east-1`; the local laptop shell has no AWS credentials.
 
-## 1. Target
+## 1. AWS Scope
 
-- **Account:** `954976331678` (`cb4115669a-genaipocs-aw`, Cognizant cloudboost sandbox — *not* JPMC prod)
-- **Region:** `us-east-1`
-- **Stack:** `scudo-poc` (SAM, `backend/scudo/template.yaml`)
-- **Bedrock model:** `us.anthropic.claude-opus-4-8` (us cross-region inference profile — matches us-east-1; resolves the older eu-west-2/`eu.` targeting for this slice).
-- ⚠️ The **older** `infra/scudo-dev-foundation.yaml` / `scudo-dev-deploy.yaml` templates still name **eu-west-2** (Fargate/Neptune foundation). Only this new `scudo-poc` slice is us-east-1. Don't conflate the two.
+- Account: `954976331678` (`cb4115669a-genaipocs-aw`)
+- Region: `us-east-1`
+- Backend app stack: `scudo-poc`
+- Network/data runtime stack: `scudo-poc-net`
+- Target data platform stack: `scudo-poc-data`
+- Build/deploy stack: `scudo-poc-build`
+- Frontend CloudFront URL remains: `https://dp4ji14se0pct.cloudfront.net`
+- Health URL: `https://rhv5iq5rv3.execute-api.us-east-1.amazonaws.com/prod/health`
 
-## 2. Provisioned by the template (confirmed in `template.yaml`)
+## 2. Verified Provisioned State
 
-- **5 S3 buckets** (all SSE-AES256, public-access-blocked, versioned): raw-feed (EventBridge-enabled), clean-canonical, quarantine, vendor-catalog, cdao-catalog.
-- **Event backbone:** EventBridge rule on raw-feed `Object Created` → `EtlQueue` (SQS, +DLQ, maxReceive 3); custom bus `scudo-poc-events`; `PersistenceProjectionQueue` (+DLQ) fed by a rule matching `MappingCompleted`/`CanonicalMetadataReady`.
-- **5 DynamoDB tables** (PAY_PER_REQUEST, SSE, PITR): `-jobs`, `-facts`, `-audit-log`, `-human-review`, `-transaction-outbox`.
-- **2 Lambdas** (container image, 3008 MB, 90 s): `scudo-poc-orchestrator` (HTTP API `GET /health`, `POST /run` @ 29 s gateway timeout) and `scudo-poc-etl-worker` (SQS-triggered from `EtlQueue`).
-- **HTTP API** stage `prod` (throttle 5/5), 2 CloudWatch log groups (14-day retention).
-- **IAM:** verified least-privilege and **complete** — every S3/DynamoDB/EventBridge/Bedrock call the code makes is granted; no call is unauthorized.
+### `scudo-poc-net`
 
-## 3. Wired & confirmed (in code)
+- Status: previously confirmed `CREATE_COMPLETE`.
+- Provides VPC, private subnets, Lambda security group, NAT, and FalkorDB ECS/Fargate.
+- FalkorDB service discovery endpoint: `falkordb.scudo.local:6379`.
 
-- **ETL path** (`etl_handler.py`): raw S3 object → SHA-256 hash → clean canonical-**metadata** JSON to clean bucket (or error doc to quarantine on failure); writes `-jobs` (PROCESSING→PASSED/FAILED), `-facts`, audit `ETL_PASSED`/`ETL_FAILED`, emits `CanonicalMetadataReady`. Handles SQS-wrapped EventBridge, raw EventBridge, and native S3 shapes.
-- **`/health`** returns `env_resource_summary()` (the provisioned resource names).
-- **Publish path** (`lambda_handler.py`): writes audit (`MAPPING_<OUTCOME>`), outbox, EventBridge, and a human-review record when an HITL ticket exists.
-- **RDF**: deterministic DCAT triples serialised **before** the publish gate (`orchestrator.py:142` → `rdf/fake.py`).
-- **Fail-soft AWS adapter** (`aws_resources.py`): boto3 is lazy; every `put_*` no-ops on missing env and swallows exceptions → local smoke runs with no creds; `python -m scudo.tests.smoke` passes (`SCUDO SMOKE OK`).
-- **Store seams** keep working with empty `Neptune/OpenSearch/Aurora` endpoints (mock fallback).
+### `scudo-poc-data`
 
-## 4. Load-bearing caveats (VERIFIED — fix before treating as more than a PoC)
+Status: `CREATE_COMPLETE`.
 
-1. **`MappingCompleted` fires on EVERY outcome** (`lambda_handler.py:243-265`). Outbox + event-bus `detail_type` is hardcoded `"MappingCompleted"` even for HITL / RETRY / RESEARCH_QUEUED — only the *audit* `event_type` is outcome-aware. Downstream projection consumers would treat a human-review case as a completed mapping. **Gate emission on `obj.outcome == PUBLISHED`.**
-2. **The matcher runs over MOCK candidates** (`lambda_handler.py:54,91`). `/run` builds candidates from `sidecar_mock.candidate_nodes(...)` unconditionally — real Bedrock specialist+verifier judgement, but a **mock candidate set**. No FalkorDB/Neptune/OpenSearch retrieval. The dense/vector (Titan + OpenSearch k-NN) arm is **not** implemented here.
-3. **Silent persistence loss** (`aws_resources.py` + `lambda_handler.py:269`). Audit/outbox/event writes are fail-soft and never checked, so a write failure still returns HTTP 200 — client sees "published", audit trail may be empty.
+Provisioned target-state stores:
 
-## 5. Lower-severity findings
+- Aurora PostgreSQL Serverless v2 cluster: `scudo-poc-aurora`
+- Aurora MySQL Serverless v2 cluster for the Flask console: `scudo-poc-console-mysql`
+- Neptune DB cluster: `scudo-poc-neptune`
+- OpenSearch VPC domain: `scudo-poc-catalog`
+- AppSync GraphQL API: `scudo-poc-steward`
+- Titan embeddings config: `amazon.titan-embed-text-v2:0`
 
-- **`PersistenceProjectionQueue` has no consumer Lambda** — `MappingCompleted`/`CanonicalMetadataReady` events accumulate unconsumed (this is the seam where the Neptune/OpenSearch/Aurora projector attaches; expected, since those stores aren't created).
-- **6 env vars set-but-unread** by live code (queue URLs, vendor/cdao buckets, the 3 store endpoints) — introspection-only via `/health`.
-- **`env_resource_summary()` omits `SCUDO_JOB_TABLE`** — `/health` under-reports one of the 5 tables.
-- **`etl_handler.py:71-72`** uses `os.environ[...]` (no fallback) for clean/quarantine buckets — crashes if unset (they are set in the deployed Lambda).
-- **No offline tests** for `aws_resources.py` / `etl_handler.py` — the new AWS code has zero unit coverage in `tests/smoke.py`.
-- `AWS_REGION_OVERRIDE` (template) is unread; code reads `AWS_REGION` (Lambda auto-sets it) — harmless.
+Verified non-secret outputs:
 
-## 6. NOT done / explicitly out of scope
+- Aurora cluster ARN: `arn:aws:rds:us-east-1:954976331678:cluster:scudo-poc-aurora`
+- Aurora database: `scudo`
+- Console MySQL endpoint: `scudo-poc-console-mysql.cluster-cvm68w06mna8.us-east-1.rds.amazonaws.com`
+- Console MySQL secret ARN: `arn:aws:secretsmanager:us-east-1:954976331678:secret:scudo/poc/console-mysql-06oiAp`
+- Neptune endpoint: `scudo-poc-neptune.cluster-cvm68w06mna8.us-east-1.neptune.amazonaws.com`
+- Neptune SPARQL endpoint: `https://scudo-poc-neptune.cluster-cvm68w06mna8.us-east-1.neptune.amazonaws.com:8182/sparql`
+- OpenSearch endpoint: `vpc-scudo-poc-catalog-uj7wbio5zjq2kuzg3334ezxpzm.us-east-1.es.amazonaws.com`
+- OpenSearch index: `scudo-catalog`
+- AppSync URL: `https://i6st5phcdjfnjeoqoxjidsrgya.appsync-api.us-east-1.amazonaws.com/graphql`
 
-- **Neptune, OpenSearch, Aurora are seam parameters only** (`NeptuneSparqlEndpoint`/`OpenSearchEndpoint`/`AuroraClusterArn`, default `""`) — **not created** by this stack. The full diagram's always-on stores remain unprovisioned.
-- **Work is uncommitted** in the working tree: `template.yaml`, `etl_handler.py`, `aws_resources.py`, `lambda_handler.py`, `orchestrator.py`, `tests/smoke.py`, `requirements-lambda.txt`, `README.md`. Commit before relying on it.
-- Cold `/run` can exceed the 29 s gateway timeout (Lambda cold init + Bedrock). Warm calls succeed (~19 s observed). Fix = provisioned concurrency or async job API.
+Do not paste or commit the AppSync API key. It exists as a stack output for
+bootstrap only and should be rotated/replaced before any non-PoC use.
 
-## 7. Next-agent actions
+Console MySQL import contract:
 
-1. Re-verify the live stack from CloudShell (see `DEPLOY.md` §Smoke Checks: `describe-stacks` outputs + `curl $HealthUrl`).
-2. If acting on the matcher: caveats #1–#3 are the priority fixes.
-3. `/run` needs `x-api-key`; never commit the key.
+- Export `scudo-poc-console-mysql-endpoint`: `scudo-poc-console-mysql.cluster-cvm68w06mna8.us-east-1.rds.amazonaws.com`
+- Export `scudo-poc-console-mysql-secret-arn`: `arn:aws:secretsmanager:us-east-1:954976331678:secret:scudo/poc/console-mysql-06oiAp`
+- RDS cluster status: `available`
+- RDS instance status: `available`
+- Engine/version: `aurora-mysql` / `8.0.mysql_aurora.3.10.3`
+- Port: `3306`
 
-## 8. Related Claude sessions (resume for context)
+### `scudo-poc`
 
-| Session | Resume |
-|---|---|
-| scudo-matching-durability-plan | `claude --resume 213a8b4a-6b65-488f-8d02-e3fe8362e3d0` |
-| ultracode (UA dogfood) | `claude --resume 202d635a-f9ff-4510-857d-3a38e0119254` |
-| scudo-phase0-foundations | `claude --resume 1096f0c5-ca44-45f5-83d3-c899f0f411c8` (context only) |
+Status: `UPDATE_COMPLETE`.
+
+Confirmed Lambda wiring:
+
+- `scudo-poc-orchestrator` has the Aurora, Neptune, OpenSearch, AppSync, and Titan env vars.
+- `scudo-poc-projection-worker` is `Active`, `LastUpdateStatus=Successful`.
+- Projection worker VPC config:
+  - Subnets: `subnet-0aadacea616fd53c1`, `subnet-07c7316701307076b`
+  - Security group: `sg-0fd88e7b6da9c2274`
+- SQS event source mapping is enabled for `arn:aws:sqs:us-east-1:954976331678:scudo-poc-projection`.
+
+Health check result:
+
+- `/prod/health` returned `"ok": true`.
+- The health payload includes non-empty values for:
+  - `SCUDO_NEPTUNE_SPARQL_ENDPOINT`
+  - `SCUDO_NEPTUNE_ENDPOINT`
+  - `SCUDO_OPENSEARCH_ENDPOINT`
+  - `SCUDO_OPENSEARCH_INDEX`
+  - `SCUDO_AURORA_CLUSTER_ARN`
+  - `SCUDO_AURORA_DATABASE_NAME`
+  - `SCUDO_EMBEDDINGS_MODEL_ID`
+  - `SCUDO_APPSYNC_API_URL`
+
+## 3. Build/Deploy Run
+
+Latest successful CodeBuild run:
+
+- Build ID: `scudo-poc-build:d72890ec-9c66-47d9-aa52-8c56bb7b6664`
+- Commit deployed: `e768284` (`fix(scudo): pass a single Neptune class`)
+- Result: `SUCCEEDED`
+- Phases: `INSTALL`, `BUILD`, `POST_BUILD`, `UPLOAD_ARTIFACTS`, `FINALIZING`, `COMPLETED` all succeeded.
+
+Important fixes that landed during provisioning:
+
+- `f0d1f4e` - added `scudo-poc-data`, projection worker, and bootstrap loader.
+- `adc58fa` - creates the OpenSearch service-linked role before deploy.
+- `3c49425` - retries data stack after `ROLLBACK_COMPLETE`.
+- `c731f99` - fixes AppSync resolver teardown ordering.
+- `e768284` - passes a single clean Neptune instance class to CloudFormation.
+- `fa8ca5b` - adds the console Aurora MySQL cluster and the two console import exports.
+
+## 4. Bootstrap Confirmations
+
+The successful build uploaded the mock CDAO catalog to S3 and initialized the
+target stores. CodeBuild log markers showed:
+
+- `[init_data_platform] Aurora schema ready`
+- `[init_data_platform] Neptune CDAO nodes upserted: 19`
+- `[init_data_platform] OpenSearch CDAO docs indexed: 19`
+
+The prior statement that only a representative 6-node set was seeded is now
+out of date for this branch/deployment; the current fixture load reports 19
+catalog nodes.
+
+## 5. What Is Now Provisioned From The Diagram
+
+- Aurora audit/catalog/persistent-memory backing store: provisioned.
+- Aurora MySQL backing store for the Flask ingestion console: provisioned.
+- Neptune canonical RDF/SPARQL store: provisioned.
+- OpenSearch lexical + k-NN-capable index endpoint: provisioned.
+- Titan embeddings path: configured and used by the bootstrap/indexing code when Bedrock invocation succeeds.
+- CDAO catalog bootstrap: loaded from S3 into Aurora/Neptune/OpenSearch.
+- Data steward AppSync/WebSocket publish path: AppSync API is provisioned; publish mutation/subscription schema exists.
+- Asynchronous projection path: EventBridge/SQS projection queue now has `scudo-poc-projection-worker` attached.
+
+## 6. Remaining Runtime Caveats
+
+These are not provisioning blockers, but the next agent should understand them:
+
+1. `/run` still builds matcher candidates from the mock sidecar candidate set in `lambda_handler.py`. The real stores are provisioned and seeded, but matcher retrieval still needs to be changed to query OpenSearch/Neptune/FalkorDB instead of using only mock candidates.
+2. `MappingCompleted` is still emitted for every outcome from the API path. The new projection worker gates writes to `outcome == "published"`, but the event naming is still broad and should be tightened.
+3. Persistence helpers remain mostly fail-soft. A write failure can still be hidden from the HTTP response unless the caller explicitly checks downstream state.
+4. AppSync uses a bootstrap API key. Replace with Cognito/IAM/OIDC before treating the steward channel as anything beyond PoC.
+5. OpenSearch is a VPC domain. Any direct inspection or smoke query must run from VPC-attached compute, CloudShell with suitable networking, or another approved path.
+
+## 7. Verification Commands
+
+Use CloudShell in `us-east-1`:
+
+```bash
+aws cloudformation describe-stacks --stack-name scudo-poc-data --region us-east-1 \
+  --query "Stacks[0].[StackStatus,Outputs[?OutputKey!='AppSyncApiKey']]" --output table
+
+aws cloudformation list-exports --region us-east-1 \
+  --query "Exports[?starts_with(Name,'scudo-poc-console-mysql')].[Name,Value]" --output table
+
+aws rds describe-db-clusters --db-cluster-identifier scudo-poc-console-mysql --region us-east-1 \
+  --query "DBClusters[0].[Status,Endpoint,Engine,EngineVersion,Port]" --output table
+
+aws lambda get-function-configuration --function-name scudo-poc-projection-worker --region us-east-1 \
+  --query "{State:State,LastUpdateStatus:LastUpdateStatus,VpcConfig:VpcConfig}" --output json
+
+aws lambda list-event-source-mappings --function-name scudo-poc-projection-worker --region us-east-1 \
+  --query "EventSourceMappings[].{State:State,Arn:EventSourceArn}" --output table
+
+HEALTH=$(aws cloudformation describe-stacks --stack-name scudo-poc --region us-east-1 \
+  --query "Stacks[0].Outputs[?OutputKey=='HealthUrl'].OutputValue|[0]" --output text)
+curl -s "$HEALTH" | python -m json.tool
+```
