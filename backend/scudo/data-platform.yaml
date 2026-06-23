@@ -3,7 +3,8 @@ Description: >
   SCUDO target-state data platform for the scudo-poc deployment. Provisions the
   paid backing stores that sit behind the matching engine: Aurora PostgreSQL for
   audit/catalog/persistent memory, Neptune for canonical RDF/SPARQL, OpenSearch
-  for lexical + k-NN retrieval, and AppSync for the data-steward publish stream.
+  for lexical + k-NN retrieval, AppSync for the data-steward publish stream,
+  and Aurora MySQL for the Flask ingestion console.
 
 Parameters:
   StackPrefix:
@@ -113,6 +114,65 @@ Resources:
       DBInstanceIdentifier: !Sub '${StackPrefix}-aurora-writer'
       DBInstanceClass: db.serverless
       Engine: aurora-postgresql
+      PubliclyAccessible: false
+
+  ConsoleDbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: scudo/poc/console-mysql
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"scudo_console"}'
+        GenerateStringKey: password
+        ExcludeCharacters: "\"@/\\ "
+
+  ConsoleDbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: SCUDO console MySQL
+      SubnetIds: !Split [',', !ImportValue scudo-poc-private-subnets]
+
+  ConsoleDbSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SCUDO console Aurora MySQL
+      VpcId: !ImportValue scudo-poc-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 10.42.0.0/16
+      Tags:
+        - Key: Name
+          Value: scudo-poc-console-mysql-sg
+
+  ConsoleAuroraCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBClusterIdentifier: !Sub '${StackPrefix}-console-mysql'
+      Engine: aurora-mysql
+      MasterUsername: !Sub '{{resolve:secretsmanager:${ConsoleDbSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${ConsoleDbSecret}:SecretString:password}}'
+      DBSubnetGroupName: !Ref ConsoleDbSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref ConsoleDbSg
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: 2
+      BackupRetentionPeriod: 1
+      StorageEncrypted: true
+      DeletionProtection: false
+
+  ConsoleAuroraInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBClusterIdentifier: !Ref ConsoleAuroraCluster
+      DBInstanceIdentifier: !Sub '${StackPrefix}-console-mysql-writer'
+      DBInstanceClass: db.serverless
+      Engine: aurora-mysql
       PubliclyAccessible: false
 
   NeptuneSubnetGroup:
@@ -338,6 +398,14 @@ Outputs:
       Name: scudo-poc-aurora-database-name
   AuroraEndpoint:
     Value: !GetAtt AuroraCluster.Endpoint.Address
+  ConsoleMysqlEndpoint:
+    Value: !GetAtt ConsoleAuroraCluster.Endpoint.Address
+    Export:
+      Name: scudo-poc-console-mysql-endpoint
+  ConsoleMysqlSecretArn:
+    Value: !Ref ConsoleDbSecret
+    Export:
+      Name: scudo-poc-console-mysql-secret-arn
   NeptuneEndpoint:
     Value: !GetAtt NeptuneCluster.Endpoint
     Export:
