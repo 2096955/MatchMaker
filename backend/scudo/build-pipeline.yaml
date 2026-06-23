@@ -95,6 +95,8 @@ Resources:
                 - NEPTUNE_INSTANCE_CLASS=$(aws neptune describe-orderable-db-instance-options --engine neptune --region "$AWS_REGION" --query "OrderableDBInstanceOptions[?DBInstanceClass=='db.t4g.medium'].DBInstanceClass|[0]" --output text)
                 - if [ -z "$NEPTUNE_INSTANCE_CLASS" ] || [ "$NEPTUNE_INSTANCE_CLASS" = "None" ]; then NEPTUNE_INSTANCE_CLASS=db.t3.medium; fi
                 - aws iam create-service-linked-role --aws-service-name es.amazonaws.com --description "Allows Amazon OpenSearch Service to access VPC resources for SCUDO" || true
+                - DATA_STACK_STATUS=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo NONE)
+                - if [ "$DATA_STACK_STATUS" = "ROLLBACK_COMPLETE" ]; then aws cloudformation delete-stack --stack-name scudo-poc-data --region "$AWS_REGION"; aws cloudformation wait stack-delete-complete --stack-name scudo-poc-data --region "$AWS_REGION"; fi
                 - echo "Deploying/refreshing scudo-poc-data (Aurora, Neptune, OpenSearch, AppSync)..."
                 - aws cloudformation deploy --stack-name scudo-poc-data --template-file data-platform.yaml --capabilities CAPABILITY_IAM --region "$AWS_REGION" --no-fail-on-empty-changeset --parameter-overrides "NeptuneInstanceClass=$NEPTUNE_INSTANCE_CLASS"
                 - AURORA_CLUSTER_ARN=$(aws cloudformation describe-stacks --stack-name scudo-poc-data --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='AuroraClusterArn'].OutputValue|[0]" --output text)
