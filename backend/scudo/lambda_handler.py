@@ -297,20 +297,27 @@ def handler(event: dict, context: Any) -> dict:
         },
         "mapping_object": mapping_object,
     }
+    # Audit EVERY outcome — the audit log is the full trail (event_type encodes
+    # the outcome: MAPPING_PUBLISHED / MAPPING_HITL / MAPPING_RETRY / ...).
     put_audit_record(
         item_id=obj.bundle_ref,
         event_type=f"MAPPING_{obj.outcome.value.upper()}",
         payload=audit_payload,
     )
-    put_outbox_record(
-        event_id=event_id,
-        detail_type="MappingCompleted",
-        detail=audit_payload,
-    )
-    put_eventbridge_event(
-        detail_type="MappingCompleted",
-        detail={"event_id": event_id, **audit_payload},
-    )
+    # Only a genuinely PUBLISHED mapping is "completed": emit MappingCompleted
+    # to the outbox + event bus (the async-projection path) ONLY then. HITL /
+    # RETRY / RESEARCH must not masquerade as completed mappings to downstream
+    # projection consumers — the HITL case is captured by the review record below.
+    if obj.outcome.value == "published":
+        put_outbox_record(
+            event_id=event_id,
+            detail_type="MappingCompleted",
+            detail=audit_payload,
+        )
+        put_eventbridge_event(
+            detail_type="MappingCompleted",
+            detail={"event_id": event_id, **audit_payload},
+        )
     if obj.hitl_ticket:
         put_review_record(ticket=obj.hitl_ticket, payload=audit_payload)
 

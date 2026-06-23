@@ -43,7 +43,10 @@ CONFIDENCE_FLOOR = 0.80  # clarif. F31
 # Only IRIs matching one of these patterns can flow through publish.
 # `mds.<vendor>:<uuid>` for vendor products, `jpmorgan:data:cdao:` for CDAO nodes.
 _IRI_DETERMINISM = re.compile(
-    r"^(mds\.[a-z0-9_]+:[0-9a-f-]{36}|jpmorgan:data:cdao:.+)$"
+    # Vendor segment allows upper/lower/digits/_/- so real vendor names (e.g.
+    # "LSEG") pass; the <uuid> suffix is uuid5-derived (deterministic), so the
+    # only thing this gate proves is the structural shape, not randomness.
+    r"^(mds\.[A-Za-z0-9_-]+:[0-9a-f-]{36}|jpmorgan:data:cdao:.+)$"
 )
 
 
