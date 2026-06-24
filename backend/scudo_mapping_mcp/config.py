@@ -20,6 +20,7 @@ Three-seam vendor-agnostic contract (#18):
     swap a client deployment: which vendor catalogues we normalise, which
     classification ontology we load, and where the canonical write lands.
 """
+
 from __future__ import annotations
 
 import os
@@ -49,6 +50,26 @@ CONFIDENCE_FLOOR: float = 0.80
 BORDERLINE_HALF_WIDTH: float = 0.05
 
 
+def pass_threshold(
+    floor: float = CONFIDENCE_FLOOR, half: float = BORDERLINE_HALF_WIDTH
+) -> float:
+    """Upper band edge (>= this -> PASS).
+
+    Rounded to 2 dp: a naive ``floor + half`` yields 0.8500000000000001 for the
+    canonical 0.80/0.05 config, which silently pushes a score of exactly 0.85
+    into BORDERLINE. Banding is the product's headline behaviour, so the edge
+    must be exact.
+    """
+    return round(floor + half, 2)
+
+
+def borderline_threshold(
+    floor: float = CONFIDENCE_FLOOR, half: float = BORDERLINE_HALF_WIDTH
+) -> float:
+    """Lower band edge (>= this -> at least BORDERLINE). Rounded to 2 dp."""
+    return round(floor - half, 2)
+
+
 _ALLOWED_TAXONOMY_LOADERS: tuple[str, ...] = ("cdao",)
 _ALLOWED_PERSIST_TARGETS: tuple[str, ...] = ("falkordb", "neptune", "none", "memory")
 
@@ -74,6 +95,7 @@ def _default_vendor_adapters() -> tuple[str, ...]:
     resulting tuple by literal, NOT by re-running the same broken rule.
     """
     import re
+
     out: list[str] = []
     for v in PRIORITY_VENDORS:
         s = v.lower().replace(" ", "_")
@@ -113,26 +135,29 @@ class Settings:
             Defaults to "falkordb" (matches store_backend in dev).
             Allowed values: "falkordb" | "neptune" | "none".
     """
-    store_backend: str            # "falkordb" | "neptune"
-    falkordb_url: str             # e.g. falkordb://localhost:6379  (or falkordb:// for default local)
-    neptune_endpoint: str         # e.g. https://<cluster>.neptune.amazonaws.com:8182
-    graph_name: str               # logical graph / dataset name
-    frame_source: str             # "mock" | "s3"
-    s3_bucket: str                # vendor working-set bucket (prod / M8)
-    s3_prefix: str                # optional sub-prefix (e.g. "env/uat/") — joined as f"{s3_prefix}{vendor}/{product_id}.json"
+
+    store_backend: str  # "falkordb" | "neptune"
+    falkordb_url: (
+        str  # e.g. falkordb://localhost:6379  (or falkordb:// for default local)
+    )
+    neptune_endpoint: str  # e.g. https://<cluster>.neptune.amazonaws.com:8182
+    graph_name: str  # logical graph / dataset name
+    frame_source: str  # "mock" | "s3"
+    s3_bucket: str  # vendor working-set bucket (prod / M8)
+    s3_prefix: str  # optional sub-prefix (e.g. "env/uat/") — joined as f"{s3_prefix}{vendor}/{product_id}.json"
     confidence_floor: float
     borderline_half_width: float  # cost-ladder band width around the floor
     # Three-seam vendor-agnostic contract — see module docstring (#18).
     vendor_adapters: tuple[str, ...]  # SCUDO_VENDOR_ADAPTERS
-    taxonomy_loader: str              # SCUDO_TAXONOMY_LOADER — "cdao" (only allowed today)
-    persist_target: str               # SCUDO_PERSIST_TARGET — "falkordb" | "neptune" | "none"
+    taxonomy_loader: str  # SCUDO_TAXONOMY_LOADER — "cdao" (only allowed today)
+    persist_target: str  # SCUDO_PERSIST_TARGET — "falkordb" | "neptune" | "none"
     # Opus-dense feature flag — see method docstring on from_env.
     # When True, find_similar_products delegates to
     # retrieval.multi_path_retrieve (Opus-judged dense scoring with the
     # multi-path shape). When False (default), the existing Jaro-Winkler +
     # BM25 + RRF path runs unchanged. Gated so the 86 smoke gates keep
     # exercising the legacy path until the new path is fully calibrated.
-    use_opus_dense: bool              # SCUDO_USE_OPUS_DENSE — "1"/"true"/"yes" -> True
+    use_opus_dense: bool  # SCUDO_USE_OPUS_DENSE — "1"/"true"/"yes" -> True
 
     @staticmethod
     def from_env() -> "Settings":
@@ -150,9 +175,7 @@ class Settings:
         raw_adapters = os.getenv("SCUDO_VENDOR_ADAPTERS", "").strip()
         if raw_adapters:
             vendor_adapters = tuple(
-                tok.strip().lower()
-                for tok in raw_adapters.split(",")
-                if tok.strip()
+                tok.strip().lower() for tok in raw_adapters.split(",") if tok.strip()
             )
         else:
             vendor_adapters = _default_vendor_adapters()
@@ -166,9 +189,14 @@ class Settings:
             )
 
         # persist_target: defaults to store_backend so dev stays coherent.
-        persist_target = os.getenv(
-            "SCUDO_PERSIST_TARGET", store_backend,
-        ).strip().lower()
+        persist_target = (
+            os.getenv(
+                "SCUDO_PERSIST_TARGET",
+                store_backend,
+            )
+            .strip()
+            .lower()
+        )
         if persist_target not in _ALLOWED_PERSIST_TARGETS:
             raise ValueError(
                 f"SCUDO_PERSIST_TARGET={persist_target!r} not in "
@@ -181,7 +209,10 @@ class Settings:
         # else (unset, "0", "false", garbage) stays at False so the legacy
         # Jaro-Winkler + BM25 + RRF path remains the default.
         use_opus_dense = os.getenv("SCUDO_USE_OPUS_DENSE", "").strip().lower() in {
-            "1", "true", "yes", "on",
+            "1",
+            "true",
+            "yes",
+            "on",
         }
 
         return Settings(
@@ -192,7 +223,9 @@ class Settings:
             frame_source=os.getenv("FRAME_SOURCE", "mock").lower(),
             s3_bucket=os.getenv("S3_WORKING_SET_BUCKET", ""),
             s3_prefix=prefix,
-            confidence_floor=float(os.getenv("CONFIDENCE_FLOOR", str(CONFIDENCE_FLOOR))),
+            confidence_floor=float(
+                os.getenv("CONFIDENCE_FLOOR", str(CONFIDENCE_FLOOR))
+            ),
             borderline_half_width=float(
                 os.getenv("BORDERLINE_HALF_WIDTH", str(BORDERLINE_HALF_WIDTH)),
             ),

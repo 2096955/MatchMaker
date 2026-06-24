@@ -1,30 +1,120 @@
 {
   "@context": "https://catalogue.jpm/ontology/cdao/v3.2",
   "_meta": {
-    "note": "MOCK CDAO catalogue for the scudo-poc PoC. Replace with the authoritative CDAO export when available. Shape mirrors the ETL JSON-LD: each node has @id (IRI), @type (Domain|Subdomain|Concept), label, and a container ref (inDomain/inSubdomain) that becomes the taxonomy parent edge.",
+    "note": "ILLUSTRATIVE — synthetic CDAO taxonomy for demonstration. Not the authoritative bank export.",
+    "provenance": "synthetic",
     "ontologyVersion": "v3.2"
   },
   "@graph": [
-    { "@id": "urn:cdao:domain:marketing", "@type": "Domain", "label": "Marketing" },
-    { "@id": "urn:cdao:subdomain:marketing-assets", "@type": "Subdomain", "label": "Marketing Assets", "inDomain": "urn:cdao:domain:marketing" },
-    { "@id": "urn:cdao:concept:marketing-asset", "@type": "Concept", "label": "Marketing Asset", "inSubdomain": "urn:cdao:subdomain:marketing-assets" },
-    { "@id": "urn:cdao:concept:marketing-campaign", "@type": "Concept", "label": "Marketing Campaign", "inSubdomain": "urn:cdao:subdomain:marketing-assets" },
-    { "@id": "urn:cdao:concept:creative-content", "@type": "Concept", "label": "Creative Content and Collateral", "inSubdomain": "urn:cdao:subdomain:marketing-assets" },
-
-    { "@id": "urn:cdao:domain:market-data", "@type": "Domain", "label": "Market Data" },
-    { "@id": "urn:cdao:subdomain:pricing", "@type": "Subdomain", "label": "Pricing", "inDomain": "urn:cdao:domain:market-data" },
-    { "@id": "urn:cdao:concept:equity-prices", "@type": "Concept", "label": "Equity Prices", "inSubdomain": "urn:cdao:subdomain:pricing" },
-    { "@id": "urn:cdao:concept:fixed-income-prices", "@type": "Concept", "label": "Fixed Income Prices", "inSubdomain": "urn:cdao:subdomain:pricing" },
-    { "@id": "urn:cdao:concept:fx-rates", "@type": "Concept", "label": "FX Rates", "inSubdomain": "urn:cdao:subdomain:pricing" },
-    { "@id": "urn:cdao:subdomain:indices", "@type": "Subdomain", "label": "Indices and Benchmarks", "inDomain": "urn:cdao:domain:market-data" },
-    { "@id": "urn:cdao:concept:benchmark-index", "@type": "Concept", "label": "Benchmark Index", "inSubdomain": "urn:cdao:subdomain:indices" },
-
-    { "@id": "urn:cdao:domain:reference-data", "@type": "Domain", "label": "Reference Data" },
-    { "@id": "urn:cdao:subdomain:instruments", "@type": "Subdomain", "label": "Instrument Reference Data", "inDomain": "urn:cdao:domain:reference-data" },
-    { "@id": "urn:cdao:concept:security-master", "@type": "Concept", "label": "Security Master", "inSubdomain": "urn:cdao:subdomain:instruments" },
-    { "@id": "urn:cdao:concept:corporate-actions", "@type": "Concept", "label": "Corporate Actions", "inSubdomain": "urn:cdao:subdomain:instruments" },
-    { "@id": "urn:cdao:subdomain:entities", "@type": "Subdomain", "label": "Entity Reference Data", "inDomain": "urn:cdao:domain:reference-data" },
-    { "@id": "urn:cdao:concept:legal-entity", "@type": "Concept", "label": "Legal Entity", "inSubdomain": "urn:cdao:subdomain:entities" },
-    { "@id": "urn:cdao:concept:counterparty", "@type": "Concept", "label": "Counterparty", "inSubdomain": "urn:cdao:subdomain:entities" }
+    {
+      "@id": "jpmorgan:data:cdao:domain:market-data",
+      "@type": "Domain",
+      "label": "Market Data",
+      "caption": "Market Data — canonical domain for live and end-of-day pricing; vendor feeds map here.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:subdomain:pricing",
+      "@type": "Subdomain",
+      "label": "Pricing",
+      "inDomain": "jpmorgan:data:cdao:domain:market-data",
+      "caption": "Pricing — spot, forward, and end-of-day prices across asset classes.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:concept:equity-prices",
+      "@type": "Concept",
+      "label": "Equity Prices",
+      "inSubdomain": "jpmorgan:data:cdao:subdomain:pricing",
+      "caption": "Equity Prices — canonical store of equity EOD and intraday observations.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:concept:fixed-income-prices",
+      "@type": "Concept",
+      "label": "Fixed Income Prices",
+      "inSubdomain": "jpmorgan:data:cdao:subdomain:pricing",
+      "caption": "Fixed Income Prices — bond and credit instrument pricing observations.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:concept:fx-rates",
+      "@type": "Concept",
+      "label": "FX Rates",
+      "inSubdomain": "jpmorgan:data:cdao:subdomain:pricing",
+      "caption": "FX Rates — spot and forward foreign-exchange rate observations.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:subdomain:indices",
+      "@type": "Subdomain",
+      "label": "Indices and Benchmarks",
+      "inDomain": "jpmorgan:data:cdao:domain:market-data",
+      "caption": "Indices — benchmark and custom index levels for valuation and risk.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:concept:benchmark-index",
+      "@type": "Concept",
+      "label": "Benchmark Index",
+      "inSubdomain": "jpmorgan:data:cdao:subdomain:indices",
+      "caption": "Benchmark Index — published index levels used as valuation references.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:domain:reference-data",
+      "@type": "Domain",
+      "label": "Reference Data",
+      "caption": "Reference Data — static instrument and entity master data.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:subdomain:instruments",
+      "@type": "Subdomain",
+      "label": "Instrument Reference Data",
+      "inDomain": "jpmorgan:data:cdao:domain:reference-data",
+      "caption": "Instruments — security master and lifecycle events.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:concept:security-master",
+      "@type": "Concept",
+      "label": "Security Master",
+      "inSubdomain": "jpmorgan:data:cdao:subdomain:instruments",
+      "caption": "Security Master — golden instrument identifiers and static attributes.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:concept:corporate-actions",
+      "@type": "Concept",
+      "label": "Corporate Actions",
+      "inSubdomain": "jpmorgan:data:cdao:subdomain:instruments",
+      "caption": "Corporate Actions — dividends, splits, mergers and other lifecycle events.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:subdomain:entities",
+      "@type": "Subdomain",
+      "label": "Entity Reference Data",
+      "inDomain": "jpmorgan:data:cdao:domain:reference-data",
+      "caption": "Entities — legal entities and counterparty reference records.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:concept:legal-entity",
+      "@type": "Concept",
+      "label": "Legal Entity",
+      "inSubdomain": "jpmorgan:data:cdao:subdomain:entities",
+      "caption": "Legal Entity — authoritative legal-entity identifiers and hierarchy.",
+      "provenance": "synthetic"
+    },
+    {
+      "@id": "jpmorgan:data:cdao:concept:counterparty",
+      "@type": "Concept",
+      "label": "Counterparty",
+      "inSubdomain": "jpmorgan:data:cdao:subdomain:entities",
+      "caption": "Counterparty — trading and settlement counterparty reference data.",
+      "provenance": "synthetic"
+    }
   ]
 }

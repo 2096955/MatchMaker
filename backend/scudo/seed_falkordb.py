@@ -29,6 +29,9 @@ Run (against an up FalkorDB):
     # or from a fixture
     python -m scudo.seed_falkordb path/to/cdao_taxonomy.json
 
+After migrating to a new catalogue fixture, run ``python -m scudo.scripts.cleanup_stale_cdao``
+to drop legacy IRIs (Marketing / urn:cdao / bare cdao: prefixes) before re-seeding.
+
 The fixture is a JSON list of objects, each with ``iri`` and ``label`` and
 (optionally) ``parent_iri`` / ``description``. ``description`` is accepted for
 forward-compatibility but is NOT persisted by the current store seam (the
@@ -252,8 +255,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 2
         source = f"fixture {fixture_path!r}"
     else:
-        nodes = list(_DEFAULT_NODES)
-        source = "built-in default CDAO node set"
+        default_fixture = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "fixtures",
+            "cdao_catalogue.json",
+        )
+        if os.path.isfile(default_fixture):
+            nodes = _load_fixture(default_fixture)
+            source = f"fixture {default_fixture!r}"
+        else:
+            nodes = list(_DEFAULT_NODES)
+            source = "built-in default CDAO node set"
 
     # LAZY import of config + store factory so offline import stays clean and
     # the falkordb client is only required at run time.

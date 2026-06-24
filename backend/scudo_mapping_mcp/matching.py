@@ -92,6 +92,7 @@ M9 SCORER CONTRACT (pinned now to keep determinism through the cutover):
 The store surface, the scope gate, the validations and the result contract
 do not change — only the scorer does (Section 11 / M9).
 """
+
 from __future__ import annotations
 
 import logging
@@ -99,13 +100,14 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+from .config import borderline_threshold as _borderline_threshold
+from .config import pass_threshold as _pass_threshold
 from .config import settings
 from .frames import check_scope
 from .models import (
     Candidate,
     MappingResult,
     MappingStatus,
-    TaxonomyNode,
     Validation,
     VendorProductRef,
 )
@@ -127,6 +129,17 @@ SpecialistScorer = Callable[
 ]
 
 
+def _gate_thresholds(floor: float, half: float) -> tuple[float, float]:
+    """Return ``(pass_threshold, borderline_threshold)`` for the gate.
+
+    Delegates to the config helpers so the band edges are rounded to 2 dp:
+    a naive ``floor + half`` yields 0.8500000000000001 for the canonical
+    0.80/0.05 config and silently misclassifies an exact-0.85 PASS as
+    BORDERLINE. Single source of truth shared with ``build_matching_graph``.
+    """
+    return _pass_threshold(floor, half), _borderline_threshold(floor, half)
+
+
 def map_vendor_product(
     ref: VendorProductRef,
     max_candidates: int = 8,
@@ -146,13 +159,19 @@ def map_vendor_product(
     scope = check_scope(ref)
     if not scope.allowed:
         return MappingResult(
-            vendor_product_iri=ref.iri, vendor=ref.vendor, product_id=ref.product_id,
-            product_name=ref.name, status=MappingStatus.OUT_OF_SCOPE,
+            vendor_product_iri=ref.iri,
+            vendor=ref.vendor,
+            product_id=ref.product_id,
+            product_name=ref.name,
+            status=MappingStatus.OUT_OF_SCOPE,
             rationale=scope.reason,
             band="n/a",
             field_normalisation=rules,
             validations=run_validations(
-                ref, None, scope_allowed=False, has_store_node=False,
+                ref,
+                None,
+                scope_allowed=False,
+                has_store_node=False,
             ),
             source_content_hash=source_content_hash,
             source_file_audit_id=source_file_audit_id,
@@ -212,9 +231,13 @@ def map_vendor_product(
 
     if not candidates:
         return MappingResult(
-            vendor_product_iri=ref.iri, vendor=ref.vendor, product_id=ref.product_id,
-            product_name=ref.name, status=MappingStatus.NEEDS_REVIEW,
-            candidates=[], confidence=0.0,
+            vendor_product_iri=ref.iri,
+            vendor=ref.vendor,
+            product_id=ref.product_id,
+            product_name=ref.name,
+            status=MappingStatus.NEEDS_REVIEW,
+            candidates=[],
+            confidence=0.0,
             band="n/a",
             rationale=(
                 "No candidate survived retrieval (no nodes above similarity "
@@ -223,7 +246,10 @@ def map_vendor_product(
             ),
             field_normalisation=rules,
             validations=run_validations(
-                ref, None, scope_allowed=True, has_store_node=False,
+                ref,
+                None,
+                scope_allowed=True,
+                has_store_node=False,
             ),
             source_content_hash=source_content_hash,
             source_file_audit_id=source_file_audit_id,
@@ -237,7 +263,8 @@ def map_vendor_product(
     #    it as a hard FAIL: NO specialist consultation, straight to review.
     store_node = store.get_taxonomy_node(best.node.iri)
     vresults = run_validations(
-        ref, best.node,
+        ref,
+        best.node,
         scope_allowed=True,
         has_store_node=store_node is not None,
     )
@@ -245,8 +272,7 @@ def map_vendor_product(
 
     floor = settings.confidence_floor
     half = settings.borderline_half_width
-    pass_threshold = floor + half
-    borderline_threshold = floor - half
+    pass_threshold, borderline_threshold = _gate_thresholds(floor, half)
 
     # Disagreement bookkeeping — populated only when the borderline
     # specialist picks a DIFFERENT node from the sparse ranker. The
@@ -306,8 +332,9 @@ def map_vendor_product(
         # score sits above the floor; here the abstention is FORCED by
         # detected misbehaviour, which is itself a signal that the case
         # warrants human attention regardless of the dense score.
-        if specialist_pick is not None and \
-                specialist_pick.node.iri not in {c.node.iri for c in candidates}:
+        if specialist_pick is not None and specialist_pick.node.iri not in {
+            c.node.iri for c in candidates
+        }:
             logger.warning(
                 "specialist returned off-list pick %r; failing closed to "
                 "NEEDS_REVIEW (candidate iris: %s)",
@@ -330,18 +357,22 @@ def map_vendor_product(
                 "Reason: specialist_off_list."
             )
             return MappingResult(
-                vendor_product_iri=ref.iri, vendor=ref.vendor,
-                product_id=ref.product_id, product_name=ref.name,
+                vendor_product_iri=ref.iri,
+                vendor=ref.vendor,
+                product_id=ref.product_id,
+                product_name=ref.name,
                 mapped_node_iri=mapped_node_iri,
                 mapped_node_label=mapped_node_label,
-                confidence=confidence, status=status,
+                confidence=confidence,
+                status=status,
                 band=band,
                 # Off-list IRI is DISCARDED — abstention means it is NOT
                 # surfaced for a reviewer to select. The violation itself
                 # IS the surfaced signal, on invariant_violation + rationale.
                 alternative_mapped_node_iri=None,
                 alternative_mapped_node_label=None,
-                candidates=candidates, rationale=rationale,
+                candidates=candidates,
+                rationale=rationale,
                 field_normalisation=rules,
                 validations=vresults,
                 invariant_violation="specialist_off_list",
@@ -436,14 +467,19 @@ def map_vendor_product(
         )
 
     return MappingResult(
-        vendor_product_iri=ref.iri, vendor=ref.vendor, product_id=ref.product_id,
+        vendor_product_iri=ref.iri,
+        vendor=ref.vendor,
+        product_id=ref.product_id,
         product_name=ref.name,
-        mapped_node_iri=mapped_node_iri, mapped_node_label=mapped_node_label,
-        confidence=confidence, status=status,
+        mapped_node_iri=mapped_node_iri,
+        mapped_node_label=mapped_node_label,
+        confidence=confidence,
+        status=status,
         band=band,
         alternative_mapped_node_iri=alternative_iri,
         alternative_mapped_node_label=alternative_label,
-        candidates=candidates, rationale=rationale,
+        candidates=candidates,
+        rationale=rationale,
         field_normalisation=rules,
         validations=vresults,
         source_content_hash=source_content_hash,

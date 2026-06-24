@@ -46,6 +46,15 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags: [{ Key: Name, Value: scudo-poc-public-a }]
 
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.1.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: scudo-poc-public-b }]
+
   PrivateSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
@@ -89,6 +98,11 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicRt
       SubnetId: !Ref PublicSubnetA
+  PublicSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRt
+      SubnetId: !Ref PublicSubnetB
 
   PrivateRt:
     Type: AWS::EC2::RouteTable
@@ -233,6 +247,12 @@ Outputs:
   LambdaSecurityGroupId:
     Value: !Ref LambdaSg
     Export: { Name: scudo-poc-lambda-sg }
+  PublicSubnetIds:
+    Value: !Join [',', [!Ref PublicSubnetA, !Ref PublicSubnetB]]
+    Export: { Name: scudo-poc-public-subnets }
+  FalkorSecurityGroupId:
+    Value: !Ref FalkorSg
+    Export: { Name: scudo-poc-falkor-sg }
   FalkorEndpoint:
     Value: falkordb.scudo.local:6379
   FalkorUrl:
