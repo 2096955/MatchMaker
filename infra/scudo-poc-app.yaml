@@ -89,6 +89,16 @@ Resources:
       SourceSecurityGroupId: !Ref AlbSecurityGroup
       Description: ALB to Flask console
 
+  ConsoleToFalkorIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !ImportValue scudo-poc-falkor-sg
+      IpProtocol: tcp
+      FromPort: 6379
+      ToPort: 6379
+      SourceSecurityGroupId: !ImportValue scudo-poc-console-task-sg
+      Description: Console ECS to FalkorDB
+
   ConsoleAlb:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
