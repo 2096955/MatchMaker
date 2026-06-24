@@ -14,7 +14,6 @@ import ReportDetail     from './pages/reports/ReportDetail'
 import IngestionConsole from './pages/ingestion/IngestionConsole'
 import CatalogueList    from './pages/catalogue/CatalogueList'
 import CatalogueDetail  from './pages/catalogue/CatalogueDetail'
-import MappingDemo      from './pages/mapping/MappingDemo'
 
 export default function App() {
   return (
@@ -39,7 +38,6 @@ export default function App() {
         <Route path="/reports/:id"  element={<ReportDetail />} />
         <Route path="/catalogue"                   element={<CatalogueList />} />
         <Route path="/catalogue/:vendor/:ref"      element={<CatalogueDetail />} />
-        <Route path="/mapping"                     element={<MappingDemo />} />
       </Routes>
     </Layout>
   )
