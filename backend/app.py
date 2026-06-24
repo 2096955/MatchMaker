@@ -50,17 +50,28 @@ from routes.visibility import visibility_bp
 app = Flask(__name__)
 
 # Allow cross-origin requests from the React dev server on all /api/* paths.
-CORS(app, resources={r'/api/*': {'origins': '*'}})
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-app.register_blueprint(providers_bp, url_prefix='/api')
-app.register_blueprint(datasets_bp, url_prefix='/api')
-app.register_blueprint(admin_bp, url_prefix='/api')
-app.register_blueprint(ingest_bp, url_prefix='/api')
-app.register_blueprint(catalogue_bp, url_prefix='/api')
-app.register_blueprint(mapping_bp, url_prefix='/api')
-app.register_blueprint(ifusion_bp, url_prefix='/api')
-app.register_blueprint(ingestion_mock_bp, url_prefix='/api')
-app.register_blueprint(visibility_bp, url_prefix='/api')
+app.register_blueprint(providers_bp, url_prefix="/api")
+app.register_blueprint(datasets_bp, url_prefix="/api")
+app.register_blueprint(admin_bp, url_prefix="/api")
+app.register_blueprint(ingest_bp, url_prefix="/api")
+app.register_blueprint(catalogue_bp, url_prefix="/api")
+app.register_blueprint(mapping_bp, url_prefix="/api")
+app.register_blueprint(ifusion_bp, url_prefix="/api")
+app.register_blueprint(ingestion_mock_bp, url_prefix="/api")
+app.register_blueprint(visibility_bp, url_prefix="/api")
+
+
+@app.get("/healthz")
+def _healthz():
+    """Unauthenticated liveness probe for the ALB target group.
+
+    Lives OUTSIDE ``/api/*`` so the ``before_request`` auth gate passes it
+    through (see the non-API pass-through below). No DB, no auth — a 200 means
+    the process is up, independent of Aurora/FalkorDB readiness.
+    """
+    return jsonify({"status": "ok"}), 200
 
 
 @app.before_request
@@ -73,12 +84,12 @@ def _require_principal():
     replace (header → JWT in one file).
     """
     # Pass-through for non-API paths (static, health, etc).
-    if not (request.path or '').startswith('/api/'):
+    if not (request.path or "").startswith("/api/"):
         return None
     # CORS preflight: the browser sends OPTIONS without credentials; the
     # CORS extension answers it. Gating preflight would block the actual
     # request from ever being sent.
-    if request.method == 'OPTIONS':
+    if request.method == "OPTIONS":
         return None
     try:
         g.principal = resolve_principal(request.headers)
@@ -89,15 +100,15 @@ def _require_principal():
         # of the header as a boolean — never the value, which could be PII
         # or attacker-controlled.
         header_name = (
-            os.getenv('SCUDO_AUTH_PRINCIPAL_HEADER', '') or 'X-Authenticated-User'
+            os.getenv("SCUDO_AUTH_PRINCIPAL_HEADER", "") or "X-Authenticated-User"
         )
         ui_logger.warning(
-            'auth rejected',
+            "auth rejected",
             path=request.path,
             method=request.method,
-            has_header=bool((request.headers.get(header_name) or '').strip()),
+            has_header=bool((request.headers.get(header_name) or "").strip()),
         )
-        return jsonify({'error': 'authentication required'}), 401
+        return jsonify({"error": "authentication required"}), 401
     return None
 
 
@@ -113,9 +124,9 @@ def handle_error(e):
             HTTP 500 status.
     """
     app.logger.exception(e)
-    return jsonify({'error': str(e)}), 500
+    return jsonify({"error": str(e)}), 500
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Run in debug mode on port 5000 for local development.
     app.run(debug=True, port=5000)

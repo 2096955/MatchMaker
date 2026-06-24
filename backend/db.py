@@ -16,13 +16,18 @@ from pymysql.cursors import DictCursor
 
 # Base connection config targeting the metadata schema.
 DB_CONFIG = {
-    'host': 'localhost',
-    'user': os.environ.get('my_sql_user', 'root'),
-    'password': os.environ.get('my_sql_password', ''),
-    'database': 'metadata',
-    'charset': 'utf8mb4',
-    'cursorclass': DictCursor,
-    'autocommit': False,
+    # Host/port come from env so the same image runs locally (localhost) and on
+    # Fargate (Aurora endpoint via my_sql_host). connect_timeout avoids 30s
+    # request hangs when the DB is briefly unreachable.
+    "host": os.environ.get("my_sql_host", "localhost"),
+    "port": int(os.environ.get("my_sql_port", "3306")),
+    "user": os.environ.get("my_sql_user", "root"),
+    "password": os.environ.get("my_sql_password", ""),
+    "database": "metadata",
+    "charset": "utf8mb4",
+    "cursorclass": DictCursor,
+    "autocommit": False,
+    "connect_timeout": int(os.environ.get("my_sql_connect_timeout", "10")),
 }
 
 
@@ -38,7 +43,7 @@ def get_conn():
 
 
 # Ingestion config re-uses all base settings but targets the ingestion schema.
-_INGESTION_CONFIG = {**DB_CONFIG, 'database': 'ingestion'}
+_INGESTION_CONFIG = {**DB_CONFIG, "database": "ingestion"}
 
 
 def get_ingestion_conn():
