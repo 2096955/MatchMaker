@@ -2,6 +2,14 @@
 
 Deterministic vendor-to-canonical product mapping with a three-MCP trust gradient, a five-rung cost ladder, and a verifier gate.
 
+> **🟢 Live demo:** https://dp4ji14se0pct.cloudfront.net/cogJPMdemo/ — the SCUDO
+> Matching Comprehension dashboard with the interactive **Upload & Test** flow
+> (upload a vendor CSV/JSON → watch it stream live through ETL → matcher).
+> Deployed to `scudo-poc` (account `954976331678`, `us-east-1`) from image
+> `55acfbb`; the upload (`/api/mapping/ingest/stream`) + matcher (`/api/mapping/agent/run`)
+> SSE flows are verified live end-to-end. **Auth is currently dev-open — closed
+> demo only; see the auth gate in "What is NOT done" before external exposure.**
+
 > **Status:** 86 mapping + 8 auth smoke tests passing. The current AWS target is the Cognizant cloudboost account `954976331678` in `us-east-1`, with stack `scudo-poc` providing the Lambda/API and the event-driven ETL substrate. The older ECS/Fargate dev templates remain under `infra/` for the `eu-west-2` sandbox. **This is a dev sandbox**, **not** the JPMC SCUDO production account. Treat all thresholds, dense-arm similarity, and Neptune retrieval as uncalibrated stand-ins until the production cutover.
 
 ## SCUDO as the visibility platform
@@ -226,6 +234,17 @@ Switching to Neptune locally is not supported — Neptune is reachable only from
 
 Current connected account: `954976331678` (`cb4115669a-genaipocs-aw`) in `us-east-1`.
 
+> **Operational runbooks** (CloudShell, for an operator with AWS creds — the
+> local repo has none):
+> - `infra/DEPLOY_RUNBOOK_scudo-poc.md` — full deploy (clone → dashboard sync →
+>   backend image → smoke → security gates → rollback).
+> - `infra/build_dashboard_dist.sh` / `infra/deploy_dashboard_cloudshell.sh` —
+>   build+vendor the dashboard / publish to S3 `/demo/` + invalidate.
+> - `infra/REDEPLOY_NOTE_branding.md` — re-publish to both `/demo/` and the
+>   base-rewritten `/cogJPMdemo/` path.
+> - `infra/SMOKE_upload_flow_live.md` — live Upload & Test smoke (curl SSE +
+>   browser); `infra/SMOKE_FIXES_round1.md` — round-1 findings + fixes.
+
 The deployable AIA stack is [`backend/scudo/template.yaml`](backend/scudo/template.yaml). It matches the target diagram's first AWS slice: raw/clean/quarantine/catalog S3 buckets, EventBridge + SQS routing, ETL Lambda, DynamoDB audit/facts/HITL/outbox tables, and the Bedrock-backed matching Lambda/API. See [`backend/scudo/DEPLOY.md`](backend/scudo/DEPLOY.md) for exact CloudShell commands.
 
 ```mermaid
@@ -345,14 +364,45 @@ Be honest. Engineering, not marketing.
 - **No production secret rotation.** `VERDICT_SIGNING_KEY` is dev-only; KMS-backed rotation hooks are stubbed.
 - **Q1 (validations as candidate-set filter) is the next matching-ladder code task** — validations currently gate the single best candidate, not the full surviving set.
 
-### Upload & Test / AWS deploy — what's stubbed `TODO(aws)`
+### Upload & Test / AWS deploy — status
 
-- **SECURITY — `X-Authenticated-User` must be gateway-injected.** The PoC dashboard sends `VITE_DEV_PRINCIPAL` as this header so the local flow works (`src/api/mapping.ts`). `auth.py` warns that a forged header lets a caller write precedents as anyone. Before any real use the gateway/ALB must **strip inbound** `X-Authenticated-User` and inject the authenticated identity, and the SPA must stop sending it. This is the loudest TODO.
-- **Live embeddings are illustrative locally.** Similarity comes from the Jaro-Winkler stand-in unless `SCUDO_AGENT_BACKEND=bedrock` + Titan (`amazon.titan-embed-text-v2:0`) are wired (provisioned in `scudo-poc-data`). The dashboard labels synthetic/illustrative data via the existing banner.
-- **ETL telemetry is real for the local ingest path, not the full AWS event backbone.** `/ingest/stream` emits genuine counts from `ingest_bytes` (decode/parse/validate/sink). The deployed EventBridge → SQS → Lambda → S3/DynamoDB backbone is separate; surfacing *its* live telemetry to the dashboard is not wired.
-- **SSE through ALB/CloudFront.** `/api/*` already has `Compress:false`; the route sets `X-Accel-Buffering:no`. A long live Bedrock run could exceed the ALB 60s idle timeout — a heartbeat event is a TODO for live (not scripted) runs.
-- **Dashboard CI build.** The deploy uses a locally-built, vendored `dashboard-dist/`. Building it inside CodeBuild (git-submodule the understand-anything repo + pnpm workspace + prebuild `core`) is unspiked and deferred.
-- **NodeInfo live-context per-node detail** renders for run nodes, but selecting a leaf node mid-drill-down doesn't always set the selection that surfaces it; node-ring animation is reliable, the per-node live panel is best-effort.
+**✅ Live & verified end-to-end on `scudo-poc` (us-east-1, image `55acfbb`):**
+`/healthz` → `{"status":"ok"}`; `/api/mapping/ingest/stream` streams real ETL
+stage events (`received → parse → validate → sink → final_result → done`) with
+real counts; `/api/mapping/agent/run` streams the live matcher with Bedrock
+`us.anthropic.claude-opus-4-8`; the deployed SPA calls same-origin `/api/*`
+(no baked-in dev host). Deploy is the vendored `dashboard-dist/` synced to S3
+`/demo/` + `/cogJPMdemo/` on the dev CloudFront distribution.
+
+**Still open / `TODO(aws)`:**
+
+- **🔴 SECURITY — auth gate is dev-open.** `SCUDO_AUTH_ALLOW_DEV` is enabled on
+  the deployed backend, so `/api/*` answers without a header (fine for a **closed
+  demo only**). The SPA no longer sends `X-Authenticated-User` (the prod build
+  pins `VITE_DEV_PRINCIPAL=""`). Before external exposure this is a **coupled**
+  change: unset `SCUDO_AUTH_ALLOW_DEV` (→ 401 unauth) **and** have CloudFront/ALB
+  **strip inbound** `X-Authenticated-User` + inject the trusted identity. Doing
+  only one half breaks the demo or leaves a spoofing path. This is the loudest
+  remaining gate.
+- **Live embeddings vs local.** On AWS, similarity uses Bedrock + Titan
+  (`amazon.titan-embed-text-v2:0`). Locally it's the Jaro-Winkler stand-in; the
+  dashboard labels synthetic/illustrative data via the banner.
+- **ETL telemetry is real for the ingest endpoint, not the full event backbone.**
+  `/ingest/stream` emits genuine counts from `ingest_bytes`
+  (decode/parse/validate/sink). The deployed EventBridge → SQS → Lambda →
+  S3/DynamoDB backbone is separate; surfacing *its* live telemetry is not wired.
+- **SSE through ALB/CloudFront — verified working** (`Compress:false` on `/api/*`,
+  `X-Accel-Buffering:no` on the route). A *long* live Bedrock run could still
+  exceed the ALB 60s idle timeout — a heartbeat event is a TODO for slow runs;
+  the current fast path is fine.
+- **Formal `scudo-poc-frontend` stack still blocked** (template needs the missing
+  `scudo-poc-console-alb-dns` export). The dashboard runs on the existing dev
+  CloudFront/S3 (`scudo-dev-frontend-954976331678`) in the meantime.
+- **Dashboard CI build deferred.** Deploy uses a locally-built, vendored
+  `dashboard-dist/`; building it inside CodeBuild (submodule + pnpm workspace +
+  prebuild `core`) is unspiked.
+- **NodeInfo live-context per-node detail** is best-effort (node-ring animation
+  is reliable; the per-node live panel depends on mid-drill-down selection).
 
 ---
 
