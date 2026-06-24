@@ -1,0 +1,247 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  SCUDO scudo-poc console app stack. Runs the Flask Data Ingestion Framework on
+  ECS Fargate behind an internet-facing ALB. Imports the existing scudo-poc VPC,
+  subnets, Console Aurora MySQL endpoint/secret, and ECS foundation exports.
+  This stack does not create Aurora; Aurora MySQL is owned by scudo-poc-data.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: scudo-poc
+  ProjectTag:
+    Type: String
+    Default: SCUDO
+  EnvironmentTag:
+    Type: String
+    Default: poc
+  OwnerTag:
+    Type: String
+    Default: 2096955@cognizant.com
+  ImageTag:
+    Type: String
+    Default: latest
+  DesiredCount:
+    Type: Number
+    Default: 1
+  TaskCpu:
+    Type: String
+    Default: '512'
+    AllowedValues: [ '256', '512', '1024' ]
+  TaskMemory:
+    Type: String
+    Default: '1024'
+    AllowedValues: [ '512', '1024', '2048' ]
+  ContainerPort:
+    Type: Number
+    Default: 5000
+  HealthCheckPath:
+    Type: String
+    Default: /healthz
+  AllowedHttpCidr:
+    Type: String
+    Default: 0.0.0.0/0
+  AgentBackend:
+    Type: String
+    Default: bedrock
+    AllowedValues: [ scripted, bedrock ]
+  BedrockModelId:
+    Type: String
+    Default: us.anthropic.claude-opus-4-8
+
+Resources:
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${StackPrefix}-console'
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SCUDO console ALB
+      VpcId: !ImportValue scudo-poc-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedHttpCidr
+          Description: HTTP from viewer/CloudFront
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - { Key: Name, Value: !Sub '${StackPrefix}-console-alb-sg' }
+        - { Key: Project, Value: !Ref ProjectTag }
+
+  AlbToConsoleIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !ImportValue scudo-poc-console-task-sg
+      IpProtocol: tcp
+      FromPort: !Ref ContainerPort
+      ToPort: !Ref ContainerPort
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Description: ALB to Flask console
+
+  ConsoleAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${StackPrefix}-console-alb'
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      Subnets: !Split [',', !ImportValue scudo-poc-public-subnets]
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      LoadBalancerAttributes:
+        - { Key: idle_timeout.timeout_seconds, Value: '300' }
+        - { Key: deletion_protection.enabled, Value: 'false' }
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+  ConsoleTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${StackPrefix}-console-tg'
+      VpcId: !ImportValue scudo-poc-vpc-id
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200-399' }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+
+  ConsoleHttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ConsoleAlb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ConsoleTargetGroup
+
+  ConsoleTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${StackPrefix}-console'
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [ FARGATE ]
+      ExecutionRoleArn: !ImportValue scudo-poc-console-execution-role-arn
+      TaskRoleArn: !ImportValue scudo-poc-console-task-role-arn
+      ContainerDefinitions:
+        - Name: console
+          Image: !Sub
+            - '${RepoUri}:${ImageTag}'
+            - RepoUri: !ImportValue scudo-poc-console-backend-ecr-uri
+          Essential: true
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              Protocol: tcp
+          Command:
+            - gunicorn
+            - '-b'
+            - !Sub '0.0.0.0:${ContainerPort}'
+            - '-k'
+            - gthread
+            - '--threads'
+            - '4'
+            - '--timeout'
+            - '300'
+            - '--graceful-timeout'
+            - '30'
+            - '--access-logfile'
+            - '-'
+            - '--error-logfile'
+            - '-'
+            - 'app:app'
+          Environment:
+            - { Name: AWS_REGION, Value: !Ref AWS::Region }
+            - { Name: AWS_DEFAULT_REGION, Value: !Ref AWS::Region }
+            - { Name: my_sql_host, Value: !ImportValue scudo-poc-console-mysql-endpoint }
+            - { Name: my_sql_port, Value: '3306' }
+            - { Name: my_sql_connect_timeout, Value: '10' }
+            - { Name: STORE_BACKEND, Value: falkordb }
+            - { Name: FALKORDB_URL, Value: falkordb://falkordb.scudo.local:6379 }
+            - { Name: GRAPH_NAME, Value: scudo_mapping }
+            - { Name: FRAME_SOURCE, Value: mock }
+            - { Name: SCUDO_AGENT_BACKEND, Value: !Ref AgentBackend }
+            - { Name: SCUDO_BEDROCK_MODEL_ID, Value: !Ref BedrockModelId }
+            - { Name: BEDROCK_REGION, Value: !Ref AWS::Region }
+            - { Name: SCUDO_AUTH_ALLOW_DEV, Value: '1' }
+            - { Name: SCUDO_AUTH_DEV_PRINCIPAL, Value: !Ref OwnerTag }
+          Secrets:
+            - Name: my_sql_user
+              ValueFrom: !Sub
+                - '${SecretArn}:username::'
+                - SecretArn: !ImportValue scudo-poc-console-mysql-secret-arn
+            - Name: my_sql_password
+              ValueFrom: !Sub
+                - '${SecretArn}:password::'
+                - SecretArn: !ImportValue scudo-poc-console-mysql-secret-arn
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !ImportValue scudo-poc-console-log-group
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: console
+
+  ConsoleService:
+    Type: AWS::ECS::Service
+    DependsOn: ConsoleHttpListener
+    Properties:
+      ServiceName: !Sub '${StackPrefix}-console'
+      Cluster: !Ref EcsCluster
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref ConsoleTaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split [',', !ImportValue scudo-poc-private-subnets]
+          SecurityGroups:
+            - !ImportValue scudo-poc-console-task-sg
+      LoadBalancers:
+        - TargetGroupArn: !Ref ConsoleTargetGroup
+          ContainerName: console
+          ContainerPort: !Ref ContainerPort
+      HealthCheckGracePeriodSeconds: 90
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+Outputs:
+  AlbDnsName:
+    Value: !GetAtt ConsoleAlb.DNSName
+    Export: { Name: scudo-poc-console-alb-dns }
+  AlbArn:
+    Value: !Ref ConsoleAlb
+    Export: { Name: scudo-poc-console-alb-arn }
+  EcsClusterArn:
+    Value: !GetAtt EcsCluster.Arn
+    Export: { Name: scudo-poc-console-ecs-cluster-arn }
+  ConsoleServiceName:
+    Value: !GetAtt ConsoleService.Name
+    Export: { Name: scudo-poc-console-service-name }
+  ConsoleHealthUrl:
+    Value: !Sub 'http://${ConsoleAlb.DNSName}${HealthCheckPath}'
+  ConsoleBaseUrl:
+    Value: !Sub 'http://${ConsoleAlb.DNSName}'

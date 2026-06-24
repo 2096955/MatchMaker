@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  SCUDO scudo-poc ECS/console foundation overlay. This stack is additive: it
+  imports the existing scudo-poc-net and scudo-poc-data exports instead of
+  creating another VPC, Aurora, Neptune, OpenSearch, AppSync, or FalkorDB.
+  It provides the shared ECS image repository, task roles, task security group,
+  and log group used by the ALB/Fargate console app stack.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: scudo-poc
+  ProjectTag:
+    Type: String
+    Default: SCUDO
+  EnvironmentTag:
+    Type: String
+    Default: poc
+  OwnerTag:
+    Type: String
+    Default: 2096955@cognizant.com
+  BackendRepositoryName:
+    Type: String
+    Default: scudo-poc-console-backend
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+
+Resources:
+  BackendEcrRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref BackendRepositoryName
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep the most recent 20 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 20
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
+
+  ConsoleTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SCUDO console ECS tasks. ALB ingress is added by the app stack.
+      VpcId: !ImportValue scudo-poc-vpc-id
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - { Key: Name, Value: !Sub '${StackPrefix}-console-task-sg' }
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/ecs/${StackPrefix}-console'
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
+
+  ConsoleExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${StackPrefix}-console-execution'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: !Sub '${StackPrefix}-console-secret-pull'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !ImportValue scudo-poc-console-mysql-secret-arn
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+  ConsoleTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${StackPrefix}-console-task'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub '${StackPrefix}-console-mysql-secret-read'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource:
+                  - !ImportValue scudo-poc-console-mysql-secret-arn
+        - PolicyName: !Sub '${StackPrefix}-console-bedrock-agent'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:Converse
+                  - bedrock:ConverseStream
+                  - bedrock:GetInferenceProfile
+                  - bedrock:ListInferenceProfiles
+                Resource: '*'
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+Outputs:
+  BackendEcrRepoName:
+    Value: !Ref BackendEcrRepo
+    Export: { Name: scudo-poc-console-backend-ecr-name }
+  BackendEcrRepoArn:
+    Value: !GetAtt BackendEcrRepo.Arn
+    Export: { Name: scudo-poc-console-backend-ecr-arn }
+  BackendEcrRepoUri:
+    Value: !GetAtt BackendEcrRepo.RepositoryUri
+    Export: { Name: scudo-poc-console-backend-ecr-uri }
+  ConsoleTaskSecurityGroupId:
+    Value: !Ref ConsoleTaskSecurityGroup
+    Export: { Name: scudo-poc-console-task-sg }
+  ConsoleExecutionRoleArn:
+    Value: !GetAtt ConsoleExecutionRole.Arn
+    Export: { Name: scudo-poc-console-execution-role-arn }
+  ConsoleTaskRoleArn:
+    Value: !GetAtt ConsoleTaskRole.Arn
+    Export: { Name: scudo-poc-console-task-role-arn }
+  AppLogGroupName:
+    Value: !Ref AppLogGroup
+    Export: { Name: scudo-poc-console-log-group }

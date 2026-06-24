@@ -1,0 +1,229 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  SCUDO scudo-poc VPC CodeBuild stack for the portable console/frontend build.
+  This creates the project only; it does not start a build. The build runs in
+  the scudo-poc VPC, pushes backend/Dockerfile to the foundation ECR repository,
+  builds the Vite frontend, uploads frontend/dist to S3, and invalidates
+  CloudFront.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: scudo-poc
+  ProjectTag:
+    Type: String
+    Default: SCUDO
+  EnvironmentTag:
+    Type: String
+    Default: poc
+  OwnerTag:
+    Type: String
+    Default: 2096955@cognizant.com
+  GitHubRepo:
+    Type: String
+    Default: https://github.com/2096955/MatchMaker.git
+  GitHubBranch:
+    Type: String
+    Default: scudo-phase0-foundations
+  BuildImage:
+    Type: String
+    Default: aws/codebuild/standard:7.0
+  BuildComputeType:
+    Type: String
+    Default: BUILD_GENERAL1_MEDIUM
+    AllowedValues: [ BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE ]
+
+Resources:
+  BuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/codebuild/${StackPrefix}-console-build'
+      RetentionInDays: 14
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
+
+  BuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${StackPrefix}-console-codebuild-service'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub '${StackPrefix}-console-codebuild-logs'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !GetAtt BuildLogGroup.Arn
+                  - !Sub '${BuildLogGroup.Arn}:*'
+        - PolicyName: !Sub '${StackPrefix}-console-codebuild-ecr'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                Resource: !ImportValue scudo-poc-console-backend-ecr-arn
+        - PolicyName: !Sub '${StackPrefix}-console-codebuild-frontend'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !ImportValue scudo-poc-frontend-bucket-arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub
+                  - '${BucketArn}/*'
+                  - BucketArn: !ImportValue scudo-poc-frontend-bucket-arn
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                Resource: !Sub
+                  - 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${DistributionId}'
+                  - DistributionId: !ImportValue scudo-poc-frontend-distribution-id
+        - PolicyName: !Sub '${StackPrefix}-console-codebuild-vpc-eni'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeDhcpOptions
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeVpcs
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterfacePermission
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*'
+                Condition:
+                  StringEquals:
+                    ec2:AuthorizedService: codebuild.amazonaws.com
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${StackPrefix}-console-build'
+      Description: Build SCUDO console image and frontend assets for scudo-poc.
+      ServiceRole: !GetAtt BuildServiceRole.Arn
+      Source:
+        Type: GITHUB
+        Location: !Ref GitHubRepo
+        GitCloneDepth: 1
+        BuildSpec: |
+          version: 0.2
+          env:
+            shell: bash
+          phases:
+            pre_build:
+              commands:
+                - 'echo "Logging in to ECR"'
+                - 'set -o pipefail; aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"'
+                - 'SHORT_SHA="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"'
+                - 'if [ -z "$SHORT_SHA" ]; then SHORT_SHA="manual-$(date -u +%Y%m%d-%H%M%S)"; fi'
+                - 'IMAGE_TAG="$SHORT_SHA"'
+                - 'echo "Image tags: $IMAGE_TAG and latest"'
+                - 'docker pull "$ECR_REPO_URI:latest" || true'
+            build:
+              commands:
+                - 'echo "Building backend image"'
+                - 'docker build --cache-from "$ECR_REPO_URI:latest" -t "$ECR_REPO_URI:$IMAGE_TAG" -t "$ECR_REPO_URI:latest" -f backend/Dockerfile .'
+                # Frontend = the understand-anything matching dashboard, built
+                # via `pnpm build:matching` and VENDORED into dashboard-dist/.
+                # (vite.config.matching.ts uses base:"/demo/", so assets are
+                # served under the /demo/ prefix — see post_build.)
+                # TODO(aws-hardening): replace the vendored dist with a
+                # git-submodule + pnpm workspace build in CI once the
+                # pnpm-in-CodeBuild path is spiked. For the PoC the dist is
+                # produced locally (`pnpm build:matching`) and committed/synced.
+                - 'echo "Using vendored dashboard dist (dashboard-dist/)"'
+                - 'test -f dashboard-dist/index.html || (echo "ERROR: dashboard-dist/ missing — run pnpm build:matching and vendor it" && exit 1)'
+            post_build:
+              commands:
+                - 'echo "Pushing backend image"'
+                - 'docker push "$ECR_REPO_URI:$IMAGE_TAG"'
+                - 'docker push "$ECR_REPO_URI:latest"'
+                # Publish the matching dashboard under the /demo/ prefix to match
+                # vite base:"/demo/". CloudFront serves the bucket at root; the
+                # SPA lives at https://<dist>/demo/.
+                - 'echo "Publishing dashboard assets to demo/"'
+                - 'aws s3 sync dashboard-dist/ "s3://$FRONTEND_BUCKET/demo/" --delete'
+                - 'aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/demo/*"'
+                - 'printf "{\"imageUri\":\"%s\",\"imageTag\":\"%s\"}\n" "$ECR_REPO_URI:$IMAGE_TAG" "$IMAGE_TAG" > build-output.json'
+          artifacts:
+            files:
+              - build-output.json
+      SourceVersion: !Ref GitHubBranch
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: !Ref BuildImage
+        ComputeType: !Ref BuildComputeType
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - { Name: AWS_ACCOUNT_ID, Value: !Ref AWS::AccountId }
+          - { Name: AWS_DEFAULT_REGION, Value: !Ref AWS::Region }
+          - { Name: ECR_REPO_URI, Value: !ImportValue scudo-poc-console-backend-ecr-uri }
+          - { Name: FRONTEND_BUCKET, Value: !ImportValue scudo-poc-frontend-bucket-name }
+          - { Name: CLOUDFRONT_DISTRIBUTION_ID, Value: !ImportValue scudo-poc-frontend-distribution-id }
+      VpcConfig:
+        VpcId: !ImportValue scudo-poc-vpc-id
+        Subnets: !Split [',', !ImportValue scudo-poc-private-subnets]
+        SecurityGroupIds:
+          - !ImportValue scudo-poc-lambda-sg
+      Artifacts:
+        Type: NO_ARTIFACTS
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogGroup
+          StreamName: build
+      TimeoutInMinutes: 60
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
+
+Outputs:
+  BuildProjectName:
+    Value: !Ref BuildProject
+    Export: { Name: scudo-poc-console-build-project-name }
+  BuildProjectArn:
+    Value: !GetAtt BuildProject.Arn
+    Export: { Name: scudo-poc-console-build-project-arn }
+  BuildServiceRoleArn:
+    Value: !GetAtt BuildServiceRole.Arn
+    Export: { Name: scudo-poc-console-build-service-role-arn }
+  StartBuildCommand:
+    Value: !Sub 'aws codebuild start-build --project-name ${BuildProject} --region ${AWS::Region}'

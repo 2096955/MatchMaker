@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  SCUDO scudo-poc frontend stack. Creates a private S3 bucket and CloudFront
+  distribution. The default behavior serves the Vite SPA; /api/* and /mcp/*
+  are proxied to the scudo-poc console ALB from scudo-poc-app.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: scudo-poc
+  ProjectTag:
+    Type: String
+    Default: SCUDO
+  EnvironmentTag:
+    Type: String
+    Default: poc
+  OwnerTag:
+    Type: String
+    Default: 2096955@cognizant.com
+  PriceClass:
+    Type: String
+    Default: PriceClass_100
+    AllowedValues: [ PriceClass_100, PriceClass_200, PriceClass_All ]
+
+Resources:
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${StackPrefix}-frontend-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
+
+  FrontendOac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${StackPrefix}-frontend-oac-${AWS::AccountId}'
+        Description: OAC for SCUDO POC frontend S3 origin
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOacRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: SCUDO POC frontend - SPA on S3 with ALB passthrough for API/MCP
+        PriceClass: !Ref PriceClass
+        HttpVersion: http2and3
+        DefaultRootObject: index.html
+        Origins:
+          - Id: s3-frontend
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginAccessControlId: !GetAtt FrontendOac.Id
+          - Id: alb-console
+            DomainName: !ImportValue scudo-poc-console-alb-dns
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+              HTTPPort: 80
+              OriginSSLProtocols: [ TLSv1.2 ]
+        DefaultCacheBehavior:
+          TargetOriginId: s3-frontend
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [ GET, HEAD, OPTIONS ]
+          CachedMethods: [ GET, HEAD, OPTIONS ]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: alb-console
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [ GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE ]
+            CachedMethods: [ GET, HEAD, OPTIONS ]
+            Compress: false
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          - PathPattern: /mcp/*
+            TargetOriginId: alb-console
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [ GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE ]
+            CachedMethods: [ GET, HEAD, OPTIONS ]
+            Compress: false
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+      Tags:
+        - { Key: Project, Value: !Ref ProjectTag }
+        - { Key: Env, Value: !Ref EnvironmentTag }
+        - { Key: Owner, Value: !Ref OwnerTag }
+
+Outputs:
+  FrontendBucketName:
+    Value: !Ref FrontendBucket
+    Export: { Name: scudo-poc-frontend-bucket-name }
+  FrontendBucketArn:
+    Value: !GetAtt FrontendBucket.Arn
+    Export: { Name: scudo-poc-frontend-bucket-arn }
+  CloudFrontDistributionId:
+    Value: !Ref CloudFrontDistribution
+    Export: { Name: scudo-poc-frontend-distribution-id }
+  CloudFrontDistributionDomain:
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export: { Name: scudo-poc-frontend-distribution-domain }
+  FrontendUrl:
+    Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
+  DeployFrontendCommand:
+    Description: Build locally, sync dist/ to S3, and invalidate CloudFront.
+    Value: !Sub 'aws s3 sync frontend/dist/ s3://${FrontendBucket} --delete && aws cloudfront create-invalidation --distribution-id ${CloudFrontDistribution} --paths "/*"'

@@ -268,6 +268,54 @@ Frontend stack (`infra/scudo-dev-frontend.yaml`) covers S3 + CloudFront with ALB
 
 ---
 
+## Matching dashboard: Upload & Test (interactive pipeline)
+
+The shipping UI is the **understand-anything matching dashboard** (React 19 +
+`@xyflow/react`), built via `pnpm build:matching`. It is no longer a static
+diagram — a user can upload a vendor file and watch it flow through the real
+pipeline, driven entirely by backend telemetry (no simulation):
+
+1. **Upload** — the "Upload & Test" panel (matching mode) posts a CSV/JSON +
+   vendor to `POST /api/mapping/ingest/stream`, which streams **real ETL stage
+   events** (`received → parse → validate → sink`) with actual counts as
+   `ingest_bytes` runs. Each event carries the ETL graph node ids it lights up
+   (EventBridge → SQS → Lambda → Validate → S3/DynamoDB).
+2. **Match** — the panel then calls `POST /api/mapping/agent/run` and consumes
+   the matcher SSE stream (`find_similar_products → get_taxonomy_node →
+   map_vendor_product → final_result`), lighting Parse → Semantic → Rank → Gate.
+3. **Contextualise** — selecting a node shows its static role plus, during a run,
+   the live data that passed through it (counts at ETL, candidates/band at the
+   gate) via a run-state overlay in the store (the loaded graph is never mutated).
+
+Client wiring: `packages/dashboard/src/api/mapping.ts` (fetch + ReadableStream SSE
+— `EventSource` can't POST), `src/store.ts` run-state slice,
+`src/components/UploadTestPanel.tsx`. `VITE_API_BASE` defaults to `""`
+(**same-origin**: CloudFront routes `/api/*` → the Flask ALB in prod, so there is
+no prod CORS). Set `VITE_API_BASE` + `VITE_DEV_PRINCIPAL` in
+`packages/dashboard/.env.local` only for local dev against the Flask dev server.
+
+### Deploy the dashboard (vendored dist + CloudShell)
+
+The dashboard is a separate pnpm-workspace repo, and `build:matching` emits
+assets under `base:"/demo/"`. For the PoC it is built locally and **vendored**:
+
+```bash
+# 1. On a machine with node + pnpm + the understand-anything repo:
+bash infra/build_dashboard_dist.sh      # → MatchMaker/dashboard-dist/
+
+# 2. From AWS CloudShell (us-east-1, 954976331678 — no local AWS creds):
+bash infra/deploy_dashboard_cloudshell.sh
+# → syncs dashboard-dist/ to s3://<bucket>/demo/ + invalidates CloudFront
+# → served at https://<cloudfront-domain>/demo/
+```
+
+`infra/scudo-poc-build.yaml` is also revised to publish the vendored
+`dashboard-dist/` under the `demo/` prefix (it no longer builds `frontend/`).
+Auto-building the dashboard inside CodeBuild (git-submodule + pnpm workspace) is
+a hardening follow-up — see TODO(aws) below.
+
+---
+
 ## Key invariants
 
 | # | Invariant | Where enforced |
@@ -296,6 +344,15 @@ Be honest. Engineering, not marketing.
 - **Aurora, Neptune, and OpenSearch are not created by the SAM stack default.** The stack exposes endpoint/ARN seams and provisions the event backbone. Create or import the managed stores explicitly before switching those parameters away from empty strings.
 - **No production secret rotation.** `VERDICT_SIGNING_KEY` is dev-only; KMS-backed rotation hooks are stubbed.
 - **Q1 (validations as candidate-set filter) is the next matching-ladder code task** — validations currently gate the single best candidate, not the full surviving set.
+
+### Upload & Test / AWS deploy — what's stubbed `TODO(aws)`
+
+- **SECURITY — `X-Authenticated-User` must be gateway-injected.** The PoC dashboard sends `VITE_DEV_PRINCIPAL` as this header so the local flow works (`src/api/mapping.ts`). `auth.py` warns that a forged header lets a caller write precedents as anyone. Before any real use the gateway/ALB must **strip inbound** `X-Authenticated-User` and inject the authenticated identity, and the SPA must stop sending it. This is the loudest TODO.
+- **Live embeddings are illustrative locally.** Similarity comes from the Jaro-Winkler stand-in unless `SCUDO_AGENT_BACKEND=bedrock` + Titan (`amazon.titan-embed-text-v2:0`) are wired (provisioned in `scudo-poc-data`). The dashboard labels synthetic/illustrative data via the existing banner.
+- **ETL telemetry is real for the local ingest path, not the full AWS event backbone.** `/ingest/stream` emits genuine counts from `ingest_bytes` (decode/parse/validate/sink). The deployed EventBridge → SQS → Lambda → S3/DynamoDB backbone is separate; surfacing *its* live telemetry to the dashboard is not wired.
+- **SSE through ALB/CloudFront.** `/api/*` already has `Compress:false`; the route sets `X-Accel-Buffering:no`. A long live Bedrock run could exceed the ALB 60s idle timeout — a heartbeat event is a TODO for live (not scripted) runs.
+- **Dashboard CI build.** The deploy uses a locally-built, vendored `dashboard-dist/`. Building it inside CodeBuild (git-submodule the understand-anything repo + pnpm workspace + prebuild `core`) is unspiked and deferred.
+- **NodeInfo live-context per-node detail** renders for run nodes, but selecting a leaf node mid-drill-down doesn't always set the selection that surfaces it; node-ring animation is reliable, the per-node live panel is best-effort.
 
 ---
 

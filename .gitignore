@@ -60,3 +60,11 @@ backend/uploads/
 
 # ─── Workflow tool worktrees (transient agent isolation copies) ─────────
 .claude/
+
+# ─── Local tooling + debug captures (out of source control) ─────────────
+.cursor/
+.playwright-mcp/
+.understand-anything/
+data/
+# Root-level debug/review screenshots from dashboard verification sessions
+/*.png
