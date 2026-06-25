@@ -65,6 +65,7 @@ from __future__ import annotations
 
 import json
 import os
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
@@ -584,31 +585,9 @@ def _iter_strands_events(agent: Any, prompt: str) -> Iterator[AgentEvent]:
     SDK pin is finalised in the sandbox.
     """
     try:
-        for event in agent.stream(prompt):  # type: ignore[attr-defined]
-            kind = getattr(event, "kind", None) or event.get("kind")
-            if kind == "tool_use":
-                yield AgentEvent(
-                    type="tool_call",
-                    payload={
-                        "tool": event["name"],
-                        "args": event.get("input", {}),
-                    },
-                )
-            elif kind == "tool_result":
-                yield AgentEvent(
-                    type="tool_result",
-                    payload={
-                        "tool": event["name"],
-                        "result": event.get("output"),
-                    },
-                )
-            elif kind in ("text", "message", "thinking"):
-                content = event.get("text") or event.get("content") or ""
-                if content:
-                    yield AgentEvent(
-                        type="agent_message",
-                        payload={"content": content},
-                    )
+        stream = _strands_stream(agent, prompt)
+        for event in stream:
+            yield from _strands_event_to_agent_events(event)
     except Exception as e:  # noqa: BLE001
         yield AgentEvent(
             type="error",
@@ -622,6 +601,87 @@ def _iter_strands_events(agent: Any, prompt: str) -> Iterator[AgentEvent]:
                 ),
             },
         )
+
+
+def _strands_stream(agent: Any, prompt: str) -> list[Any]:
+    """Return Strands events across SDK versions.
+
+    Newer Strands releases expose ``stream_async``. Older examples used
+    ``stream``. In the sync Flask worker, collect the async stream into a
+    bounded list of lightweight event dictionaries before translating them.
+    """
+    if hasattr(agent, "stream"):
+        return list(agent.stream(prompt))  # type: ignore[attr-defined]
+    if hasattr(agent, "stream_async"):
+        async def _collect() -> list[Any]:
+            events: list[Any] = []
+            async for event in agent.stream_async(prompt):  # type: ignore[attr-defined]
+                events.append(event)
+            return events
+
+        return asyncio.run(_collect())
+
+    result = agent(prompt) if callable(agent) else None
+    return [{"message": getattr(result, "message", result)}] if result else []
+
+
+def _strands_event_to_agent_events(event: Any) -> Iterator[AgentEvent]:
+    """Translate a Strands event dict/object into our SSE contract."""
+    if not isinstance(event, dict):
+        event = event.__dict__ if hasattr(event, "__dict__") else {"message": str(event)}
+
+    kind = event.get("kind") or event.get("type")
+    if kind == "tool_use":
+        yield AgentEvent(
+            type="tool_call",
+            payload={
+                "tool": event.get("name") or event.get("tool_name") or "tool",
+                "args": event.get("input", {}),
+            },
+        )
+        return
+
+    if kind == "tool_result":
+        yield AgentEvent(
+            type="tool_result",
+            payload={
+                "tool": event.get("name") or event.get("tool_name") or "tool",
+                "result": event.get("output") or event.get("result"),
+            },
+        )
+        return
+
+    current_tool = event.get("current_tool_use")
+    if isinstance(current_tool, dict) and current_tool.get("name"):
+        yield AgentEvent(
+            type="tool_call",
+            payload={
+                "tool": current_tool.get("name"),
+                "args": current_tool.get("input", {}),
+            },
+        )
+
+    content = (
+        event.get("data")
+        or event.get("text")
+        or event.get("content")
+        or _message_text(event.get("message"))
+    )
+    if content:
+        yield AgentEvent(type="agent_message", payload={"content": str(content)})
+
+
+def _message_text(message: Any) -> str:
+    """Extract plain text from the common Strands/Bedrock message shapes."""
+    if isinstance(message, str):
+        return message
+    if not isinstance(message, dict):
+        return ""
+    parts: list[str] = []
+    for block in message.get("content") or []:
+        if isinstance(block, dict) and block.get("text"):
+            parts.append(str(block["text"]))
+    return "\n".join(parts)
 
 
 # ──────────────────────────────────────────────────────────────────────────
