@@ -16,6 +16,13 @@ Parameters:
   EnvironmentTag:
     Type: String
     Default: poc
+  BedrockModelId:
+    Type: String
+    Default: us.anthropic.claude-opus-4-8
+    Description: >-
+      Bedrock model / cross-region inference profile id the agent invokes.
+      Used to SCOPE the Bedrock invoke/converse IAM permissions (Codex B4)
+      instead of Resource '*'.
   OwnerTag:
     Type: String
     Default: 2096955@cognizant.com
@@ -129,12 +136,22 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
+              # Invoke/converse scoped to the configured model + its cross-region
+              # inference profile, plus the underlying foundation models the
+              # profile fans out to (Codex B4 — was Resource '*').
               - Effect: Allow
                 Action:
                   - bedrock:InvokeModel
                   - bedrock:InvokeModelWithResponseStream
                   - bedrock:Converse
                   - bedrock:ConverseStream
+                Resource:
+                  - !Sub 'arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/${BedrockModelId}'
+                  - !Sub 'arn:aws:bedrock:*::foundation-model/*'
+              # Read-only metadata lookups don't accept resource scoping; keep
+              # them narrow by action and let resource stay '*'.
+              - Effect: Allow
+                Action:
                   - bedrock:GetInferenceProfile
                   - bedrock:ListInferenceProfiles
                 Resource: '*'

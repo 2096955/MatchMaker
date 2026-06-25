@@ -93,8 +93,16 @@ def _candidate_dicts(payload: dict, vendor_product: dict, term: str) -> list[dic
     ANY FalkorDB failure) fall back to the in-memory sidecar mock. Fail-soft: a
     FalkorDB outage degrades to mock with a logged warning, never a hard /run
     failure."""
+    truthy = ("1", "true", "yes", "on")
     flag = (os.environ.get("SCUDO_USE_FALKORDB") or "").strip().lower()
-    if flag in ("1", "true", "yes", "on"):
+    # Mock fallback must be EXPLICIT (Codex B7): a deployed stack must not
+    # silently serve mock candidates when FalkorDB is enabled but failing —
+    # that makes a broken store look like a successful real match. Only degrade
+    # to mock when SCUDO_ALLOW_MOCK_FALLBACK is set; otherwise fail visibly.
+    allow_mock = (
+        os.environ.get("SCUDO_ALLOW_MOCK_FALLBACK") or ""
+    ).strip().lower() in truthy
+    if flag in truthy:
         try:
             from .matcher_bridge import retrieve_candidates
 
@@ -107,8 +115,16 @@ def _candidate_dicts(payload: dict, vendor_product: dict, term: str) -> list[dic
             if cands:
                 log.info("candidates: %d from FalkorDB", len(cands))
                 return cands
+            if not allow_mock:
+                raise RuntimeError(
+                    "FalkorDB returned 0 candidates and mock fallback is "
+                    "disabled (set SCUDO_ALLOW_MOCK_FALLBACK=1 for a demo)."
+                )
             log.warning("FalkorDB returned 0 candidates; falling back to mock")
         except Exception as exc:
+            if not allow_mock:
+                log.error("FalkorDB retrieval failed (%s); NOT masking with mock", exc)
+                raise
             log.warning("FalkorDB retrieval failed (%s); falling back to mock", exc)
     return sidecar_mock.candidate_nodes(term=term, limit=10)
 

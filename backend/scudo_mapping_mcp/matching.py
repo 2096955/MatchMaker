@@ -145,7 +145,15 @@ def map_vendor_product(
     max_candidates: int = 8,
     *,
     specialist: Optional[SpecialistScorer] = None,
+    store=None,
+    borderline_requires_specialist: bool = False,
 ) -> MappingResult:
+    """Map one vendor product through the cost ladder.
+
+    ``store`` lets a caller inject a specific store (e.g. an in-memory store for
+    the synthetic graph payload) instead of the globally-configured one. When
+    omitted it falls back to ``get_store()`` — the normal runtime path.
+    """
     rules = default_field_rules()
 
     # M8 federated-audit fields — copied from the ref onto EVERY return path
@@ -177,7 +185,7 @@ def map_vendor_product(
             source_file_audit_id=source_file_audit_id,
         )
 
-    store = get_store()
+    store = store if store is not None else get_store()
 
     # Rung 2 — Precedent reuse. A CONFIRMED prior mapping wins immediately
     # (replay-safe; the store filters out provisional edges per Section
@@ -381,13 +389,24 @@ def map_vendor_product(
             )
 
         if specialist_pick is None:
-            # Specialist absent / abstained. Fall back to the deterministic
-            # floor on the sparse ranker's pick.
+            # Specialist absent / abstained.
             band = "borderline"
             mapped_node_iri = best.node.iri
             mapped_node_label = best.node.label
             confidence = best.similarity
-            if best.similarity >= floor:
+            if borderline_requires_specialist:
+                # Public REST path (A5): a borderline case MUST get a specialist
+                # decision. If the specialist abstained (e.g. Bedrock timeout),
+                # fail SAFE to human review — never auto-map an unreviewed
+                # borderline match on the raw dense score.
+                status = MappingStatus.NEEDS_REVIEW
+                rationale = (
+                    f"BORDERLINE band — best candidate '{best.node.label}' at "
+                    f"{best.similarity:.2f}; specialist required but abstained "
+                    "(absent/timeout/error) → routed to human review."
+                )
+            elif best.similarity >= floor:
+                # Legacy/agent path: fall back to the deterministic floor.
                 status = MappingStatus.AUTO_MAPPED
                 rationale = (
                     f"BORDERLINE band — best candidate '{best.node.label}' "

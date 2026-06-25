@@ -32,6 +32,7 @@ AUTH MODEL (read before deploying — see ``auth.py`` for the trust boundary):
 """
 
 import os
+import uuid
 
 from flask import Flask, g, jsonify, request
 from flask_cors import CORS
@@ -49,8 +50,25 @@ from routes.visibility import visibility_bp
 
 app = Flask(__name__)
 
-# Allow cross-origin requests from the React dev server on all /api/* paths.
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# Reject oversized uploads before they are read into memory (Codex A3).
+# 5 MB default; override with SCUDO_MAX_UPLOAD_BYTES. Flask returns 413 when a
+# request body exceeds this.
+app.config["MAX_CONTENT_LENGTH"] = int(
+    os.getenv("SCUDO_MAX_UPLOAD_BYTES", str(5 * 1024 * 1024))
+)
+
+# CORS for /api/* (Codex B6). In prod the SPA is same-origin via CloudFront, so
+# no cross-origin is needed; default to the deployed dashboard origin and only
+# fall back to "*" when SCUDO_CORS_ORIGINS is unset (local dev convenience).
+# Set SCUDO_CORS_ORIGINS to a comma-separated allowlist in any shared/deployed
+# environment.
+_cors_origins_env = os.getenv("SCUDO_CORS_ORIGINS", "").strip()
+_cors_origins = (
+    [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+    if _cors_origins_env
+    else "*"
+)
+CORS(app, resources={r"/api/*": {"origins": _cors_origins}})
 
 app.register_blueprint(providers_bp, url_prefix="/api")
 app.register_blueprint(datasets_bp, url_prefix="/api")
@@ -72,6 +90,24 @@ def _healthz():
     the process is up, independent of Aurora/FalkorDB readiness.
     """
     return jsonify({"status": "ok"}), 200
+
+
+@app.get("/readyz")
+def _readyz():
+    """Readiness probe (Codex A8): 200 only once the CDAO taxonomy has actually
+    seeded. Distinct from /healthz (liveness) — a process can be UP but not yet
+    ready to serve matching. Returns 503 + the last seed error until seeding
+    succeeds, so a load balancer won't route traffic to a not-ready instance.
+    """
+    try:
+        from routes.mapping import readiness
+
+        state = readiness()
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ready": False, "error": f"{type(e).__name__}: {e}"}), 503
+    if state.get("seed_ok"):
+        return jsonify({"ready": True}), 200
+    return jsonify({"ready": False, "error": state.get("last_error")}), 503
 
 
 @app.before_request
@@ -114,17 +150,30 @@ def _require_principal():
 
 @app.errorhandler(Exception)
 def handle_error(e):
-    """Catch-all exception handler — logs the full traceback and returns JSON.
+    """Catch-all exception handler — logs the full traceback, returns JSON.
 
-    Args:
-        e (Exception): Unhandled exception propagated from any route.
-
-    Returns:
-        tuple[flask.Response, int]: JSON body ``{"error": "<message>"}`` with
-            HTTP 500 status.
+    HTTPExceptions (404/405/413 from MAX_CONTENT_LENGTH, explicit aborts) keep
+    their own status + safe description. For genuinely unexpected errors we
+    return a GENERIC message plus a correlation id (Codex A7) — the detail goes
+    to logs only, never to the client, so parser/store internals don't leak.
     """
-    app.logger.exception(e)
-    return jsonify({"error": str(e)}), 500
+    from werkzeug.exceptions import HTTPException
+
+    if isinstance(e, HTTPException):
+        app.logger.warning("http error %s: %s", e.code, e)
+        return jsonify({"error": e.description}), e.code or 500
+
+    error_id = uuid.uuid4().hex[:12]
+    app.logger.exception("unhandled error [%s]: %s", error_id, e)
+    return (
+        jsonify(
+            {
+                "error": "internal server error",
+                "error_id": error_id,
+            }
+        ),
+        500,
+    )
 
 
 if __name__ == "__main__":

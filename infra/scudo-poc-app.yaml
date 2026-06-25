@@ -18,6 +18,31 @@ Parameters:
   OwnerTag:
     Type: String
     Default: 2096955@cognizant.com
+  # Dev-auth bypass (SCUDO_AUTH_ALLOW_DEV). DEFAULT OFF (Codex review B1) — the
+  # API must NOT resolve every request as the owner in a deployed stack. Set to
+  # "1" ONLY for a deliberately access-restricted closed demo, AND only once the
+  # edge (CloudFront/ALB) strips+injects X-Authenticated-User. See
+  # infra/AUTH_GATE_SPEC_strip_inject.md before ever enabling.
+  AllowDevAuth:
+    Type: String
+    Default: "0"
+    AllowedValues: ["0", "1"]
+    Description: >-
+      Enable the dev-principal auth bypass. Leave "0" unless this is a
+      network-isolated closed demo with edge header injection in place.
+  CorsOrigins:
+    Type: String
+    Default: ""
+    Description: >-
+      Comma-separated allowed CORS origins for /api/* (Codex B6). Empty falls
+      back to the app default; set the deployed dashboard origin in prod.
+  AllowMockFallback:
+    Type: String
+    Default: "0"
+    AllowedValues: ["0", "1"]
+    Description: >-
+      Allow silent mock-candidate fallback on store failure (Codex B7). "0" =
+      fail visibly; set "1" only for a no-backend demo.
   ImageTag:
     Type: String
     Default: latest
@@ -193,8 +218,17 @@ Resources:
             - { Name: SCUDO_AGENT_BACKEND, Value: !Ref AgentBackend }
             - { Name: SCUDO_BEDROCK_MODEL_ID, Value: !Ref BedrockModelId }
             - { Name: BEDROCK_REGION, Value: !Ref AWS::Region }
-            - { Name: SCUDO_AUTH_ALLOW_DEV, Value: '1' }
+            # Default OFF (Codex B1). resolve_principal only honors the dev
+            # principal when SCUDO_AUTH_ALLOW_DEV is truthy; "0" → real auth.
+            - { Name: SCUDO_AUTH_ALLOW_DEV, Value: !Ref AllowDevAuth }
             - { Name: SCUDO_AUTH_DEV_PRINCIPAL, Value: !Ref OwnerTag }
+            # Tighten CORS to the deployed dashboard origin (Codex B6). Same-
+            # origin via CloudFront means this is belt-and-braces; set the real
+            # origin(s) here rather than the wildcard default in app.py.
+            - { Name: SCUDO_CORS_ORIGINS, Value: !Ref CorsOrigins }
+            # Mock-fallback must be explicit (Codex B7): the matcher/lambda must
+            # NOT silently serve mock candidates in a deployed stack.
+            - { Name: SCUDO_ALLOW_MOCK_FALLBACK, Value: !Ref AllowMockFallback }
           Secrets:
             - Name: my_sql_user
               ValueFrom: !Sub

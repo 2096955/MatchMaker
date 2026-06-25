@@ -23,7 +23,7 @@ import io
 import json
 import os
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from .frames import put_frame
 from .models import TaxonomyNode, VendorProductRef
@@ -35,6 +35,10 @@ from .store import get_store
 # SSE ingest endpoint to light up the ETL graph nodes with live data — NOT a
 # simulation: every count is the actual value produced by this pipeline.
 StageCallback = Callable[[str, dict], None]
+
+# Max parsed rows per upload (A3 — bound resource use). Byte size is capped
+# earlier by Flask MAX_CONTENT_LENGTH; this bounds row explosion.
+_MAX_ROWS = int(os.getenv("SCUDO_MAX_ROWS", "10000"))
 
 # Canonical illustrative taxonomy — same fixture FalkorDB seeding uses.
 _CATALOGUE_FIXTURE = (
@@ -113,10 +117,23 @@ def _pick(row: dict, key: str) -> str:
     return ""
 
 
-def _rows_to_frames(vendor: str, rows: list[dict]) -> list[VendorProductRef]:
+def _rows_to_frames(
+    vendor: str, rows: list[dict]
+) -> tuple[list[VendorProductRef], int]:
+    """Turn rows into frames. Rows with no usable ``product_id`` (the vendor's
+    native primary key) are REJECTED — not synthesized into a ``row-N`` frame —
+    so the reported reject count is truthful. Returns ``(frames, rejected)``.
+    """
     frames: list[VendorProductRef] = []
-    for i, row in enumerate(rows):
-        pid = _pick(row, "product_id") or f"row-{i + 1}"
+    rejected = 0
+    for row in rows:
+        pid = _pick(row, "product_id")
+        if not pid:
+            # null/empty primary key → quarantine (matches the upstream ETL
+            # contract: rows with a null PK go to the rejected bucket, never
+            # get a fabricated id).
+            rejected += 1
+            continue
         frames.append(
             VendorProductRef(
                 vendor=vendor,
@@ -126,7 +143,7 @@ def _rows_to_frames(vendor: str, rows: list[dict]) -> list[VendorProductRef]:
                 raw=row,
             )
         )
-    return frames
+    return frames, rejected
 
 
 def ingest_bytes(
@@ -155,19 +172,44 @@ def ingest_bytes(
     text = data.decode("utf-8", errors="replace")
     fmt = "json" if filename.lower().endswith(".json") else "csv"
     if fmt == "json":
-        payload = json.loads(text)
-        rows = (
-            payload if isinstance(payload, list) else payload.get("products", [payload])
-        )
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"invalid JSON: {e}") from e
+        # Accept either a top-level list of objects, or {"products": [objects]}.
+        # Anything else (bare scalar, list of non-objects, products-not-a-list)
+        # is a client error → ValueError → HTTP 400, not a 500.
+        if isinstance(payload, list):
+            rows = payload
+        elif isinstance(payload, dict) and "products" in payload:
+            rows = payload["products"]
+        elif isinstance(payload, dict):
+            rows = [payload]  # a single product object
+        else:
+            raise ValueError(
+                "JSON must be a list of product objects or "
+                '{"products": [...]} — got a bare scalar.'
+            )
+        if not isinstance(rows, list):
+            raise ValueError('JSON "products" must be a list of objects.')
+        if not all(isinstance(r, dict) for r in rows):
+            raise ValueError("each product row must be a JSON object.")
     else:  # default to CSV / TSV
         delimiter = "\t" if filename.lower().endswith((".tsv", ".tab")) else ","
         rows = list(csv.DictReader(io.StringIO(text), delimiter=delimiter))
+
+    # Bound row count so a huge file can't exhaust memory/CPU (A3). The byte
+    # ceiling is enforced earlier by Flask MAX_CONTENT_LENGTH; this caps rows.
+    if len(rows) > _MAX_ROWS:
+        raise ValueError(
+            f"too many rows: {len(rows)} exceeds the {_MAX_ROWS} limit "
+            f"(set SCUDO_MAX_ROWS to change)."
+        )
     emit("parse", format=fmt, rows=len(rows))
 
-    # validate / transform — rows → typed frames; rows that can't form a frame
-    # are the quarantine count.
-    frames = _rows_to_frames(vendor, rows)
-    rejected = max(0, len(rows) - len(frames))
+    # validate / transform — rows → typed frames; rows with no usable
+    # product_id are rejected (quarantine), counted truthfully.
+    frames, rejected = _rows_to_frames(vendor, rows)
     emit("validate", valid=len(frames), rejected=rejected)
 
     # sink — persist to the working set (+ store upsert: S3/DynamoDB analogue)

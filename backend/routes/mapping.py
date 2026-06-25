@@ -40,6 +40,7 @@ from scudo_mapping_mcp.frames import FrameDataError, _read_vendor_frame, all_fra
 from scudo_mapping_mcp.hydrate import HydrationError, hydrate
 from scudo_mapping_mcp.ingest import ingest_bytes, seed_taxonomy
 from scudo_mapping_mcp.matching import map_vendor_product
+from scudo_mapping_mcp.specialist import make_rest_specialist
 from scudo_mapping_mcp.models import MappingBundle, VendorProductRef
 from scudo_mapping_mcp.store import get_store
 
@@ -50,6 +51,15 @@ mapping_bp = Blueprint("mapping", __name__)
 # read just returns empty). The flag prevents repeat seeding under the Flask
 # debug reloader.
 _seeded = False
+# Readiness state for /readyz (Codex A8). _ensure_seeded sets seed_ok True only
+# on actual success; a failed seed leaves it False AND does not flip _seeded, so
+# the next request retries instead of silently giving up.
+_readiness = {"seed_ok": False, "last_error": None}
+
+
+def readiness() -> dict:
+    """Current seed/hydrate readiness — consumed by the /readyz probe."""
+    return dict(_readiness)
 
 
 def _ensure_seeded():
@@ -59,11 +69,13 @@ def _ensure_seeded():
     try:
         n = seed_taxonomy()
         ui_logger.info("CDAO taxonomy seeded", nodes=n)
-    except Exception as e:  # noqa: BLE001 — best-effort, store may not be up
+    except Exception as e:  # noqa: BLE001 — store may not be up yet; RETRY later
         ui_logger.warning(
-            "CDAO taxonomy seed skipped", error=f"{type(e).__name__}: {e}"
+            "CDAO taxonomy seed failed (will retry)", error=f"{type(e).__name__}: {e}"
         )
-        _seeded = True
+        _readiness["seed_ok"] = False
+        _readiness["last_error"] = f"seed: {type(e).__name__}: {e}"
+        # Do NOT set _seeded=True — leave it so the next request retries.
         return
     # Replay the M6 canonical bundle into FalkorDB so confirmed precedents are
     # available on boot — the resilience pin from the matching strategy:
@@ -87,6 +99,10 @@ def _ensure_seeded():
         ui_logger.error(
             "hydration failed (proceeding empty)", error=f"{type(e).__name__}: {e}"
         )
+    # Seed succeeded (hydration is best-effort and does not gate readiness — an
+    # empty-but-seeded taxonomy is a valid serving state).
+    _readiness["seed_ok"] = True
+    _readiness["last_error"] = None
     _seeded = True
 
 
@@ -381,8 +397,18 @@ def map_product():
         )
         return jsonify({"error": f"frame source unavailable: {e}"}), 503
 
+    # Wire the real (opus_dense-backed) specialist into the public REST path so
+    # borderline cases get a genuine pick instead of auto-mapping on the raw
+    # dense score (Codex A5). The specialist self-guards with a timeout and
+    # abstains (returns None) on any failure; borderline_requires_specialist
+    # then routes an abstention to NEEDS_REVIEW rather than auto-mapping — so a
+    # Bedrock hiccup is fail-safe, never a silent unreviewed auto-map.
     try:
-        result = map_vendor_product(ref)
+        result = map_vendor_product(
+            ref,
+            specialist=make_rest_specialist(),
+            borderline_requires_specialist=True,
+        )
     except (ConnectionError, TimeoutError, OSError) as e:
         ui_logger.error(
             "Mapping store unavailable",
@@ -734,6 +760,18 @@ _ETL_STAGE_NODES: dict[str, list[str]] = {
 }
 
 
+def _safe_put(q, item) -> None:
+    """Non-blocking put for terminal frames (error/sentinel). After a cancel the
+    consumer may be gone and the bounded queue full; never block the worker's
+    unwind on it."""
+    import queue as _q
+
+    try:
+        q.put_nowait(item)
+    except _q.Full:
+        pass
+
+
 @mapping_bp.post("/mapping/ingest/stream")
 def ingest_vendor_file_stream():
     """Ingest a vendor file and stream REAL ETL stage events over SSE.
@@ -771,17 +809,35 @@ def ingest_vendor_file_stream():
         return jsonify({"error": "file is empty"}), 400
 
     principal = g.principal.user_id
-    q: "queue.Queue[dict | None]" = queue.Queue()
+    # Bounded queue → backpressure: if the client reads slowly, the worker
+    # blocks on put() instead of racing ahead and buffering unboundedly.
+    q: "queue.Queue[dict | None]" = queue.Queue(maxsize=64)
+    cancel = threading.Event()
+
+    class _Cancelled(Exception):
+        """Raised inside on_stage to unwind ingest when the client disconnects."""
 
     def on_stage(stage: str, detail: dict) -> None:
-        q.put(
-            {
-                "type": "stage",
-                "stage": stage,
-                "nodeIds": _ETL_STAGE_NODES.get(stage, []),
-                "detail": detail,
-            }
-        )
+        # Cooperative cancellation: ingest_bytes calls on_stage between every
+        # pipeline stage, so checking here stops the work promptly once the
+        # client has gone away (the generator's finally sets cancel).
+        if cancel.is_set():
+            raise _Cancelled()
+        # Bounded put with a timeout so a dead consumer can't wedge the worker
+        # forever; if nobody is draining, treat it as cancelled.
+        try:
+            q.put(
+                {
+                    "type": "stage",
+                    "stage": stage,
+                    "nodeIds": _ETL_STAGE_NODES.get(stage, []),
+                    "detail": detail,
+                },
+                timeout=30,
+            )
+        except queue.Full:
+            cancel.set()
+            raise _Cancelled() from None
 
     def worker() -> None:
         try:
@@ -802,29 +858,46 @@ def ingest_vendor_file_stream():
                     ],
                 }
             )
+        except _Cancelled:
+            # Client disconnected mid-ingest — stop quietly, no sentinel needed
+            # (nobody is reading). Logged so an aborted upload is visible.
+            ui_logger.info("Vendor file ingest cancelled (client gone)", vendor=vendor)
+            return
         except (UnicodeDecodeError, ValueError) as e:
-            q.put({"type": "error", "error": f"cannot parse vendor file: {e}"})
+            _safe_put(q, {"type": "error", "error": f"cannot parse vendor file: {e}"})
         except (ConnectionError, TimeoutError, OSError) as e:
-            q.put(
+            _safe_put(
+                q,
                 {
                     "type": "error",
                     "error": "mapping store unavailable",
                     "detail": f"{type(e).__name__}: {e}",
-                }
+                },
             )
         except Exception as e:  # noqa: BLE001 — surface in stream, don't 500
-            q.put({"type": "error", "error": f"{type(e).__name__}: {e}"})
+            _safe_put(q, {"type": "error", "error": f"{type(e).__name__}: {e}"})
         finally:
-            q.put(None)  # sentinel: stream complete
+            _safe_put(q, None)  # sentinel: stream complete
 
     def event_stream():
-        threading.Thread(target=worker, daemon=True).start()
-        while True:
-            item = q.get()
-            if item is None:
-                break
-            yield f"data: {_json.dumps(item)}\n\n"
-        yield f"data: {_json.dumps({'type': 'done'})}\n\n"
+        # Non-daemon so a graceful shutdown can join it; we also join on close.
+        t = threading.Thread(target=worker, name="ingest-stream", daemon=False)
+        t.start()
+        try:
+            while True:
+                item = q.get()
+                if item is None:
+                    break
+                yield f"data: {_json.dumps(item)}\n\n"
+            yield f"data: {_json.dumps({'type': 'done'})}\n\n"
+        except GeneratorExit:
+            # Client disconnected (Flask closes the generator). Signal the worker
+            # to stop and let it unwind; do not keep parsing/upserting.
+            cancel.set()
+            raise
+        finally:
+            cancel.set()
+            t.join(timeout=5)
 
     ui_logger.info(
         "Vendor file ingest (stream) started",

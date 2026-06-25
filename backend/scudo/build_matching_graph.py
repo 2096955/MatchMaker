@@ -288,17 +288,14 @@ def build_match_payload(
         # product ref is preserved in the node caption for drilldown/UI.
         vp_id = vref.iri
 
-        try:
-            cands = store.find_similar_products(vref, max_results=6) or []
-        except Exception:  # noqa: BLE001
-            cands = []
+        # Use the LOCAL in-memory store for both retrieval and matching so the
+        # synthetic payload never touches the production FalkorDB/Neptune even
+        # when the app booted with STORE_BACKEND=falkordb. (Passing store= keeps
+        # map_vendor_product off the global get_store().)
+        cands = store.find_similar_products(vref, max_results=6) or []
 
-        mapped_iri = None
-        try:
-            result = matching.map_vendor_product(vref, max_candidates=6)
-            mapped_iri = result.mapped_node_iri
-        except Exception:  # noqa: BLE001
-            pass
+        result = matching.map_vendor_product(vref, max_candidates=6, store=store)
+        mapped_iri = result.mapped_node_iri
 
         add_node(
             _make_node(
