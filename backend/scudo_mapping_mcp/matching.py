@@ -147,12 +147,21 @@ def map_vendor_product(
     specialist: Optional[SpecialistScorer] = None,
     store=None,
     borderline_requires_specialist: bool = False,
+    floor: Optional[float] = None,
+    half: Optional[float] = None,
 ) -> MappingResult:
     """Map one vendor product through the cost ladder.
 
     ``store`` lets a caller inject a specific store (e.g. an in-memory store for
     the synthetic graph payload) instead of the globally-configured one. When
     omitted it falls back to ``get_store()`` — the normal runtime path.
+
+    ``floor`` / ``half`` let a caller override the Rung-5 gate window PER CALL
+    (the cost-ladder band edges — see ``_gate_thresholds``). Threaded as
+    EXPLICIT kwargs, never a module-level global, so concurrent requests in the
+    M&V MCP never race on the threshold. When either is None it falls back to
+    ``settings.confidence_floor`` / ``settings.borderline_half_width`` — i.e.
+    omitting both preserves today's behaviour exactly.
     """
     rules = default_field_rules()
 
@@ -278,8 +287,11 @@ def map_vendor_product(
     )
     req_fails = required_failures(vresults)
 
-    floor = settings.confidence_floor
-    half = settings.borderline_half_width
+    # Per-call override of the gate window (explicit kwargs only — no global).
+    # When a caller leaves either None, fall back to the frozen settings so
+    # the default path is byte-for-byte the same as before this seam.
+    floor = settings.confidence_floor if floor is None else floor
+    half = settings.borderline_half_width if half is None else half
     pass_threshold, borderline_threshold = _gate_thresholds(floor, half)
 
     # Disagreement bookkeeping — populated only when the borderline

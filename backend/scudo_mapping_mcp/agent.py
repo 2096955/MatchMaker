@@ -61,6 +61,7 @@ BedrockMappingAgent — Strands Agents SDK + Claude Opus 4.8 on Bedrock.
 The factory selects the backend from SCUDO_AGENT_BACKEND
 ({"scripted", "bedrock"}, default "scripted").
 """
+
 from __future__ import annotations
 
 import json
@@ -103,8 +104,8 @@ _TIER_PERSISTENCE = "persistence"
 class AgentEvent:
     """One event in the agent's run. Serialised as JSON per SSE frame."""
 
-    type: str           # "start" | "tool_call" | "tool_result" |
-                        # "agent_message" | "final_result" | "error" | "done"
+    type: str  # "start" | "tool_call" | "tool_result" |
+    # "agent_message" | "final_result" | "error" | "done"
     payload: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> str:
@@ -171,6 +172,8 @@ class ScriptedMappingAgent:
         ref: VendorProductRef,
         *,
         max_candidates: int = 5,
+        confidence_floor: Optional[float] = None,
+        borderline_half_width: Optional[float] = None,
     ) -> Iterator[AgentEvent]:
         yield AgentEvent(
             type="start",
@@ -223,7 +226,9 @@ class ScriptedMappingAgent:
             # Ingestion only exposes ingest.list_frames / ingest.get_frame.
             try:
                 result_json = host.call(
-                    _TIER_MATCH_VERIFY, "matchverify.find_candidates", find_args,
+                    _TIER_MATCH_VERIFY,
+                    "matchverify.find_candidates",
+                    find_args,
                 )
                 candidates = _candidates_from_host_result(result_json)
             except Exception as e:  # noqa: BLE001 — host transport surface
@@ -236,11 +241,13 @@ class ScriptedMappingAgent:
                     },
                 )
                 candidates = store.find_similar_products(
-                    ref, max_results=max_candidates,
+                    ref,
+                    max_results=max_candidates,
                 )
         else:
             candidates = store.find_similar_products(
-                ref, max_results=max_candidates,
+                ref,
+                max_results=max_candidates,
             )
         yield AgentEvent(
             type="tool_result",
@@ -308,12 +315,16 @@ class ScriptedMappingAgent:
             if host is not None:
                 try:
                     host.call(
-                        _TIER_MATCH_VERIFY, "matchverify.get_neighbourhood", sub_args,
+                        _TIER_MATCH_VERIFY,
+                        "matchverify.get_neighbourhood",
+                        sub_args,
                     )
                 except Exception:  # noqa: BLE001 — best-effort visibility hop
                     pass
             subgraph = store.get_ontology_neighbourhood(
-                best.node.iri, max_depth=2, max_nodes=20,
+                best.node.iri,
+                max_depth=2,
+                max_nodes=20,
             )
             yield AgentEvent(
                 type="tool_result",
@@ -349,7 +360,11 @@ class ScriptedMappingAgent:
                 host.call(_TIER_MATCH_VERIFY, "map_vendor_product", map_args)
             except Exception:  # noqa: BLE001 — best-effort visibility hop
                 pass
-        result = map_vendor_product(ref)
+        result = map_vendor_product(
+            ref,
+            floor=confidence_floor,
+            half=borderline_half_width,
+        )
         yield AgentEvent(
             type="tool_result",
             payload={
@@ -422,9 +437,7 @@ class BedrockMappingAgent:
         mcp_host: Optional[McpHost] = None,
     ) -> None:
         self._model_id = (
-            model_id
-            or os.getenv("SCUDO_BEDROCK_MODEL_ID")
-            or DEFAULT_BEDROCK_MODEL_ID
+            model_id or os.getenv("SCUDO_BEDROCK_MODEL_ID") or DEFAULT_BEDROCK_MODEL_ID
         )
         self._region = (
             region
@@ -439,12 +452,24 @@ class BedrockMappingAgent:
         self._mcp_host = mcp_host
         self._agent: Any = None  # lazy-initialised on first run()
 
-    def _build_agent(self) -> Any:
+    def _build_agent(
+        self,
+        *,
+        floor: Optional[float] = None,
+        half: Optional[float] = None,
+    ) -> Any:
         """Lazy-import strands_agents and construct the underlying agent.
 
         Kept in a method so the import error (when strands_agents is not
         yet installed in the sandbox env) only fires when the bedrock
         backend is actually selected — not on every package import.
+
+        ``floor`` / ``half`` are the per-run gate-window override. They are
+        passed down to ``_strands_tools_for_mapping`` so the
+        ``map_vendor_product_tool`` the LLM can call CLOSES OVER this run's
+        thresholds — no module-level/contextvar state, so concurrent runs
+        never race on the window. When both are None the tool behaves exactly
+        as before (matcher falls back to ``settings``).
         """
         try:
             from strands import Agent  # type: ignore
@@ -462,7 +487,7 @@ class BedrockMappingAgent:
         return Agent(
             model=model,
             system_prompt=self.SYSTEM_PROMPT,
-            tools=_strands_tools_for_mapping(),
+            tools=_strands_tools_for_mapping(floor=floor, half=half),
         )
 
     def run(
@@ -470,9 +495,23 @@ class BedrockMappingAgent:
         ref: VendorProductRef,
         *,
         max_candidates: int = 5,
+        confidence_floor: Optional[float] = None,
+        borderline_half_width: Optional[float] = None,
     ) -> Iterator[AgentEvent]:
-        if self._agent is None:
-            self._agent = self._build_agent()
+        # Build the agent PER RUN so the @tool map_vendor_product_tool closes
+        # over this run's threshold window (2b). An explicit override uses a
+        # LOCAL agent and does NOT touch the cached self._agent (which stays the
+        # default-threshold build) — so an override run can never bleed its
+        # window into a later default run on the same instance. No contextvar.
+        if confidence_floor is not None or borderline_half_width is not None:
+            agent = self._build_agent(
+                floor=confidence_floor,
+                half=borderline_half_width,
+            )
+        else:
+            if self._agent is None:
+                self._agent = self._build_agent()
+            agent = self._agent
 
         yield AgentEvent(
             type="start",
@@ -501,12 +540,17 @@ class BedrockMappingAgent:
         # stream. Implementation lives behind this method so it can be
         # filled in when Bedrock access lands and the SDK is pinned; the
         # ScriptedMappingAgent covers every test until then.
-        for event in _iter_strands_events(self._agent, prompt):
+        for event in _iter_strands_events(agent, prompt):
             yield event
 
         # Authoritative final step — matcher runs regardless of what the
-        # LLM recommended. Same contract as the scripted backend.
-        result = map_vendor_product(ref)
+        # LLM recommended. Same contract as the scripted backend. The
+        # per-run threshold override is threaded explicitly (no global).
+        result = map_vendor_product(
+            ref,
+            floor=confidence_floor,
+            half=borderline_half_width,
+        )
         yield AgentEvent(
             type="final_result",
             payload={"mapping": _mapping_result_dict(result)},
@@ -517,28 +561,45 @@ class BedrockMappingAgent:
 # ──────────────────────────────────────────────────────────────────────────
 # Strands integration helpers (filled in when Bedrock access lands)
 # ──────────────────────────────────────────────────────────────────────────
-def _strands_tools_for_mapping() -> list[Any]:
+def _strands_tools_for_mapping(
+    *,
+    floor: Optional[float] = None,
+    half: Optional[float] = None,
+) -> list[Any]:
     """Return the four MCP-equivalent Strands tools for the live agent.
 
     Each tool calls into the same package functions the MCP server uses,
     so the agent's tool surface and the MCP client's tool surface are
     behaviourally identical. Lazy-imported with strands itself.
+
+    ``floor`` / ``half`` are the per-run gate-window override. The
+    ``map_vendor_product_tool`` defined below CLOSES OVER these two values,
+    so when the LLM invokes that tool the matcher honours the same window
+    the run was started with — without any module-level/contextvar state.
+    Passing None for both keeps the matcher on its ``settings`` defaults.
     """
     from strands import tool  # type: ignore
 
     @tool
     def find_similar_products(
-        vendor: str, product_id: str, name: str = "", max_results: int = 10,
+        vendor: str,
+        product_id: str,
+        name: str = "",
+        max_results: int = 10,
     ) -> str:
         """Return top-N candidate CDAO nodes for a vendor product."""
         ref = VendorProductRef(
-            vendor=vendor, product_id=product_id, name=name,
+            vendor=vendor,
+            product_id=product_id,
+            name=name,
         )
         cands = get_store().find_similar_products(ref, max_results=max_results)
-        return json.dumps({
-            "count": len(cands),
-            "candidates": [_candidate_dict(c) for c in cands],
-        })
+        return json.dumps(
+            {
+                "count": len(cands),
+                "candidates": [_candidate_dict(c) for c in cands],
+            }
+        )
 
     @tool
     def get_taxonomy_node(node_iri: str) -> str:
@@ -548,25 +609,40 @@ def _strands_tools_for_mapping() -> list[Any]:
 
     @tool
     def get_ontology_neighbourhood(
-        node_iri: str, max_depth: int = 2, max_nodes: int = 50,
+        node_iri: str,
+        max_depth: int = 2,
+        max_nodes: int = 50,
     ) -> str:
         """Return a bounded subgraph around a node."""
         sg = get_store().get_ontology_neighbourhood(
-            node_iri, max_depth=max_depth, max_nodes=max_nodes,
+            node_iri,
+            max_depth=max_depth,
+            max_nodes=max_nodes,
         )
         return json.dumps(_subgraph_dict(sg))
 
     @tool
     def map_vendor_product_tool(
-        vendor: str, product_id: str,
-        name: str = "", description: str = "",
+        vendor: str,
+        product_id: str,
+        name: str = "",
+        description: str = "",
     ) -> str:
         """Apply scope gate + matcher + floor; return authoritative MappingResult."""
         ref = VendorProductRef(
-            vendor=vendor, product_id=product_id,
-            name=name, description=description,
+            vendor=vendor,
+            product_id=product_id,
+            name=name,
+            description=description,
         )
-        return json.dumps(_mapping_result_dict(map_vendor_product(ref)))
+        # Closes over the per-run threshold window bound in
+        # _strands_tools_for_mapping (2b). When floor/half are None the
+        # matcher falls back to settings — identical to the legacy path.
+        return json.dumps(
+            _mapping_result_dict(
+                map_vendor_product(ref, floor=floor, half=half),
+            )
+        )
 
     return [
         find_similar_products,
@@ -613,6 +689,7 @@ def _strands_stream(agent: Any, prompt: str) -> list[Any]:
     if hasattr(agent, "stream"):
         return list(agent.stream(prompt))  # type: ignore[attr-defined]
     if hasattr(agent, "stream_async"):
+
         async def _collect() -> list[Any]:
             events: list[Any] = []
             async for event in agent.stream_async(prompt):  # type: ignore[attr-defined]
@@ -628,7 +705,9 @@ def _strands_stream(agent: Any, prompt: str) -> list[Any]:
 def _strands_event_to_agent_events(event: Any) -> Iterator[AgentEvent]:
     """Translate a Strands event dict/object into our SSE contract."""
     if not isinstance(event, dict):
-        event = event.__dict__ if hasattr(event, "__dict__") else {"message": str(event)}
+        event = (
+            event.__dict__ if hasattr(event, "__dict__") else {"message": str(event)}
+        )
 
     kind = event.get("kind") or event.get("type")
     if kind == "tool_use":

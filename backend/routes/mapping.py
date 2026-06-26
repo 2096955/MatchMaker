@@ -126,6 +126,83 @@ def _validate_vendor(vendor):
     return None
 
 
+def _parse_threshold_window(body):
+    """Validate an optional per-request gate-window override from the body.
+
+    Reads ``confidence_floor`` and ``borderline_half_width``. The two travel
+    TOGETHER: either both are present (and valid) or both are absent. A lone
+    one is a 400 — a half-specified window is almost always a client bug.
+
+    PRESENCE vs VALUE: we key off whether the JSON KEY is present
+    (``"confidence_floor" in body``), NOT ``body.get(...)``. JSON ``null``
+    deserialises to Python ``None``, which ``.get`` cannot distinguish from an
+    absent key — so an explicit ``{"confidence_floor": null, ...}`` would
+    otherwise be silently treated as "use defaults". Only when BOTH keys are
+    ABSENT do we fall back to defaults. If either key is present (even as
+    ``null``), both must be present and numeric and pass the window check —
+    otherwise 400.
+
+    Valid window invariant (matches the matcher's PASS/BORDERLINE/FAIL bands):
+
+        0 <= floor - half < floor + half <= 1
+
+    i.e. ``half > 0`` (the borderline band is non-empty), the FAIL edge does
+    not go negative, and the PASS edge does not exceed 1.0. These are passed
+    straight through to ``map_vendor_product(floor=, half=)`` /
+    ``agent.run(confidence_floor=, borderline_half_width=)``.
+
+    Returns:
+        (floor, half, error). On success ``error`` is None and floor/half are
+        either both floats or both None (no override). On failure floor/half
+        are None and ``error`` is a human-readable message for a 400.
+    """
+    has_floor = "confidence_floor" in body
+    has_half = "borderline_half_width" in body
+
+    if not has_floor and not has_half:
+        return None, None, None  # no override — use matcher defaults
+
+    if not has_floor or not has_half:
+        return (
+            None,
+            None,
+            "confidence_floor and borderline_half_width must be supplied together",
+        )
+
+    raw_floor = body.get("confidence_floor")
+    raw_half = body.get("borderline_half_width")
+
+    # Both keys present. An explicit null (-> None) is NOT a valid number —
+    # reject it here rather than letting it fall through as "absent".
+    if raw_floor is None or raw_half is None:
+        return None, None, "confidence_floor and borderline_half_width must be numbers"
+
+    # bool is an int subclass — reject it explicitly so True/False can't pass
+    # as 1.0/0.0 and silently configure a nonsense window.
+    if isinstance(raw_floor, bool) or isinstance(raw_half, bool):
+        return None, None, "confidence_floor and borderline_half_width must be numbers"
+    try:
+        floor = float(raw_floor)
+        half = float(raw_half)
+    except (TypeError, ValueError):
+        return None, None, "confidence_floor and borderline_half_width must be numbers"
+
+    # 0 <= floor-half < floor+half <= 1  (equivalently: half>0, floor-half>=0,
+    # floor+half<=1).
+    if not (0.0 <= floor - half < floor + half <= 1.0):
+        return (
+            None,
+            None,
+            (
+                "invalid band window: require 0 <= confidence_floor - "
+                "borderline_half_width < confidence_floor + "
+                "borderline_half_width <= 1 (so borderline_half_width > 0)"
+            ),
+        )
+
+    return floor, half, None
+
+
 def _frame(vendor, product_id, name="", description=""):
     """Same resolution rule as scudo_mapping_mcp.mcp_server._frame.
 
@@ -371,6 +448,11 @@ def map_product():
     # Note: out-of-scope vendors aren't a 400 here — the matcher's scope gate
     # is the authoritative answer and surfaces them as status='out_of_scope'.
 
+    # Optional per-request gate-window override (both keys together, or neither).
+    floor, half, win_err = _parse_threshold_window(body)
+    if win_err:
+        return jsonify({"error": win_err}), 400
+
     try:
         ref = _frame(
             vendor,
@@ -403,11 +485,16 @@ def map_product():
     # abstains (returns None) on any failure; borderline_requires_specialist
     # then routes an abstention to NEEDS_REVIEW rather than auto-mapping — so a
     # Bedrock hiccup is fail-safe, never a silent unreviewed auto-map.
+    #
+    # floor/half are None unless the caller supplied a valid window above, in
+    # which case the matcher falls back to settings — default behaviour intact.
     try:
         result = map_vendor_product(
             ref,
             specialist=make_rest_specialist(),
             borderline_requires_specialist=True,
+            floor=floor,
+            half=half,
         )
     except (ConnectionError, TimeoutError, OSError) as e:
         ui_logger.error(
@@ -988,6 +1075,11 @@ def run_agent():
     if err:
         return jsonify({"error": err}), 400
 
+    # Optional per-request gate-window override (both keys together, or neither).
+    floor, half, win_err = _parse_threshold_window(body)
+    if win_err:
+        return jsonify({"error": win_err}), 400
+
     try:
         ref = _frame(
             vendor,
@@ -1018,9 +1110,16 @@ def run_agent():
         backend=type(agent).__name__,
     )
 
+    # floor/half are None unless the caller supplied a valid window above; the
+    # agent threads them as explicit kwargs into every authoritative
+    # map_vendor_product call (no contextvar). None → matcher defaults.
     def event_stream():
         try:
-            for event in agent.run(ref):
+            for event in agent.run(
+                ref,
+                confidence_floor=floor,
+                borderline_half_width=half,
+            ):
                 yield f"data: {event.to_json()}\n\n"
         except (ConnectionError, TimeoutError, OSError) as e:
             ui_logger.error(
