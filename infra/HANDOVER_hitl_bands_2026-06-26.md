@@ -143,8 +143,27 @@ Approve → "HITL: Approved".
 
 ## 5. Caveats / MUST address before external use
 Unchanged from the runbook §5 — still open, do not skip for real use:
-1. **Auth (security):** the dashboard sends `X-Authenticated-User`; the edge MUST
-   strip-and-inject it. `AllowDevAuth` is intentionally on for the closed demo.
+1. **Auth (security) — ACCEPTED RISK, recorded 2026-06-27 (owner decision).**
+   The live app runs `AllowDevAuth=1` with `SCUDO_CORS_ORIGINS` empty (→ CORS `*`)
+   behind an internet-facing ALB + a CloudFront `/api/*` behavior with **no edge
+   gate** (no WAF / Lambda@Edge / CloudFront Function). `auth.py:resolve_principal`
+   resolves **every** request as the owner, so the API is reachable
+   **unauthenticated by anyone with the URL**. Because `AgentBackend` defaults to
+   `bedrock` (`us.anthropic.claude-opus-4-8`), `/api/mapping/agent/run` triggers
+   **paid Bedrock Opus inference per call**, and record-decision writes pollute the
+   precedent store. Data is **synthetic** → no data-confidentiality breach; the
+   accepted exposures are **cost-abuse + demo-integrity**. The template comment
+   (`scudo-poc-app.yaml:21`) requires the edge strip+inject
+   (`infra/AUTH_GATE_SPEC_strip_inject.md`) *before* enabling dev-auth — that gate
+   is **intentionally deferred** for this closed demo, gated only by URL obscurity.
+   - **Mitigations available without a redeploy:** share the URL only with the
+     intended audience; retire/rotate the distribution when the demo window ends;
+     watch Bedrock spend in Cost Explorer for `us.anthropic.claude-opus-4-8`.
+   - **Cost-only guard (optional, needs a roll):** set `AgentBackend=scripted` —
+     removes the paid-inference vector; dense matching + the band override
+     (`/api/mapping/map`) are unaffected, only the live agent reasoning changes.
+   - **Proper fix when this goes beyond a closed demo:** implement
+     `AUTH_GATE_SPEC_strip_inject.md` and roll `AllowDevAuth=0` (see §3b).
 2. **SSE vs ALB 60s idle timeout** for long live Bedrock runs (heartbeat / raise timeout).
 3. **Live matcher** needs `SCUDO_AGENT_BACKEND=bedrock` + Titan model access.
 4. **Band override is backend-gated** — only effective once the §3b image rolls.
