@@ -204,32 +204,55 @@ git commit -m "feat(okf): frontmatter-merge helper (parse-and-overlay, never dou
 
 ---
 
-## Task 3: Link-repoint helper (TDD)
+## Task 3: Link helpers — repoint, related-section, superseded-banner (TDD)
 
 **Files:**
 - Modify: `docs/okf/build/stage.py`
 - Modify: `docs/okf/build/test_stage.py`
 
+**Why three helpers (not just repoint):** Many priority cross-links in the spec
+(§4.4) — above all the band→`matching-data-provenance` link — appear in the sources as
+**plain prose or bold text, not markdown links** (e.g. `README.md:99`, `AGENTS.md:16`,
+the skill chain in `taxonomy-mapping/SKILL.md:32`). A repoint-only approach cannot
+create a link that doesn't exist. So:
+- `repoint_links` rewrites links that DO exist (a relocated doc's existing links).
+- `add_related_section` **injects** the desired cross-links as a generated `## Related`
+  section — deterministic, guaranteed to resolve, no fragile prose surgery.
+- `add_superseded_banner` prepends a visible banner to superseded concepts so a reader
+  who lands on an old doc is routed to its replacement (frontmatter alone is invisible
+  in the body).
+
 **Interfaces:**
 - Consumes: `okf_toolkit.bundle.links.iter_markdown_links`, `split_target`, `is_external`.
-- Produces: `repoint_links(body: str, link_map: dict[str, str]) -> str` — rewrites in-body markdown links. A relative-or-absolute target whose normalized form is a key in `link_map` becomes the mapped bundle-absolute path (e.g. `/reference/matching-data-provenance.md`). Targets that map to the sentinel `"@inline"` are de-linked (replaced by inline-code of their text) so they raise no broken-link warning. External links and unmapped links are left untouched. Code-span links are never touched (handled by `iter_markdown_links`).
+- Produces:
+  - `repoint_links(body, link_map: dict[str,str]) -> str` — for each EXISTING markdown
+    link whose target (raw, normalized, or `./`-toggled form) is a key in `link_map`,
+    replace the WHOLE `[text](target)` link: mapped value → `[text](mapped#anchor "title")`;
+    sentinel `"@inline"` → `` `text` `` (de-linked). External/unmapped/code-span links
+    untouched. Single pass over `iter_markdown_links` (which already skips code spans),
+    so anchors/titles and code spans are handled correctly.
+  - `add_related_section(body, related: list[dict]) -> str` — append `## Related` with one
+    bullet `- [label](target)` per item (no-op on empty).
+  - `add_superseded_banner(body, target: str|None) -> str` — prepend `> **Superseded.** See [name](target).` (no-op on falsy target).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 ```python
 # append to docs/okf/build/test_stage.py
-from stage import repoint_links  # noqa: E402
+from stage import repoint_links, add_related_section, add_superseded_banner  # noqa: E402
 
 
-def test_repoint_maps_known_target_to_bundle_absolute():
-    body = "See [bands](../matching-data-provenance.md) and [code](batch.py)."
-    out = repoint_links(body, {
-        "../matching-data-provenance.md": "/reference/matching-data-provenance.md",
-        "batch.py": "@inline",
-    })
-    assert "(/reference/matching-data-provenance.md)" in out
-    assert "`batch.py`" in out          # de-linked to inline code
-    assert "(batch.py)" not in out
+def test_repoint_remaps_existing_link_to_bundle_absolute():
+    body = "See [bands](../matching-data-provenance.md)."
+    out = repoint_links(body, {"../matching-data-provenance.md": "/reference/matching-data-provenance.md"})
+    assert "[bands](/reference/matching-data-provenance.md)" in out
+
+
+def test_repoint_inline_delinks_even_with_anchor():
+    body = "the [code](batch.py#x) here"
+    out = repoint_links(body, {"batch.py": "@inline"})
+    assert "`code`" in out
+    assert "(batch.py" not in out
 
 
 def test_repoint_leaves_external_and_unmapped_untouched():
@@ -244,73 +267,116 @@ def test_repoint_ignores_links_in_code_spans():
     out = repoint_links(body, {"foo.md": "/bar.md"})
     assert "`[not a link](foo.md)`" in out      # code span untouched
     assert "[a](/bar.md)" in out
+
+
+def test_repoint_normalizes_dot_slash():
+    body = "[a](x.md) [b](./x.md)"
+    out = repoint_links(body, {"x.md": "/y.md"})
+    assert out.count("(/y.md)") == 2            # both forms matched
+
+
+def test_add_related_section_injects_links():
+    out = add_related_section("# Doc\n\nbody\n", [
+        {"label": "Bands (canonical)", "target": "/reference/matching-data-provenance.md"},
+    ])
+    assert "## Related" in out
+    assert "[Bands (canonical)](/reference/matching-data-provenance.md)" in out
+
+
+def test_add_related_section_noop_when_empty():
+    assert add_related_section("body\n", []) == "body\n"
+
+
+def test_add_superseded_banner_prepends():
+    out = add_superseded_banner("# Old\n\nbody\n", "/architecture/diagrams-and-sources.md")
+    assert out.startswith("> **Superseded.**")
+    assert "(/architecture/diagrams-and-sources.md)" in out
+
+
+def test_add_superseded_banner_noop_when_none():
+    assert add_superseded_banner("body\n", None) == "body\n"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
-Run: `/Users/anthonylui/OpenKnowledgeFormat/.venv/bin/python -m pytest docs/okf/build/test_stage.py -k repoint -v`
+Run: `/Users/anthonylui/OpenKnowledgeFormat/.venv/bin/python -m pytest docs/okf/build/test_stage.py -k "repoint or related or superseded" -v`
 Expected: FAIL — `ImportError: cannot import name 'repoint_links'`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [ ] **Step 3: Write the implementation**
 
 ```python
 # add to docs/okf/build/stage.py
-import re
+import os
 
 from okf_toolkit.bundle.links import iter_markdown_links, split_target, is_external
 
 
-def repoint_links(body: str, link_map: dict[str, str]) -> str:
-    """Rewrite known relative/absolute markdown link targets; de-link @inline ones."""
-    edits: list[tuple[int, int, str, bool]] = []  # (start, end, replacement, delink)
+def _candidates(path: str) -> list[str]:
+    """Raw, normalized, and ./-toggled forms so x.md and ./x.md coalesce."""
+    cands = [path, os.path.normpath(path), path[2:] if path.startswith("./") else "./" + path]
+    seen, out = set(), []
+    for c in cands:
+        if c and c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+def repoint_links(body: str, link_map: dict) -> str:
+    """Rewrite whole existing markdown links; de-link @inline targets. Code-span safe."""
+    edits: list[tuple[int, int, str]] = []  # (whole_link_start, whole_link_end, replacement)
     for link in iter_markdown_links(body):
         path, anchor, title = split_target(link.raw_target)
         if not path or is_external(path):
             continue
-        mapped = link_map.get(path)
+        mapped = next((link_map[c] for c in _candidates(path) if c in link_map), None)
         if mapped is None:
             continue
-        if mapped == "@inline":
-            edits.append((link.start, link.end, "", True))   # handled below
-        else:
-            edits.append((link.start, link.end, f"{mapped}{anchor}{title}", False))
+        # link.start/end bound the TARGET; expand to the whole [text](...) link.
+        rb = body.rfind("]", 0, link.start)   # closing bracket of [text]
+        lb = body.rfind("[", 0, rb)           # opening bracket
+        close = body.find(")", link.end)      # closing paren of the link
+        if lb < 0 or rb < 0 or close < 0:
+            continue
+        text = body[lb + 1 : rb]
+        replacement = f"`{text}`" if mapped == "@inline" else f"[{text}]({mapped}{anchor}{title})"
+        edits.append((lb, close + 1, replacement))
 
-    if not edits:
+    for start, end, replacement in sorted(edits, key=lambda e: e[0], reverse=True):
+        body = body[:start] + replacement + body[end:]
+    return body
+
+
+def add_related_section(body: str, related: list) -> str:
+    """Append a generated '## Related' section of markdown links (no-op if empty)."""
+    if not related:
         return body
+    lines = ["", "## Related", ""]
+    for item in related:
+        lines.append(f"- [{item['label']}]({item['target']})")
+    return body.rstrip() + "\n" + "\n".join(lines) + "\n"
 
-    # For @inline we must replace the WHOLE [text](target) with `text`; for a
-    # normal repoint we replace only the target span. Recompute whole-link spans
-    # for de-links by scanning the markdown link regex around each target.
-    out = body
-    link_re = re.compile(r"\[([^\]]*)\]\(\s*[^)]+?\s*\)")
-    # Apply target-only edits first (right-to-left to keep offsets valid).
-    for start, end, replacement, delink in sorted(
-        (e for e in edits if not e[3]), key=lambda e: e[0], reverse=True
-    ):
-        out = out[:start] + replacement + out[end:]
-    # Then de-link the @inline targets by full-match substitution on the result.
-    inline_targets = {
-        body[s:e] for (s, e, _r, d) in edits if d
-    }
-    if inline_targets:
-        def _delink(m: re.Match) -> str:
-            text, raw = m.group(1), m.group(0)
-            tgt, _a, _t = split_target(raw[raw.index("(") + 1 : -1].strip())
-            return f"`{text}`" if tgt in inline_targets else raw
-        out = link_re.sub(_delink, out)
-    return out
+
+def add_superseded_banner(body: str, target) -> str:
+    """Prepend a visible supersession banner (no-op if target is falsy)."""
+    if not target:
+        return body
+    name = target.rsplit("/", 1)[-1]
+    if name.endswith(".md"):
+        name = name[:-3]
+    return f"> **Superseded.** See [{name}]({target}).\n\n" + body
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run tests to verify they pass**
 
 Run: `/Users/anthonylui/OpenKnowledgeFormat/.venv/bin/python -m pytest docs/okf/build/test_stage.py -v`
-Expected: PASS (5 passed).
+Expected: PASS (all green — Task 2's 2 + these 9 = 11).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add docs/okf/build/stage.py docs/okf/build/test_stage.py
-git commit -m "feat(okf): link-repoint helper (bundle-absolute remap + @inline de-link)"
+git commit -m "feat(okf): link helpers — repoint (whole-link, code-safe) + related/superseded injection"
 ```
 
 ---
@@ -321,9 +387,15 @@ git commit -m "feat(okf): link-repoint helper (bundle-absolute remap + @inline d
 - Create: `docs/okf/build/manifest.yaml`
 
 **Interfaces:**
-- Produces: `manifest.yaml` — a top-level `concepts:` list of 37 entries. Each entry has keys: `out` (bundle-relative path), `sources` (list of repo-relative source paths; >1 ⇒ merge), `type` (one of the 8), `title`, `description` (one sentence), `tags` (list), `staleness` (`current|historical|superseded`), `supersedes`/`superseded_by` (bundle-absolute path or `null`), `transform` (`null|merge|split_ingestion|fold_diagrams`), `links` (map of source-link-target → bundle-absolute path or `@inline`, for the priority cross-links).
+- Produces: `manifest.yaml` — a top-level `concepts:` list of 37 entries. Keys per entry: `out` (bundle-relative path), `sources` (list of repo-relative source paths; >1 ⇒ merge), `type` (one of the 8), `title`, `description` (one sentence), `tags` (list), `staleness` (`current|historical|superseded`), `supersedes`/`superseded_by` (bundle-absolute path or `null`), `transform` (`null|merge|split_ingestion|fold_diagrams`), `link_rewrites` (map of an EXISTING source-link target → bundle-absolute path or `@inline`), `related` (list of `{label, target}` cross-links to INJECT as a `## Related` section).
 
-**Authoring procedure (this is data-entry, not placeholders):** For each row in the structural table below, the `out`/`sources`/`type`/`staleness`/`supersedes`/`superseded_by`/`transform` values are fixed (given). Author `title` from the doc's first H1; `description` as one sentence (seed from the classification synthesis already produced, then confirm against the doc — the §6.2 fan-out re-verifies every one); `tags` as 1–3 topic words. Populate `links` only for the priority cross-links (§4.4 of spec) that originate in that concept.
+**Cross-links: `related` vs `link_rewrites`.** Use `related` for the §4.4 priority
+links — most sources mention the target as prose, not a link, so it must be injected.
+Use `link_rewrites` only when the source already contains a markdown link that needs
+relocating (or a code/path reference to de-link via `@inline`). The `superseded_by`
+value auto-generates a banner; do not also put it in `related`.
+
+**Authoring procedure (this is data-entry, not placeholders):** For each row in the structural table below, the `out`/`sources`/`type`/`staleness`/`supersedes`/`superseded_by`/`transform` values are fixed (given). Author `title` from the doc's first H1; `description` as one sentence (seed from the classification synthesis already produced, then confirm against the doc — the §6.2 fan-out re-verifies every one); `tags` as 1–3 topic words; `related` from the §4.4 priority links that originate in that concept.
 
 - [ ] **Step 1: Write the manifest header and the worked examples (one per transform/type)**
 
@@ -343,9 +415,9 @@ concepts:
     supersedes: null
     superseded_by: null
     transform: null
-    links:
-      "backend/scudo_mapping_mcp/matching.py": "@inline"
-      "docs/superpowers/matching-data-provenance.md": /reference/matching-data-provenance.md
+    link_rewrites: {}
+    related:
+      - {label: "Confidence bands & provenance (canonical)", target: /reference/matching-data-provenance.md}
 
   # --- normal copy, source ALREADY has frontmatter (merge overlay must not double-block) ---
   - out: skills/taxonomy-mapping.md
@@ -358,9 +430,12 @@ concepts:
     supersedes: null
     superseded_by: null
     transform: null
-    links:
-      "graphrag-retrieval": /skills/graphrag-retrieval.md
-      "neptune-io": /skills/neptune-io.md
+    link_rewrites: {}
+    related:
+      - {label: "GraphRAG retrieval (candidate discovery)", target: /skills/graphrag-retrieval.md}
+      - {label: "Neptune I/O (authoritative confirmation)", target: /skills/neptune-io.md}
+      - {label: "RDF serialisation (publish)", target: /skills/rdf-serialisation.md}
+      - {label: "Confidence bands & provenance (canonical)", target: /reference/matching-data-provenance.md}
 
   # --- MERGE two sources into one concept ---
   - out: handovers/dashboard-repo-push.md
@@ -438,7 +513,7 @@ handovers/smoke-upload-flow-live.md  · infra/SMOKE_upload_flow_live.md         
 handovers/redeploy-branding.md       · infra/REDEPLOY_NOTE_branding.md                              · Handover        · historical  · null
 ```
 
-For `supersedes` (the reverse direction): set `architecture/diagrams-and-sources.md` → no supersedes; set `plans/dense-arm-sdk-adoption.md` `supersedes: /plans/dense-arm-swap.md`. Wire the remaining priority `links` (spec §4.4 #1–#8): the band-citing docs (`architecture/hooks.md`, `reference/agents.md`, `specs/i5-lift-preconditions.md`, both diagram docs, `architecture/arb-review-pack.md`, `specs/ingestion-framework.md`, `skills/taxonomy-mapping.md`) each map their band reference to `/reference/matching-data-provenance.md`; `specs/auth-gate-strip-inject.md` ↔ `/handovers/code-review-fixes.md`; `handovers/hitl-bands-2026-06-26.md` → `/deployment/deploy-runbook-scudo-poc.md`; the skill chain links per §4.4 #8.
+For `supersedes` (the reverse direction): set `plans/dense-arm-sdk-adoption.md` `supersedes: /plans/dense-arm-swap.md` (the two diagram docs get their banner from `superseded_by` set in the table). Wire the priority cross-links (spec §4.4 #1–#8) via each concept's **`related`** list: the band-citing docs (`architecture/hooks.md`, `reference/agents.md`, `specs/i5-lift-preconditions.md`, both diagram docs, `architecture/arb-review-pack.md`, `specs/ingestion-framework.md`, `skills/taxonomy-mapping.md`) each get a `related` entry → `/reference/matching-data-provenance.md`; `specs/auth-gate-strip-inject.md` ↔ `/handovers/code-review-fixes.md`; `handovers/hitl-bands-2026-06-26.md` → `/deployment/deploy-runbook-scudo-poc.md`; the skill chain per §4.4 #8 (already shown for `taxonomy-mapping` in Step 1). Set `link_rewrites: {}` unless a source has an existing markdown link to relocate.
 
 - [ ] **Step 3: Validate the manifest is well-formed and counts 37**
 
@@ -588,7 +663,9 @@ def main(repo_root: str, manifest_path: str, out_dir: str) -> int:
             body = _fold_diagrams(bodies)
         else:
             body = bodies[0]
-        body = repoint_links(body, e.get("links") or {})
+        body = repoint_links(body, e.get("link_rewrites") or {})
+        body = add_superseded_banner(body, e.get("superseded_by"))
+        body = add_related_section(body, e.get("related") or [])
         curated = {
             "type": e["type"],
             "title": e["title"],
@@ -686,12 +763,13 @@ Expected: prints `staged 37 concepts`, convert summary, `validate` summary endin
 
 Run:
 ```bash
+OKF_BIN="${OKF_BIN:-/Users/anthonylui/OpenKnowledgeFormat/.venv/bin/okf}"
 "$OKF_BIN" validate docs/okf/scudo | tail -1                       # expect: PASS
 "$OKF_BIN" evals run docs/okf/scudo >/tmp/okf_evals.txt 2>&1; echo "exit=$?"   # expect exit=0
 grep -E '^\[(PASS|FAIL)\] 0[1267]' /tmp/okf_evals.txt              # all PASS
 test -f docs/okf/scudo/index.md && test -f docs/okf/scudo/log.md && echo "index+log OK"
 ```
-Expected: `PASS`, `exit=0`, four `[PASS]` lines, `index+log OK`. (`OKF_BIN` from the script's default or your env.)
+Expected: `PASS`, `exit=0`, four `[PASS]` lines, `index+log OK`.
 
 - [ ] **Step 4: Commit (bundle + script)**
 
@@ -744,6 +822,7 @@ git commit -m "fix(okf): content-accuracy fan-out corrections (type/description/
 
 Run:
 ```bash
+OKF_BIN="${OKF_BIN:-/Users/anthonylui/OpenKnowledgeFormat/.venv/bin/okf}"
 "$OKF_BIN" validate docs/okf/scudo --strict 2>&1 | grep -i "broken internal link" || echo "no broken in-bundle links"
 ```
 
@@ -859,6 +938,7 @@ For each [ERROR]/[RISK]: hand-verify against the cited source before acting (a r
 
 Run:
 ```bash
+OKF_BIN="${OKF_BIN:-/Users/anthonylui/OpenKnowledgeFormat/.venv/bin/okf}"
 "$OKF_BIN" validate docs/okf/scudo | tail -1                 # PASS
 "$OKF_BIN" evals run docs/okf/scudo >/dev/null; echo "evals exit=$?"   # 0
 /Users/anthonylui/OpenKnowledgeFormat/.venv/bin/python -m pytest docs/okf/build/test_stage.py -q   # all pass
@@ -899,4 +979,6 @@ git commit -m "feat(okf): SCUDO knowledge bundle — Codex-reviewed, evals green
 
 **2. Placeholder scan:** No "TBD"/"handle edge cases"/"similar to Task N". The manifest's per-doc `title`/`description` is a defined data-entry procedure with a verification gate (Task 7), not a placeholder; worked examples for all 4 transforms + full structural table provided.
 
-**3. Type consistency:** `merge_frontmatter`, `repoint_links`, `_merge_sources`, `_split_ingestion`, `_fold_diagrams`, `main` — names identical across definition (Tasks 2, 3, 5) and use (Task 5 `main`, Task 6 script). Manifest keys (`out/sources/type/title/description/tags/staleness/supersedes/superseded_by/transform/links`) consistent across Task 4 schema, Task 4 examples, and Task 5 consumption. `OKF_BIN`/`OKF_PY` consistent across Tasks 1, 6, 8, 10.
+**3. Type consistency:** `merge_frontmatter`, `repoint_links`, `add_related_section`, `add_superseded_banner`, `_candidates`, `_merge_sources`, `_split_ingestion`, `_fold_diagrams`, `_read_body`, `main` — names identical across definition (Tasks 2, 3, 5) and use (Task 5 `main`, Task 6 script). Manifest keys (`out/sources/type/title/description/tags/staleness/supersedes/superseded_by/transform/link_rewrites/related`) consistent across Task 4 schema, Task 4 examples, and Task 5 consumption (`main()` reads `link_rewrites`, `superseded_by`, `related`). `OKF_BIN`/`OKF_PY` consistent across Tasks 1, 6, 8, 10 (standalone shell blocks each re-resolve `OKF_BIN`).
+
+**4. Cross-link feasibility (Codex finding 6):** priority links are injected via `related` (`## Related` section), not assumed to pre-exist as prose links — so they are created deterministically and resolve. `repoint_links` is reserved for genuinely existing links.
