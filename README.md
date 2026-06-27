@@ -2,13 +2,19 @@
 
 Deterministic vendor-to-canonical product mapping with a three-MCP trust gradient, a five-rung cost ladder, and a verifier gate.
 
-> **🟢 Live demo:** https://dp4ji14se0pct.cloudfront.net/cogJPMdemo/ — the SCUDO
-> Matching Comprehension dashboard with the interactive **Upload & Test** flow
-> (upload a vendor CSV/JSON → watch it stream live through ETL → matcher).
+> **🟢 Live demo:**
+> - Formal PoC: https://d1n9fcdyynpn9j.cloudfront.net/cogJPMdemo/
+> - Stakeholder: https://dp4ji14se0pct.cloudfront.net/cogJPMdemo/
+>
+> The SCUDO Matching Comprehension dashboard: the interactive **Upload & Test**
+> flow (upload a vendor CSV/JSON → watch it stream live through ETL → matcher),
+> **always-visible HITL** (Approve / Override / Reject), and **reviewer-tunable
+> confidence bands** (move the borderline window → re-band live + re-run).
 > Deployed to `scudo-poc` (account `954976331678`, `us-east-1`) from image
-> `55acfbb`; the upload (`/api/mapping/ingest/stream`) + matcher (`/api/mapping/agent/run`)
-> SSE flows are verified live end-to-end. **Auth is currently dev-open — closed
-> demo only; see the auth gate in "What is NOT done" before external exposure.**
+> `c250e34`; the upload (`/api/mapping/ingest/stream`), matcher
+> (`/api/mapping/agent/run`), and band-override (`/api/mapping/map`) flows are
+> verified live end-to-end. **Auth is currently dev-open — closed demo only; see
+> the auth gate in "What is NOT done" before external exposure.**
 
 > **Status:** 86 mapping + 8 auth smoke tests passing. The current AWS target is the Cognizant cloudboost account `954976331678` in `us-east-1`, with stack `scudo-poc` providing the Lambda/API and the event-driven ETL substrate. The older ECS/Fargate dev templates remain under `infra/` for the `eu-west-2` sandbox. **This is a dev sandbox**, **not** the JPMC SCUDO production account. Treat all thresholds, dense-arm similarity, and Neptune retrieval as uncalibrated stand-ins until the production cutover.
 
@@ -89,6 +95,8 @@ flowchart TD
 ```
 
 Implementation lives in `backend/scudo_mapping_mcp/matching.py`. Validations and field normalisation in `validations.py`. The HMAC verdict seal contract is in `verdict.py` — `v=2` carries the band, Persistence refuses any agent-passed verdict dict.
+
+The PASS / BORDERLINE / FAIL cuts above are the **defaults** (floor `0.80` ± `0.05` from `config.py`). A reviewer can override the window **per request**: the dashboard sends `confidence_floor` + `borderline_half_width` to `/api/mapping/map` (and `/agent/run`), which re-band the same dense score live — see [Matching dashboard](#matching-dashboard-upload--test-interactive-pipeline).
 
 ---
 
@@ -313,6 +321,29 @@ Client wiring: `packages/dashboard/src/api/mapping.ts` (fetch + ReadableStream S
 no prod CORS). Set `VITE_API_BASE` + `VITE_DEV_PRINCIPAL` in
 `packages/dashboard/.env.local` only for local dev against the Flask dev server.
 
+### Human-in-the-loop + reviewer-tunable bands
+
+The HITL surface is **always visible** in matching mode (no longer hidden until a
+borderline run): `DecisionPanel` (Approve / Override / Reject) and `ReasoningPanel`
+render on load with idle empty states. Decision actions are **prerequisite-gated**
+by the backend result — Approve needs a mapped node + confidence, Override needs an
+alternative candidate, and out-of-scope / no-candidate results disable the actions
+(no spurious POST). A **"Run sample"** button runs a known product through the live
+pipeline so the panels populate without hunting for a file.
+
+The reviewer can also **move the confidence bands**. A "Review thresholds" control
+changes the borderline window (e.g. `0.75–0.85 → 0.70–0.85`); graph edges + node
+info **re-colour live** (advisory display — it never mutates the recorded human
+decision), and **"Re-run with these thresholds"** re-invokes the matcher with the
+chosen window so the actual AUTO_MAPPED vs NEEDS_REVIEW escalation changes. The FE
+derives `confidence_floor=(passCut+failCut)/2` and
+`borderline_half_width=(passCut−failCut)/2` (4dp, so odd-span windows round-trip
+exactly through the backend's 2dp gate); the backend (`routes/mapping.py`) validates
+`0 ≤ floor−half < floor+half ≤ 1` (→ 400) and threads the window to the
+authoritative `map_vendor_product` call. Client: `src/utils/reviewBands.ts`,
+`src/components/DecisionPanel.tsx`. Two-way chat is out of scope (the reasoning
+transcript is one-way).
+
 ### Deploy the dashboard (vendored dist + CloudShell)
 
 The dashboard is a separate pnpm-workspace repo, and `build:matching` emits
@@ -359,14 +390,14 @@ Be honest. Engineering, not marketing.
 - **`NeptuneStore.find_similar_products` is a placeholder.** It returns every taxonomy node with `similarity=0.0`. The production cutover requires Neptune Analytics or a Bedrock-backed vector search; both are M9 work. Until then, do not run rung 3 against Neptune in any meaningful test.
 - **The dense arm is not dense.** `falkordb_store.py` uses Jaro-Winkler as a stand-in for vector similarity. The 0.80 floor and the ±0.05 borderline bands were chosen for the Jaro-Winkler distribution. When real embeddings arrive, the floor and bands must be **re-derived against a golden set** as a coupled swap — do not assume the numbers carry over.
 - **No golden-set evaluation harness.** Smoke tests cover wiring; they do not measure precision / recall.
-- **CloudFront frontend stack pending deploy.** `scudo-dev-frontend.yaml` (S3 + CloudFront + ALB passthrough) is written and being shipped under WS-A; once applied to the dev sandbox the CloudFront URL will replace this bullet. Until then the SPA is reachable directly via the ALB.
+- **CloudFront frontend — deployed.** The dashboard is served via CloudFront on both the formal `scudo-poc-frontend` stack (`d1n9fcdyynpn9j.cloudfront.net`) and the dev distribution (`dp4ji14se0pct.cloudfront.net`), at `/demo/` + `/cogJPMdemo/`.
 - **Aurora, Neptune, and OpenSearch are not created by the SAM stack default.** The stack exposes endpoint/ARN seams and provisions the event backbone. Create or import the managed stores explicitly before switching those parameters away from empty strings.
 - **No production secret rotation.** `VERDICT_SIGNING_KEY` is dev-only; KMS-backed rotation hooks are stubbed.
 - **Q1 (validations as candidate-set filter) is the next matching-ladder code task** — validations currently gate the single best candidate, not the full surviving set.
 
 ### Upload & Test / AWS deploy — status
 
-**✅ Live & verified end-to-end on `scudo-poc` (us-east-1, image `55acfbb`):**
+**✅ Live & verified end-to-end on `scudo-poc` (us-east-1, image `c250e34`):**
 `/healthz` → `{"status":"ok"}`; `/api/mapping/ingest/stream` streams real ETL
 stage events (`received → parse → validate → sink → final_result → done`) with
 real counts; `/api/mapping/agent/run` streams the live matcher with Bedrock
@@ -376,14 +407,20 @@ real counts; `/api/mapping/agent/run` streams the live matcher with Bedrock
 
 **Still open / `TODO(aws)`:**
 
-- **🔴 SECURITY — auth gate is dev-open.** `SCUDO_AUTH_ALLOW_DEV` is enabled on
-  the deployed backend, so `/api/*` answers without a header (fine for a **closed
-  demo only**). The SPA no longer sends `X-Authenticated-User` (the prod build
-  pins `VITE_DEV_PRINCIPAL=""`). Before external exposure this is a **coupled**
-  change: unset `SCUDO_AUTH_ALLOW_DEV` (→ 401 unauth) **and** have CloudFront/ALB
-  **strip inbound** `X-Authenticated-User` + inject the trusted identity. Doing
-  only one half breaks the demo or leaves a spoofing path. This is the loudest
-  remaining gate.
+- **🔴 SECURITY — auth gate is dev-open (ACCEPTED RISK for the closed demo).**
+  `SCUDO_AUTH_ALLOW_DEV` is enabled on the deployed backend, so `/api/*` answers
+  without a header (fine for a **closed demo only**). The SPA no longer sends
+  `X-Authenticated-User` (the prod build pins `VITE_DEV_PRINCIPAL=""`). Because the
+  API is internet-facing with no edge gate and `AgentBackend=bedrock`, anyone with
+  the URL can trigger **paid Bedrock Opus inference** (`/api/mapping/agent/run`) and
+  write decisions to the precedent store — the data is synthetic, so the exposures
+  are **cost-abuse + demo integrity**, not a data breach. This is a **recorded,
+  deliberate** owner decision (URL-obscurity only, 2026-06-27) — see
+  `infra/HANDOVER_hitl_bands_2026-06-26.md` §5. Before external exposure this is a
+  **coupled** change: unset `SCUDO_AUTH_ALLOW_DEV` (→ 401 unauth) **and** have
+  CloudFront/ALB **strip inbound** `X-Authenticated-User` + inject the trusted
+  identity. Doing only one half breaks the demo or leaves a spoofing path. This is
+  the loudest remaining gate.
 - **Live embeddings vs local.** On AWS, similarity uses Bedrock + Titan
   (`amazon.titan-embed-text-v2:0`). Locally it's the Jaro-Winkler stand-in; the
   dashboard labels synthetic/illustrative data via the banner.
@@ -395,9 +432,11 @@ real counts; `/api/mapping/agent/run` streams the live matcher with Bedrock
   `X-Accel-Buffering:no` on the route). A *long* live Bedrock run could still
   exceed the ALB 60s idle timeout — a heartbeat event is a TODO for slow runs;
   the current fast path is fine.
-- **Formal `scudo-poc-frontend` stack still blocked** (template needs the missing
-  `scudo-poc-console-alb-dns` export). The dashboard runs on the existing dev
-  CloudFront/S3 (`scudo-dev-frontend-954976331678`) in the meantime.
+- **Formal `scudo-poc-frontend` stack — deployed** (`d1n9fcdyynpn9j.cloudfront.net`),
+  with `/healthz` + `/readyz` routed to the console ALB. The dev distribution
+  (`scudo-dev-frontend-954976331678` / `dp4ji14se0pct`) also still serves the
+  dashboard. Note: `/readyz` exists only on the formal stack — the dev distribution
+  has no `/readyz` behavior, so don't use its `/readyz` as a health signal.
 - **Dashboard CI build deferred.** Deploy uses a locally-built, vendored
   `dashboard-dist/`; building it inside CodeBuild (submodule + pnpm workspace +
   prebuild `core`) is unspiked.
