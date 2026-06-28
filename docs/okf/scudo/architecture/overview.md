@@ -1,3 +1,16 @@
+---
+type: Architecture
+title: SCUDO MatchMaker — Project Overview
+description: 'Top-level overview of the vendor→CDAO mapping prototype: cost ladder,
+  three-MCP trust gradient, HMAC seal, repo layout, run/deploy paths, and explicit
+  gaps.'
+tags:
+- overview
+- architecture
+staleness: current
+timestamp: '2026-06-28T06:28:37Z'
+---
+
 # SCUDO MatchMaker
 
 Deterministic vendor-to-canonical product mapping with a three-MCP trust gradient, a five-rung cost ladder, and a verifier gate.
@@ -255,7 +268,7 @@ Current connected account: `954976331678` (`cb4115669a-genaipocs-aw`) in `us-eas
 > - `infra/SMOKE_upload_flow_live.md` — live Upload & Test smoke (curl SSE +
 >   browser); `infra/SMOKE_FIXES_round1.md` — round-1 findings + fixes.
 
-The deployable AIA stack is [`backend/scudo/template.yaml`](backend/scudo/template.yaml). It matches the target diagram's first AWS slice: raw/clean/quarantine/catalog S3 buckets, EventBridge + SQS routing, ETL Lambda, DynamoDB audit/facts/HITL/outbox tables, and the Bedrock-backed matching Lambda/API. See [`backend/scudo/DEPLOY.md`](backend/scudo/DEPLOY.md) for exact CloudShell commands.
+The deployable AIA stack is ``backend/scudo/template.yaml``. It matches the target diagram's first AWS slice: raw/clean/quarantine/catalog S3 buckets, EventBridge + SQS routing, ETL Lambda, DynamoDB audit/facts/HITL/outbox tables, and the Bedrock-backed matching Lambda/API. See ``backend/scudo/DEPLOY.md`` for exact CloudShell commands.
 
 ```mermaid
 flowchart LR
@@ -449,15 +462,15 @@ real counts; `/api/mapping/agent/run` streams the live matcher with Bedrock
 
 ## Architecture source of truth
 
-The Mermaid diagrams in [`backend/scudo_mapping_mcp/docs/architecture/`](backend/scudo_mapping_mcp/docs/architecture/) are the **approved source of truth** for the SCUDO architecture (ratified 2026-06-10):
+The Mermaid diagrams in [`backend/scudo_mapping_mcp/docs/architecture/`](/architecture/diagrams-and-sources.md) are the **approved source of truth** for the SCUDO architecture (ratified 2026-06-10):
 
-- [`scudo-overview.mmd`](backend/scudo_mapping_mcp/docs/architecture/scudo-overview.mmd) — system-level: Gateway → Agent → MCP host → three MCPs → stores + observability, trust-gradient classification preserved.
-- [`scudo-match-verify.mmd`](backend/scudo_mapping_mcp/docs/architecture/scudo-match-verify.mmd) — internals of the matching engine: scope → precedent → match → validations → three-band gate → specialist → seal → Persistence.
-- [`scudo-retrieval.mmd`](backend/scudo_mapping_mcp/docs/architecture/scudo-retrieval.mmd) — internals of the retrieval surface: GraphRAG-SDK multi-path (vector / fulltext / cypher / rel-expansion) → cosine rerank → precedent boost → negative-precedent drop → distance check (deferred) → survivors.
+- ``scudo-overview.mmd`` — system-level: Gateway → Agent → MCP host → three MCPs → stores + observability, trust-gradient classification preserved.
+- ``scudo-match-verify.mmd`` — internals of the matching engine: scope → precedent → match → validations → three-band gate → specialist → seal → Persistence.
+- ``scudo-retrieval.mmd`` — internals of the retrieval surface: GraphRAG-SDK multi-path (vector / fulltext / cypher / rel-expansion) → cosine rerank → precedent boost → negative-precedent drop → distance check (deferred) → survivors.
 
-The ARB review pack at [`backend/scudo_mapping_mcp/docs/architecture/arb-review-pack.md`](backend/scudo_mapping_mcp/docs/architecture/arb-review-pack.md) carries the decision log, consistency findings, and open questions. `docs/diagram-1-main-flow.md`, `docs/diagram-2-falkor-internals.md`, and `docs/dense-arm-swap.md` are **SUPERSEDED** by the three diagrams above.
+The ARB review pack at [`backend/scudo_mapping_mcp/docs/architecture/arb-review-pack.md`](/architecture/arb-review-pack.md) carries the decision log, consistency findings, and open questions. `docs/diagram-1-main-flow.md`, `docs/diagram-2-falkor-internals.md`, and `docs/dense-arm-swap.md` are **SUPERSEDED** by the three diagrams above.
 
-An index-first OKF mirror of the scattered docs lives at [`docs/okf/scudo/`](docs/okf/scudo/index.md) — navigate via `index.md`, not grep. Rebuild with `docs/okf/build_bundle.sh`.
+An index-first OKF mirror of the scattered docs lives at ``docs/okf/scudo/`` — navigate via `index.md`, not grep. Rebuild with `docs/okf/build_bundle.sh`.
 
 ---
 
@@ -470,3 +483,7 @@ An index-first OKF mirror of the scattered docs lives at [`docs/okf/scudo/`](doc
 - **Persistence:** S3 (vendor frames + canonical bundles), DynamoDB (reviewer queue), MySQL via PyMySQL (Flask app-side relational store for auth / dataset / session metadata)
 - **Auth / integrity:** Gateway-header principal resolution (`auth.py`); HMAC-SHA256 verdict seals (`verdict.py`, v=2); Secrets Manager + KMS
 - **Infra:** AWS SAM/CloudFormation for the `us-east-1` AIA Lambda stack; legacy CloudFormation for ECS Fargate, ALB, VPC endpoints (Bedrock, ECR, Logs), Cloud Map private DNS, and CodeBuild
+
+## Related
+
+- [Confidence bands & provenance (canonical)](/reference/matching-data-provenance.md)

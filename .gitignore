@@ -68,3 +68,17 @@ backend/uploads/
 data/
 # Root-level debug/review screenshots from dashboard verification sessions
 /*.png
+
+# OKF bundle staging scratch (build artifact, never committed)
+build/okf-src/
+
+# Multi-agent delegation logs (council/gemini/ollama) — transient, never committed
+logs/
+
+# The OKF reproducibility kit sits under docs/okf/build/, but the blanket `build/`
+# rule above would hide it. Re-include the kit (NOT the top-level build/okf-src/ scratch).
+!docs/okf/build/
+!docs/okf/build/stage.py
+!docs/okf/build/test_stage.py
+!docs/okf/build/manifest.yaml
+!docs/okf/build/.gitkeep

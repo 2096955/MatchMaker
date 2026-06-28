@@ -757,7 +757,7 @@ SH
 - [ ] **Step 2: Run the full build end-to-end**
 
 Run: `./docs/okf/build_bundle.sh`
-Expected: prints `staged 37 concepts`, convert summary, `validate` summary ending `PASS` (0 errors), eval lines `[PASS] 01`, `[PASS] 02`, `[PASS] 06`, `[PASS] 07`, and `BUILD COMPLETE`.
+Expected: prints `staged 37 concepts`, convert summary, `validate` summary ending `PASS` (0 errors), eval lines `[PASS] Eval 01`, `[PASS] Eval 02`, `[PASS] Eval 06`, `[PASS] Eval 07`, and `BUILD COMPLETE`.
 
 - [ ] **Step 3: Assert the gates programmatically**
 
@@ -766,7 +766,7 @@ Run:
 OKF_BIN="${OKF_BIN:-/Users/anthonylui/OpenKnowledgeFormat/.venv/bin/okf}"
 "$OKF_BIN" validate docs/okf/scudo | tail -1                       # expect: PASS
 "$OKF_BIN" evals run docs/okf/scudo >/tmp/okf_evals.txt 2>&1; echo "exit=$?"   # expect exit=0
-grep -E '^\[(PASS|FAIL)\] 0[1267]' /tmp/okf_evals.txt              # all PASS
+grep -E '^\[(PASS|FAIL)\] Eval 0[1267]' /tmp/okf_evals.txt         # all PASS (note literal "Eval ")
 test -f docs/okf/scudo/index.md && test -f docs/okf/scudo/log.md && echo "index+log OK"
 ```
 Expected: `PASS`, `exit=0`, four `[PASS]` lines, `index+log OK`.
