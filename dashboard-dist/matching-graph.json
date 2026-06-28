@@ -1,0 +1,1287 @@
+{
+  "version": "1.0.0",
+  "kind": "codebase",
+  "project": {
+    "name": "SCUDO Matching Comprehension",
+    "description": "End-to-end SCUDO architecture graph: ETL ingestion (EventBridge \u2192 SQS \u2192 Lambda \u2192 S3/DynamoDB), three-stage matching engine (parse, semantic, rank), confidence gate with three routing bands (PASS \u22650.85 / BORDERLINE 0.75\u20130.85 / FAIL <0.75), agentic orchestration (Strands + Bedrock Specialist + Verifier), HITL adjudication, and JAPI persist (Aurora \u2192 Neptune \u2192 OpenSearch). Vendor product nodes carry real matcher confidence scores; CDAO taxonomy is loaded from the fixtures/cdao_catalogue.json fixture. ILLUSTRATIVE \u2014 synthetic data, not authoritative.",
+    "languages": [
+      "Python"
+    ],
+    "frameworks": [
+      "Amazon Bedrock",
+      "Strands Orchestrator",
+      "Amazon Titan Embeddings",
+      "Amazon Neptune",
+      "Amazon Aurora",
+      "Amazon OpenSearch",
+      "Amazon DynamoDB",
+      "AWS Lambda",
+      "Amazon SQS",
+      "Amazon EventBridge",
+      "AWS AppSync",
+      "scudo-cost-ladder"
+    ],
+    "analyzedAt": "2026-06-25T14:01:21.298603+00:00",
+    "gitCommitHash": "offline-fixture"
+  },
+  "nodes": [
+    {
+      "id": "etl-eventbridge",
+      "type": "pipeline",
+      "name": "Amazon EventBridge",
+      "summary": "Amazon EventBridge \u2014 PutObject/ObjectCreated rule fires on vendor S3 upload.",
+      "tags": [
+        "etl",
+        "aws",
+        "eventbridge",
+        "ingestion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "etl-sqs",
+      "type": "pipeline",
+      "name": "SQS Processing Queue",
+      "summary": "SQS Processing Queue \u2014 decouples S3 event from the Lambda worker; provides retry/DLQ semantics.",
+      "tags": [
+        "etl",
+        "aws",
+        "sqs",
+        "queue"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "etl-lambda",
+      "type": "service",
+      "name": "Lambda Worker (in VPC)",
+      "summary": "AWS Lambda Worker running in VPC \u2014 receives SQS messages and orchestrates validate/transform.",
+      "tags": [
+        "etl",
+        "aws",
+        "lambda",
+        "compute"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "etl-validate",
+      "type": "step",
+      "name": "Validate / Transform",
+      "summary": "Validate / Transform \u2014 schema check + field normalisation. FAIL \u2192 quarantine; PASS \u2192 canonical JSON-LD/Parquet sink + DynamoDB.",
+      "tags": [
+        "etl",
+        "validation",
+        "transform"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "etl-s3-sink",
+      "type": "table",
+      "name": "S3 Sink \u2014 canonical JSON-LD/Parquet",
+      "summary": "S3 Sink \u2014 stores canonical JSON-LD and Parquet representations of validated vendor data; feeds the matching engine.",
+      "tags": [
+        "etl",
+        "aws",
+        "s3",
+        "storage",
+        "canonical"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "etl-s3-quarantine",
+      "type": "table",
+      "name": "S3 Quarantine",
+      "summary": "S3 Quarantine \u2014 stores failed/malformed records for manual triage. Isolates bad data from the matching pipeline.",
+      "tags": [
+        "etl",
+        "aws",
+        "s3",
+        "quarantine",
+        "error"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "etl-dynamodb",
+      "type": "table",
+      "name": "DynamoDB \u2014 facts + job tracking + version",
+      "summary": "DynamoDB \u2014 persists extracted facts, job-tracking state, and version metadata for every ingestion event.",
+      "tags": [
+        "etl",
+        "aws",
+        "dynamodb",
+        "storage"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "match-a-parse",
+      "type": "step",
+      "name": "(A) Parse & Normalize",
+      "summary": "(A) Parse & Normalize \u2014 1st-gate exact match + rule engine. Reads canonical vendor form from S3 sink; deterministic rules first (cheapest rungs).",
+      "tags": [
+        "matching",
+        "parse",
+        "normalize",
+        "rule-engine"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "match-b-semantic",
+      "type": "step",
+      "name": "(B) Semantic Matching",
+      "summary": "(B) Semantic Matching \u2014 classification + NLP + Amazon Titan Embeddings. Fuses fuzzy lexical (OpenSearch BM25), k-NN vector (OpenSearch), structural (Neptune RDF), and audit context (Aurora).",
+      "tags": [
+        "matching",
+        "semantic",
+        "nlp",
+        "embeddings",
+        "rrf"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "match-c-rank",
+      "type": "step",
+      "name": "(C) Rank & Score",
+      "summary": "(C) Rank & Score \u2014 fuse top-3 candidates via RRF + confidence scoring. Produces a ranked list with similarity scores for the confidence gate.",
+      "tags": [
+        "matching",
+        "ranking",
+        "scoring",
+        "rrf"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "match-confidence-gate",
+      "type": "flow",
+      "name": "Confidence Gate",
+      "summary": "Confidence Gate \u2014 0.85 pass threshold. Three routing bands: >=0.85 PASS \u2192 Aurora Audit Log + JAPI Persist; 0.75\u20130.85 BORDERLINE \u2192 Orchestration Layer (Strands); <0.75 FAIL \u2192 Human Review (Scudo UI).",
+      "tags": [
+        "matching",
+        "gate",
+        "confidence",
+        "routing"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "orch-strands",
+      "type": "service",
+      "name": "Strands Orchestrator",
+      "summary": "Strands Orchestrator \u2014 deterministic routing with Claude Opus 4.8. Activated only for BORDERLINE confidence (0.75\u20130.85). Coordinates the Specialist, Verifier and AgentCore Memory agents.",
+      "tags": [
+        "orchestration",
+        "strands",
+        "bedrock",
+        "agentic",
+        "claude"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "orch-agent-memory",
+      "type": "service",
+      "name": "AgentCore Memory",
+      "summary": "AgentCore Memory \u2014 message orchestration and memory plane. Supplies conversational context and prior decisions to the Strands Orchestrator.",
+      "tags": [
+        "orchestration",
+        "memory",
+        "bedrock",
+        "agentcore"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "orch-specialist",
+      "type": "service",
+      "name": "Specialist (Bedrock)",
+      "summary": "Specialist \u00b7 Bedrock \u2014 proposes target CDAO node, supporting evidence, and RDF triples. Runs on borderline candidates only.",
+      "tags": [
+        "orchestration",
+        "bedrock",
+        "specialist",
+        "llm"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "orch-verifier",
+      "type": "service",
+      "name": "Verifier (Bedrock)",
+      "summary": "Verifier \u00b7 Bedrock \u2014 applies a 10-dimension rubric. Score >=10 PASS; <10 FAIL \u2192 escalate to Human Review.",
+      "tags": [
+        "orchestration",
+        "bedrock",
+        "verifier",
+        "rubric"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "orch-evaluations",
+      "type": "service",
+      "name": "Bedrock Evaluations",
+      "summary": "Bedrock Evaluations \u2014 captures traces, token counts, and context-rot signals for observability and quality improvement.",
+      "tags": [
+        "orchestration",
+        "bedrock",
+        "evaluation",
+        "observability"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "hitl-review",
+      "type": "entity",
+      "name": "Human Review \u2014 Scudo UI",
+      "summary": "Human Review \u2014 Data Steward adjudication via Scudo UI. Receives FAIL (<0.75) and uncertain Verifier outcomes. Decision feeds back into Aurora + Neptune.",
+      "tags": [
+        "hitl",
+        "human-review",
+        "data-steward",
+        "scudo-ui"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "store-aurora-audit",
+      "type": "table",
+      "name": "Aurora \u2014 Audit Log",
+      "summary": "Aurora \u2014 Audit Log. Written immediately on every PASS decision from the confidence gate; also written after HITL decisions.",
+      "tags": [
+        "storage",
+        "aurora",
+        "audit",
+        "rds"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "store-aurora-catalog",
+      "type": "table",
+      "name": "Aurora \u2014 Catalogue + CDAO Taxonomy + Lineage",
+      "summary": "Aurora \u2014 canonical catalogue, CDAO taxonomy, and lineage graph. Source of truth for JAPI persist; drives Neptune and OpenSearch indexes.",
+      "tags": [
+        "storage",
+        "aurora",
+        "catalogue",
+        "taxonomy",
+        "lineage",
+        "rds"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "store-neptune",
+      "type": "table",
+      "name": "Neptune \u2014 Canonical RDF + ODRL",
+      "summary": "Neptune \u2014 stores the Canonical RDF graph and ODRL rights expressions (SPARQL). CDAO Catalog Data is indexed here via Scudo. Read by Semantic Matching; written by JAPI Persist.",
+      "tags": [
+        "storage",
+        "neptune",
+        "rdf",
+        "sparql",
+        "odrl",
+        "graph-db"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "store-opensearch",
+      "type": "table",
+      "name": "OpenSearch \u2014 lexical + k-NN index",
+      "summary": "OpenSearch \u2014 dual-mode index: BM25 fuzzy lexical search and k-NN vector search. CDAO Catalog Data is indexed here; read by Semantic Matching; refreshed by JAPI Persist.",
+      "tags": [
+        "storage",
+        "opensearch",
+        "vector",
+        "lexical",
+        "knn",
+        "bm25"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "titan-embeddings",
+      "type": "service",
+      "name": "Amazon Titan Embeddings",
+      "summary": "Amazon Titan Embeddings \u2014 generates dense vector representations of vendor product descriptions and CDAO labels for k-NN retrieval.",
+      "tags": [
+        "aws",
+        "bedrock",
+        "titan",
+        "embeddings",
+        "vector"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "cdao-catalog-data",
+      "type": "entity",
+      "name": "CDAO Catalog Data",
+      "summary": "CDAO Catalog Data \u2014 authoritative taxonomy maintained by the CDAO; indexed via Scudo into Neptune (RDF) and OpenSearch (vector + lexical).",
+      "tags": [
+        "cdao",
+        "catalog",
+        "taxonomy",
+        "reference"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "transactional-outbox",
+      "type": "pipeline",
+      "name": "Transactional Outbox (EventBridge/SQS)",
+      "summary": "Transactional Outbox \u2014 EventBridge + SQS pattern that fans out a confirmed match decision to Aurora, Neptune, and OpenSearch atomically.",
+      "tags": [
+        "japi",
+        "eventbridge",
+        "sqs",
+        "outbox",
+        "pattern"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "appsync-publish",
+      "type": "service",
+      "name": "AppSync / WebSockets \u2014 publish to Scudo",
+      "summary": "AppSync / WebSockets \u2014 real-time push to the Scudo UI after HITL approval; notifies downstream subscribers that a match is confirmed.",
+      "tags": [
+        "japi",
+        "aws",
+        "appsync",
+        "websockets",
+        "publish"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:domain:market-data",
+      "type": "domain",
+      "name": "Market Data",
+      "summary": "Market Data \u2014 canonical domain for live and end-of-day pricing; vendor feeds map here.",
+      "tags": [
+        "cdao",
+        "domain"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:subdomain:pricing",
+      "type": "resource",
+      "name": "Pricing",
+      "summary": "Pricing \u2014 spot, forward, and end-of-day prices across asset classes.",
+      "tags": [
+        "cdao",
+        "subdomain"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:concept:equity-prices",
+      "type": "concept",
+      "name": "Equity Prices",
+      "summary": "Equity Prices \u2014 canonical store of equity EOD and intraday observations.",
+      "tags": [
+        "cdao",
+        "concept"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:concept:fixed-income-prices",
+      "type": "concept",
+      "name": "Fixed Income Prices",
+      "summary": "Fixed Income Prices \u2014 bond and credit instrument pricing observations.",
+      "tags": [
+        "cdao",
+        "concept"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:concept:fx-rates",
+      "type": "concept",
+      "name": "FX Rates",
+      "summary": "FX Rates \u2014 spot and forward foreign-exchange rate observations.",
+      "tags": [
+        "cdao",
+        "concept"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:subdomain:indices",
+      "type": "resource",
+      "name": "Indices and Benchmarks",
+      "summary": "Indices \u2014 benchmark and custom index levels for valuation and risk.",
+      "tags": [
+        "cdao",
+        "subdomain"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:concept:benchmark-index",
+      "type": "concept",
+      "name": "Benchmark Index",
+      "summary": "Benchmark Index \u2014 published index levels used as valuation references.",
+      "tags": [
+        "cdao",
+        "concept"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:domain:reference-data",
+      "type": "domain",
+      "name": "Reference Data",
+      "summary": "Reference Data \u2014 static instrument and entity master data.",
+      "tags": [
+        "cdao",
+        "domain"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:subdomain:instruments",
+      "type": "resource",
+      "name": "Instrument Reference Data",
+      "summary": "Instruments \u2014 security master and lifecycle events.",
+      "tags": [
+        "cdao",
+        "subdomain"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:concept:security-master",
+      "type": "concept",
+      "name": "Security Master",
+      "summary": "Security Master \u2014 golden instrument identifiers and static attributes.",
+      "tags": [
+        "cdao",
+        "concept"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:concept:corporate-actions",
+      "type": "concept",
+      "name": "Corporate Actions",
+      "summary": "Corporate Actions \u2014 dividends, splits, mergers and other lifecycle events.",
+      "tags": [
+        "cdao",
+        "concept"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:subdomain:entities",
+      "type": "resource",
+      "name": "Entity Reference Data",
+      "summary": "Entities \u2014 legal entities and counterparty reference records.",
+      "tags": [
+        "cdao",
+        "subdomain"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:concept:legal-entity",
+      "type": "concept",
+      "name": "Legal Entity",
+      "summary": "Legal Entity \u2014 authoritative legal-entity identifiers and hierarchy.",
+      "tags": [
+        "cdao",
+        "concept"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "jpmorgan:data:cdao:concept:counterparty",
+      "type": "concept",
+      "name": "Counterparty",
+      "summary": "Counterparty \u2014 trading and settlement counterparty reference data.",
+      "tags": [
+        "cdao",
+        "concept"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0",
+      "type": "entity",
+      "name": "Global Equity Prices",
+      "summary": "LSEG / LSEG-EQ-PX \u2014 End-of-day and intraday equity price observations",
+      "tags": [
+        "vendor",
+        "lseg"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f",
+      "type": "entity",
+      "name": "FX Spot and Forward Rates",
+      "summary": "S&P Global / SPG-FX \u2014 Foreign exchange spot and forward rates",
+      "tags": [
+        "vendor",
+        "spglobal"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "mds.ice:17320f3d-2679-5765-9359-646a2908c9f0",
+      "type": "entity",
+      "name": "Corporate Actions Feed",
+      "summary": "ICE / ICE-CA \u2014 Dividends, splits, mergers and other corporate events",
+      "tags": [
+        "vendor",
+        "ice"
+      ],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "etl-eventbridge",
+      "target": "etl-sqs",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "etl-sqs",
+      "target": "etl-lambda",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "etl-lambda",
+      "target": "etl-validate",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "etl-validate",
+      "target": "etl-s3-quarantine",
+      "type": "writes_to",
+      "direction": "forward",
+      "weight": 0.3,
+      "description": "on FAIL"
+    },
+    {
+      "source": "etl-validate",
+      "target": "etl-s3-sink",
+      "type": "writes_to",
+      "direction": "forward",
+      "weight": 0.7,
+      "description": "on PASS"
+    },
+    {
+      "source": "etl-validate",
+      "target": "etl-dynamodb",
+      "type": "writes_to",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "etl-s3-sink",
+      "target": "match-a-parse",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "match-a-parse",
+      "target": "match-b-semantic",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "match-b-semantic",
+      "target": "match-c-rank",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "match-c-rank",
+      "target": "match-confidence-gate",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "store-aurora-catalog",
+      "target": "match-b-semantic",
+      "type": "reads_from",
+      "direction": "forward",
+      "weight": 0.9
+    },
+    {
+      "source": "store-neptune",
+      "target": "match-b-semantic",
+      "type": "reads_from",
+      "direction": "forward",
+      "weight": 0.9
+    },
+    {
+      "source": "store-opensearch",
+      "target": "match-b-semantic",
+      "type": "reads_from",
+      "direction": "forward",
+      "weight": 0.9
+    },
+    {
+      "source": "titan-embeddings",
+      "target": "match-b-semantic",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "cdao-catalog-data",
+      "target": "store-neptune",
+      "type": "writes_to",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "cdao-catalog-data",
+      "target": "store-opensearch",
+      "type": "writes_to",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "orch-strands",
+      "target": "orch-specialist",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "orch-specialist",
+      "target": "orch-verifier",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "orch-strands",
+      "target": "orch-agent-memory",
+      "type": "reads_from",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "orch-strands",
+      "target": "orch-evaluations",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "orch-verifier",
+      "target": "hitl-review",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 0.4,
+      "description": "uncertain \u2014 rubric score <10"
+    },
+    {
+      "source": "hitl-review",
+      "target": "store-aurora-audit",
+      "type": "writes_to",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "hitl-review",
+      "target": "transactional-outbox",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "hitl-review",
+      "target": "appsync-publish",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "transactional-outbox",
+      "target": "store-aurora-catalog",
+      "type": "writes_to",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "store-aurora-catalog",
+      "target": "store-neptune",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "store-neptune",
+      "target": "store-opensearch",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "store-aurora-audit",
+      "type": "writes_to",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "PASS >=0.85",
+      "data": {
+        "band": "pass"
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "orch-strands",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 0.5,
+      "description": "BORDERLINE 0.75\u20130.85",
+      "data": {
+        "band": "borderline"
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "hitl-review",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 0.3,
+      "description": "FAIL <0.75",
+      "data": {
+        "band": "fail"
+      }
+    },
+    {
+      "source": "jpmorgan:data:cdao:domain:market-data",
+      "target": "jpmorgan:data:cdao:subdomain:pricing",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:subdomain:pricing",
+      "target": "jpmorgan:data:cdao:concept:equity-prices",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:subdomain:pricing",
+      "target": "jpmorgan:data:cdao:concept:fixed-income-prices",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:subdomain:pricing",
+      "target": "jpmorgan:data:cdao:concept:fx-rates",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:domain:market-data",
+      "target": "jpmorgan:data:cdao:subdomain:indices",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:subdomain:indices",
+      "target": "jpmorgan:data:cdao:concept:benchmark-index",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:domain:reference-data",
+      "target": "jpmorgan:data:cdao:subdomain:instruments",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:subdomain:instruments",
+      "target": "jpmorgan:data:cdao:concept:security-master",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:subdomain:instruments",
+      "target": "jpmorgan:data:cdao:concept:corporate-actions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:domain:reference-data",
+      "target": "jpmorgan:data:cdao:subdomain:entities",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:subdomain:entities",
+      "target": "jpmorgan:data:cdao:concept:legal-entity",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:subdomain:entities",
+      "target": "jpmorgan:data:cdao:concept:counterparty",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0",
+      "target": "etl-eventbridge",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "vendor S3 upload triggers ingestion"
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:concept:equity-prices",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.6516,
+      "description": "product=mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0; similarity=0.6516; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.6516
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:concept:fixed-income-prices",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5652,
+      "description": "product=mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0; similarity=0.5652; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5652
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:domain:market-data",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5748,
+      "description": "product=mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0; similarity=0.5748; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5748
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:subdomain:pricing",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5571,
+      "description": "product=mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0; similarity=0.5571; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5571
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:subdomain:instruments",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5799,
+      "description": "product=mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0; similarity=0.5799; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5799
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:subdomain:entities",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.6294,
+      "description": "product=mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0; similarity=0.6294; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.6294
+      }
+    },
+    {
+      "source": "mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f",
+      "target": "etl-eventbridge",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "vendor S3 upload triggers ingestion"
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:concept:fx-rates",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.7371,
+      "description": "product=mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f; similarity=0.7371; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.7371
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:domain:market-data",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5411,
+      "description": "product=mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f; similarity=0.5411; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5411
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:subdomain:indices",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5212,
+      "description": "product=mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f; similarity=0.5212; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5212
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:concept:fixed-income-prices",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5861,
+      "description": "product=mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f; similarity=0.5861; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5861
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:subdomain:instruments",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.6031,
+      "description": "product=mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f; similarity=0.6031; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.6031
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:subdomain:pricing",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5304,
+      "description": "product=mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f; similarity=0.5304; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5304
+      }
+    },
+    {
+      "source": "mds.ice:17320f3d-2679-5765-9359-646a2908c9f0",
+      "target": "etl-eventbridge",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "vendor S3 upload triggers ingestion"
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:concept:corporate-actions",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.8447,
+      "description": "product=mds.ice:17320f3d-2679-5765-9359-646a2908c9f0; similarity=0.8447; candidate",
+      "data": {
+        "band": "borderline",
+        "weight": 0.8447
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:subdomain:indices",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5467,
+      "description": "product=mds.ice:17320f3d-2679-5765-9359-646a2908c9f0; similarity=0.5467; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5467
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:concept:fixed-income-prices",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5614,
+      "description": "product=mds.ice:17320f3d-2679-5765-9359-646a2908c9f0; similarity=0.5614; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5614
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:subdomain:instruments",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.6058,
+      "description": "product=mds.ice:17320f3d-2679-5765-9359-646a2908c9f0; similarity=0.6058; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.6058
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:subdomain:pricing",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5343,
+      "description": "product=mds.ice:17320f3d-2679-5765-9359-646a2908c9f0; similarity=0.5343; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5343
+      }
+    },
+    {
+      "source": "match-confidence-gate",
+      "target": "jpmorgan:data:cdao:domain:reference-data",
+      "type": "similar_to",
+      "direction": "forward",
+      "weight": 0.5852,
+      "description": "product=mds.ice:17320f3d-2679-5765-9359-646a2908c9f0; similarity=0.5852; candidate",
+      "data": {
+        "band": "fail",
+        "weight": 0.5852
+      }
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:etl",
+      "name": "ETL Ingestion Pipeline",
+      "description": "Amazon EventBridge \u2192 SQS \u2192 Lambda \u2192 validate/transform \u2192 S3 sink / quarantine + DynamoDB.",
+      "nodeIds": [
+        "etl-eventbridge",
+        "etl-sqs",
+        "etl-lambda",
+        "etl-validate",
+        "etl-s3-sink",
+        "etl-s3-quarantine",
+        "etl-dynamodb"
+      ]
+    },
+    {
+      "id": "layer:matching-engine",
+      "name": "Matching Engine (AIA)",
+      "description": "Three-stage matching pipeline: (A) parse+normalize, (B) semantic matching with Titan Embeddings, (C) rank+score \u2192 confidence gate (bands 0.75/0.85).",
+      "nodeIds": [
+        "match-a-parse",
+        "match-b-semantic",
+        "match-c-rank",
+        "match-confidence-gate",
+        "titan-embeddings"
+      ]
+    },
+    {
+      "id": "layer:orchestration",
+      "name": "Orchestration Layer (Borderline only)",
+      "description": "Strands Orchestrator with Claude Opus 4.8; activated only for the 0.75\u20130.85 BORDERLINE band. Specialist + Verifier + Evaluations.",
+      "nodeIds": [
+        "orch-strands",
+        "orch-agent-memory",
+        "orch-specialist",
+        "orch-verifier",
+        "orch-evaluations"
+      ]
+    },
+    {
+      "id": "layer:japi-persist",
+      "name": "JAPI Persist \u2014 Right Store for the Right Job",
+      "description": "Transactional outbox \u2192 Aurora \u2192 Neptune RDF + ODRL \u2192 OpenSearch. HITL adjudication + AppSync real-time publish.",
+      "nodeIds": [
+        "store-aurora-audit",
+        "store-aurora-catalog",
+        "store-neptune",
+        "store-opensearch",
+        "cdao-catalog-data",
+        "transactional-outbox",
+        "appsync-publish",
+        "hitl-review"
+      ]
+    },
+    {
+      "id": "layer:cdao-market-data",
+      "name": "CDAO \u2014 Market Data",
+      "description": "CDAO Market Data domain: Pricing and Indices subdomains with leaf concepts managed by the Chief Data and Analytics Office.",
+      "nodeIds": [
+        "jpmorgan:data:cdao:domain:market-data",
+        "jpmorgan:data:cdao:subdomain:pricing",
+        "jpmorgan:data:cdao:concept:equity-prices",
+        "jpmorgan:data:cdao:concept:fixed-income-prices",
+        "jpmorgan:data:cdao:concept:fx-rates",
+        "jpmorgan:data:cdao:subdomain:indices",
+        "jpmorgan:data:cdao:concept:benchmark-index"
+      ]
+    },
+    {
+      "id": "layer:cdao-reference-data",
+      "name": "CDAO \u2014 Reference Data",
+      "description": "CDAO Reference Data domain: Instrument and Entity reference subdomains with leaf concepts managed by the Chief Data and Analytics Office.",
+      "nodeIds": [
+        "jpmorgan:data:cdao:domain:reference-data",
+        "jpmorgan:data:cdao:subdomain:instruments",
+        "jpmorgan:data:cdao:concept:security-master",
+        "jpmorgan:data:cdao:concept:corporate-actions",
+        "jpmorgan:data:cdao:subdomain:entities",
+        "jpmorgan:data:cdao:concept:legal-entity",
+        "jpmorgan:data:cdao:concept:counterparty"
+      ]
+    },
+    {
+      "id": "layer:vendor-products",
+      "name": "Vendor Products",
+      "description": "Sample vendor data products from LSEG, S&P Global, and ICE that are exercised through the SCUDO matching pipeline.",
+      "nodeIds": [
+        "mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0",
+        "mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f",
+        "mds.ice:17320f3d-2679-5765-9359-646a2908c9f0"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "ETL Ingestion Flow",
+      "description": "Vendor data arrives via S3 upload. EventBridge fires a PutObject rule that queues the event in SQS. The Lambda Worker (in VPC) dequeues, validates, and transforms the record. Valid records land in the S3 canonical sink (JSON-LD/Parquet) and DynamoDB; invalid records are routed to the S3 quarantine bucket.",
+      "nodeIds": [
+        "etl-eventbridge",
+        "etl-sqs",
+        "etl-lambda",
+        "etl-validate",
+        "etl-s3-sink",
+        "etl-dynamodb"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "Match: Global Equity Prices (LSEG)",
+      "description": "LSEG product 'Global Equity Prices' (LSEG-EQ-PX) ingested via EventBridge \u2192 ETL \u2192 matching engine. Retrieved 6 CDAO candidate(s).",
+      "nodeIds": [
+        "mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0",
+        "etl-eventbridge",
+        "match-a-parse",
+        "match-b-semantic",
+        "match-c-rank",
+        "match-confidence-gate",
+        "jpmorgan:data:cdao:concept:equity-prices",
+        "jpmorgan:data:cdao:concept:fixed-income-prices",
+        "jpmorgan:data:cdao:domain:market-data"
+      ]
+    },
+    {
+      "order": 3,
+      "title": "Match: FX Spot and Forward Rates (SPGLOBAL)",
+      "description": "S&P Global product 'FX Spot and Forward Rates' (SPG-FX) ingested via EventBridge \u2192 ETL \u2192 matching engine. Retrieved 6 CDAO candidate(s).",
+      "nodeIds": [
+        "mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f",
+        "etl-eventbridge",
+        "match-a-parse",
+        "match-b-semantic",
+        "match-c-rank",
+        "match-confidence-gate",
+        "jpmorgan:data:cdao:concept:fx-rates",
+        "jpmorgan:data:cdao:domain:market-data",
+        "jpmorgan:data:cdao:subdomain:indices"
+      ]
+    },
+    {
+      "order": 4,
+      "title": "Match: Corporate Actions Feed (ICE)",
+      "description": "ICE product 'Corporate Actions Feed' (ICE-CA) ingested via EventBridge \u2192 ETL \u2192 matching engine. Retrieved 6 CDAO candidate(s).",
+      "nodeIds": [
+        "mds.ice:17320f3d-2679-5765-9359-646a2908c9f0",
+        "etl-eventbridge",
+        "match-a-parse",
+        "match-b-semantic",
+        "match-c-rank",
+        "match-confidence-gate",
+        "jpmorgan:data:cdao:concept:corporate-actions",
+        "jpmorgan:data:cdao:subdomain:indices",
+        "jpmorgan:data:cdao:concept:fixed-income-prices"
+      ]
+    },
+    {
+      "order": 5,
+      "title": "Borderline Orchestration (Strands + Bedrock)",
+      "description": "When the confidence gate lands in the 0.75\u20130.85 BORDERLINE band, the Strands Orchestrator (Claude Opus 4.8) is invoked. It reads from AgentCore Memory, dispatches a Specialist (Bedrock) to propose the target CDAO node and triples, and runs a Verifier (Bedrock) against a 10-dimension rubric. Score >=10 promotes to AUTO_MAPPED; <10 escalates to Human Review. Bedrock Evaluations captures all traces.",
+      "nodeIds": [
+        "match-confidence-gate",
+        "orch-strands",
+        "orch-agent-memory",
+        "orch-specialist",
+        "orch-verifier",
+        "orch-evaluations",
+        "hitl-review"
+      ]
+    },
+    {
+      "order": 6,
+      "title": "JAPI Persist \u2014 Right Store for the Right Job",
+      "description": "After a confirmed decision (PASS gate or HITL approval), the Transactional Outbox (EventBridge/SQS) fans out atomically to: Aurora (catalogue + CDAO taxonomy + lineage), Neptune (Canonical RDF + ODRL rights via SPARQL), and OpenSearch (lexical + k-NN index refresh). HITL-approved matches are published in real time to the Scudo UI via AppSync/WebSockets.",
+      "nodeIds": [
+        "hitl-review",
+        "transactional-outbox",
+        "store-aurora-catalog",
+        "store-neptune",
+        "store-opensearch",
+        "appsync-publish"
+      ]
+    }
+  ]
+}

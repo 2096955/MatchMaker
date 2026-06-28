@@ -23,6 +23,7 @@ Request shape (POST /run, JSON body):
 Response (200): MappingObject as JSON.
 Auth: shared-secret header `x-api-key`, compared against API_KEY env var.
 """
+
 from __future__ import annotations
 
 import hmac
@@ -37,11 +38,22 @@ from uuid import uuid4
 from strands import Agent
 from strands.models import BedrockModel
 
+from .aws_resources import (
+    env_resource_summary,
+    put_audit_record,
+    put_eventbridge_event,
+    put_outbox_record,
+    put_review_record,
+)
 from .orchestrator import Orchestrator
 from .prompts import mapping_prompt, verifier_prompt  # noqa: F401  (kept for parity)
 from .schemas import (
-    BriefBundle, CandidateNode, ConflictRecord, IntakeRequest,
-    PrecedentMapping, Route,
+    BriefBundle,
+    CandidateNode,
+    ConflictRecord,
+    IntakeRequest,
+    PrecedentMapping,
+    Route,
 )
 from .shared.bedrock import aws_region, bedrock_llm_id
 from .sidecar import mock as sidecar_mock
@@ -75,13 +87,55 @@ def _check_api_key(event: dict) -> bool:
     return hmac.compare_digest(expected, presented)
 
 
+def _candidate_dicts(payload: dict, vendor_product: dict, term: str) -> list[dict]:
+    """Candidate source for the bundle. With SCUDO_USE_FALKORDB enabled, draw
+    REAL candidates from the FalkorDB-backed cost-ladder store; otherwise (or on
+    ANY FalkorDB failure) fall back to the in-memory sidecar mock. Fail-soft: a
+    FalkorDB outage degrades to mock with a logged warning, never a hard /run
+    failure."""
+    truthy = ("1", "true", "yes", "on")
+    flag = (os.environ.get("SCUDO_USE_FALKORDB") or "").strip().lower()
+    # Mock fallback must be EXPLICIT (Codex B7): a deployed stack must not
+    # silently serve mock candidates when FalkorDB is enabled but failing —
+    # that makes a broken store look like a successful real match. Only degrade
+    # to mock when SCUDO_ALLOW_MOCK_FALLBACK is set; otherwise fail visibly.
+    allow_mock = (
+        os.environ.get("SCUDO_ALLOW_MOCK_FALLBACK") or ""
+    ).strip().lower() in truthy
+    if flag in truthy:
+        try:
+            from .matcher_bridge import retrieve_candidates
+
+            vp = {
+                "vendor": payload.get("vendor", ""),
+                "product_id": payload.get("vendor_product_ref", ""),
+                **(vendor_product or {}),
+            }
+            cands = retrieve_candidates(vp, term=term, limit=10)
+            if cands:
+                log.info("candidates: %d from FalkorDB", len(cands))
+                return cands
+            if not allow_mock:
+                raise RuntimeError(
+                    "FalkorDB returned 0 candidates and mock fallback is "
+                    "disabled (set SCUDO_ALLOW_MOCK_FALLBACK=1 for a demo)."
+                )
+            log.warning("FalkorDB returned 0 candidates; falling back to mock")
+        except Exception as exc:
+            if not allow_mock:
+                log.error("FalkorDB retrieval failed (%s); NOT masking with mock", exc)
+                raise
+            log.warning("FalkorDB retrieval failed (%s); falling back to mock", exc)
+    return sidecar_mock.candidate_nodes(term=term, limit=10)
+
+
 def _build_bundle_assembler(payload: dict):
     """Returns a callable(IntakeRequest, Route) -> BriefBundle that reads the
-    vendor product from the request body and the candidates from the sidecar
-    mock, scoring against either `candidates_term` or the product title."""
+    vendor product from the request body and the candidates from FalkorDB (or
+    the sidecar mock fallback), scoring against `candidates_term` or the title."""
     vendor_product = payload.get("vendor_product") or {}
     term = payload.get("candidates_term") or vendor_product.get("title", "")
-    candidate_dicts = sidecar_mock.candidate_nodes(term=term, limit=10)
+    candidate_dicts = _candidate_dicts(payload, vendor_product, term)
     candidates = [CandidateNode(**c) for c in candidate_dicts]
 
     def _assemble(request: IntakeRequest, route: Route) -> BriefBundle:
@@ -89,22 +143,27 @@ def _build_bundle_assembler(payload: dict):
         if request.has_precedent:
             precedent = PrecedentMapping(
                 source_iri=f"mds.{request.vendor}:placeholder",
-                target_iri=(candidates[0].iri if candidates else
-                            "jpmorgan:data:cdao:EquityResearch"),
+                target_iri=(
+                    candidates[0].iri
+                    if candidates
+                    else "jpmorgan:data:cdao:EquityResearch"
+                ),
                 rationale="prior accepted mapping",
                 confidence=0.88,
             )
         conflicts = []
         if request.has_conflict:
-            conflicts.append(ConflictRecord(
-                other_vendor="spglobal",
-                other_vendor_product_ref="SPG-EQRES-77",
-                other_target_iri="jpmorgan:data:cdao:NewsAndResearch",
-                note="competing equivalent",
-            ))
+            conflicts.append(
+                ConflictRecord(
+                    other_vendor="spglobal",
+                    other_vendor_product_ref="SPG-EQRES-77",
+                    other_target_iri="jpmorgan:data:cdao:NewsAndResearch",
+                    note="competing equivalent",
+                )
+            )
         # Synthesise a deterministic vendor IRI from (vendor, ref) for the bundle.
-        from .schemas import IntakeRequest as _IR  # avoid F401 if unused
         from uuid import uuid5, NAMESPACE_URL
+
         ns = uuid5(NAMESPACE_URL, "https://mds.jpmc.internal/catalogue")
         vendor_iri = f"mds.{request.vendor}:{uuid5(ns, f'{request.vendor}:{request.vendor_product_ref}')}"
         return BriefBundle(
@@ -125,6 +184,7 @@ def _build_bundle_assembler(payload: dict):
             ontology_snapshot=_ONTOLOGY_SNAPSHOT,
             rubric_version=_RUBRIC_VERSION,
         )
+
     return _assemble
 
 
@@ -141,7 +201,8 @@ def _build_agents() -> tuple[Agent, Agent]:
             "ONE CDAO node from bundle.candidates. Cite at least one Evidence "
             "entry whose source_iris contain BOTH the chosen candidate IRI and "
             "the ontology_snapshot value. Set confidence_band: high>=0.8, "
-            "medium>=0.5, low<0.5. Set proposed_triples=[]."
+            "medium>=0.5, low<0.5. Leave proposed_triples empty; the "
+            "orchestrator serialises deterministic DCAT triples."
         ),
     )
     verifier = Agent(
@@ -165,16 +226,23 @@ def handler(event: dict, context: Any) -> dict:
 
     # Cheap health-check, no auth — for ALB/curl ping + cold-start warmup.
     path = (event.get("rawPath") or event.get("path") or "").rstrip("/")
-    method = (event.get("requestContext", {}).get("http", {}).get("method")
-              or event.get("httpMethod") or "POST").upper()
+    method = (
+        event.get("requestContext", {}).get("http", {}).get("method")
+        or event.get("httpMethod")
+        or "POST"
+    ).upper()
     if path.endswith("/health") and method == "GET":
-        return _resp(200, {
-            "ok": True,
-            "model": bedrock_llm_id(),
-            "region": aws_region(),
-            "ontology_snapshot": _ONTOLOGY_SNAPSHOT,
-            "rubric_version": _RUBRIC_VERSION,
-        })
+        return _resp(
+            200,
+            {
+                "ok": True,
+                "model": bedrock_llm_id(),
+                "region": aws_region(),
+                "ontology_snapshot": _ONTOLOGY_SNAPSHOT,
+                "rubric_version": _RUBRIC_VERSION,
+                "resources": env_resource_summary(),
+            },
+        )
 
     if not _check_api_key(event):
         return _resp(401, {"error": "missing or invalid x-api-key"})
@@ -182,6 +250,7 @@ def handler(event: dict, context: Any) -> dict:
     raw_body = event.get("body") or "{}"
     if event.get("isBase64Encoded"):
         import base64
+
         raw_body = base64.b64decode(raw_body).decode("utf-8")
     try:
         payload = json.loads(raw_body) if isinstance(raw_body, str) else raw_body
@@ -189,13 +258,15 @@ def handler(event: dict, context: Any) -> dict:
         return _resp(400, {"error": f"invalid JSON body: {e}"})
 
     try:
-        IntakeRequest.model_validate({
-            "vendor": payload.get("vendor", ""),
-            "vendor_product_ref": payload.get("vendor_product_ref", ""),
-            "has_precedent": bool(payload.get("has_precedent", False)),
-            "has_conflict": bool(payload.get("has_conflict", False)),
-            "ontology_gap": bool(payload.get("ontology_gap", False)),
-        })
+        IntakeRequest.model_validate(
+            {
+                "vendor": payload.get("vendor", ""),
+                "vendor_product_ref": payload.get("vendor_product_ref", ""),
+                "has_precedent": bool(payload.get("has_precedent", False)),
+                "has_conflict": bool(payload.get("has_conflict", False)),
+                "ontology_gap": bool(payload.get("ontology_gap", False)),
+            }
+        )
     except Exception as e:
         return _resp(400, {"error": f"invalid intake: {e}"})
 
@@ -204,9 +275,8 @@ def handler(event: dict, context: Any) -> dict:
         _AGENTS = _build_agents()
     mapping_agent, verifier_agent = _AGENTS
 
-    # After the fake RDF serialiser landed, the orchestrator's mapping
-    # specialist is told to leave proposed_triples empty; we serialise + stamp
-    # the named graph from the orchestrator side, then the gate publishes.
+    # The mapping specialist emits only the semantic decision. The orchestrator
+    # serialises + stamps the named graph before the publish gate runs.
     # The catalogue MCP is NOT in the loop — bundle is assembled in-process.
     orch = Orchestrator(
         mapping_specialist=mapping_agent,
@@ -221,18 +291,56 @@ def handler(event: dict, context: Any) -> dict:
     )
 
     try:
-        obj = orch.run({
-            "vendor": payload["vendor"],
-            "vendor_product_ref": payload["vendor_product_ref"],
-            "has_precedent": bool(payload.get("has_precedent", False)),
-            "has_conflict": bool(payload.get("has_conflict", False)),
-            "ontology_gap": bool(payload.get("ontology_gap", False)),
-        })
+        obj = orch.run(
+            {
+                "vendor": payload["vendor"],
+                "vendor_product_ref": payload["vendor_product_ref"],
+                "has_precedent": bool(payload.get("has_precedent", False)),
+                "has_conflict": bool(payload.get("has_conflict", False)),
+                "ontology_gap": bool(payload.get("ontology_gap", False)),
+            }
+        )
     except Exception as e:  # surface a clean error envelope to callers
         log.exception("orchestrator failed")
         return _resp(500, {"error": "orchestrator_failed", "detail": str(e)})
 
-    return _resp(200, {
-        "mapping_object": json.loads(obj.model_dump_json()),
-        "execution_time_ms": int((time.time() - t0) * 1000),
-    })
+    mapping_object = json.loads(obj.model_dump_json())
+    event_id = f"{obj.bundle_ref}:{obj.outcome.value}"
+    audit_payload = {
+        "request": {
+            "vendor": payload["vendor"],
+            "vendor_product_ref": payload["vendor_product_ref"],
+        },
+        "mapping_object": mapping_object,
+    }
+    # Audit EVERY outcome — the audit log is the full trail (event_type encodes
+    # the outcome: MAPPING_PUBLISHED / MAPPING_HITL / MAPPING_RETRY / ...).
+    put_audit_record(
+        item_id=obj.bundle_ref,
+        event_type=f"MAPPING_{obj.outcome.value.upper()}",
+        payload=audit_payload,
+    )
+    # Only a genuinely PUBLISHED mapping is "completed": emit MappingCompleted
+    # to the outbox + event bus (the async-projection path) ONLY then. HITL /
+    # RETRY / RESEARCH must not masquerade as completed mappings to downstream
+    # projection consumers — the HITL case is captured by the review record below.
+    if obj.outcome.value == "published":
+        put_outbox_record(
+            event_id=event_id,
+            detail_type="MappingCompleted",
+            detail=audit_payload,
+        )
+        put_eventbridge_event(
+            detail_type="MappingCompleted",
+            detail={"event_id": event_id, **audit_payload},
+        )
+    if obj.hitl_ticket:
+        put_review_record(ticket=obj.hitl_ticket, payload=audit_payload)
+
+    return _resp(
+        200,
+        {
+            "mapping_object": mapping_object,
+            "execution_time_ms": int((time.time() - t0) * 1000),
+        },
+    )

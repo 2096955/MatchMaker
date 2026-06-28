@@ -1,0 +1,69 @@
+flowchart TB
+    subgraph Vendors
+        V1[LSEG S and P ICE FactSet Bloomberg]
+        V2[Catalogue MCP STUB]
+    end
+
+    subgraph Ingestion
+        I1[Readers OK]
+        I2[ETL normalize OK]
+        I3[S3 transfer PARTIAL]
+        I4[Scheduler MISSING]
+    end
+
+    subgraph Storage
+        S1[Graph seam OK]
+        S2[S3 read OK]
+        S3[S3 write MISSING]
+        S4[MySQL metadata PARTIAL]
+        S5[Bundle hydrate OK]
+    end
+
+    O1[Orchestrator agent.py OK]
+    O2[Strands scaffold STUB]
+
+    M1[Fuzzy exact OK]
+    M2[Semantic Opus OK]
+    M3[RRF ranking OK]
+    M4[Confidence 0.80 OK]
+    M5[Overrides OK]
+    M6[Vendor rules PARTIAL]
+    M7[AOSS vectors MISSING]
+
+    V1g[Deterministic gate OK]
+    V2g[HMAC verdict OK]
+    V3g[LLM rubric PARTIAL]
+
+    G1[Neptune ontology OK]
+    G2[SPARQL OK]
+    G3[RDF DCAT PARTIAL]
+    G4[ODRL STUB]
+    G5[Semantic retrieval STUB]
+
+    L1[Precedent write OK]
+    L2[rank_signals consult OK]
+    L3[Distill to memory OK]
+
+    F1[Fusion integration PARTIAL]
+    F2[iFusion publish STUB]
+    F3[SPI V2 STUB]
+    F4[Fusion JSON MISSING]
+    F5[iFusion pull MISSING]
+
+    DQ[DQ Framework MISSING]
+
+    V1 --> I1
+    V2 --> I1
+    I1 --> I2
+    I2 --> S1
+    S1 --> O1
+    O1 --> M1
+    M1 --> O1
+    O1 --> V1g
+    M1 --> G1
+    V1g --> L1
+    L2 --> M1
+    L1 --> L2
+    L2 --> L3
+    V1g --> F3
+    I2 -.-> DQ

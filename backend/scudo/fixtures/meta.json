@@ -1,0 +1,7 @@
+{
+  "dataProvenance": "synthetic",
+  "bands": {
+    "pass": 0.85,
+    "borderline": 0.75
+  }
+}

@@ -1,0 +1,259 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  SCUDO scudo-poc network + FalkorDB compute (Option A, us-east-1). Standalone
+  VPC with one public + two private subnets, a single NAT gateway, and an ECS
+  Fargate service running FalkorDB OSS behind Cloud Map private DNS
+  (falkordb.scudo.local:6379). Exports the subnets + Lambda security group so the
+  scudo-poc orchestrator Lambda can be VpcConfig'd into this VPC and reach
+  FalkorDB privately. Teardown: delete this stack (delete the FalkorService first
+  if deletion stalls). Data is ephemeral (no EFS) — re-seed on task restart.
+
+Parameters:
+  FalkorDBImage:
+    Type: String
+    Default: falkordb/falkordb:latest
+    Description: FalkorDB OSS container image (Docker Hub).
+  VpcCidr:
+    Type: String
+    Default: 10.42.0.0/16
+
+Resources:
+  # ---- VPC + gateways -------------------------------------------------
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: scudo-poc-vpc }]
+
+  Igw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: scudo-poc-igw }]
+  IgwAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref Igw
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: scudo-poc-public-a }]
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.1.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: scudo-poc-public-b }]
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags: [{ Key: Name, Value: scudo-poc-private-a }]
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags: [{ Key: Name, Value: scudo-poc-private-b }]
+
+  NatEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  NatGw:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags: [{ Key: Name, Value: scudo-poc-nat }]
+
+  PublicRt:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: scudo-poc-public-rt }]
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IgwAttach
+    Properties:
+      RouteTableId: !Ref PublicRt
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Igw
+  PublicSubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRt
+      SubnetId: !Ref PublicSubnetA
+  PublicSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRt
+      SubnetId: !Ref PublicSubnetB
+
+  PrivateRt:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: scudo-poc-private-rt }]
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRt
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGw
+  PrivateSubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRt
+      SubnetId: !Ref PrivateSubnetA
+  PrivateSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRt
+      SubnetId: !Ref PrivateSubnetB
+
+  # ---- Security groups ------------------------------------------------
+  LambdaSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SCUDO orchestrator Lambda ENIs (egress only)
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags: [{ Key: Name, Value: scudo-poc-lambda-sg }]
+
+  FalkorSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: FalkorDB Fargate task
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags: [{ Key: Name, Value: scudo-poc-falkor-sg }]
+  FalkorIngressFromLambda:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref FalkorSg
+      IpProtocol: tcp
+      FromPort: 6379
+      ToPort: 6379
+      SourceSecurityGroupId: !Ref LambdaSg
+
+  # ---- Service discovery (stable DNS for the dynamic Fargate IP) -------
+  Namespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: scudo.local
+      Vpc: !Ref Vpc
+  FalkorDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: falkordb
+      NamespaceId: !Ref Namespace
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ---- ECS Fargate FalkorDB ------------------------------------------
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: scudo-poc-cluster
+
+  FalkorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/scudo-poc-falkordb
+      RetentionInDays: 14
+
+  TaskExecRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  FalkorTaskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: scudo-poc-falkordb
+      Cpu: '512'
+      Memory: '1024'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt TaskExecRole.Arn
+      ContainerDefinitions:
+        - Name: falkordb
+          Image: !Ref FalkorDBImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 6379
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref FalkorLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: falkordb
+
+  FalkorService:
+    Type: AWS::ECS::Service
+    DependsOn: PrivateDefaultRoute
+    Properties:
+      ServiceName: scudo-poc-falkordb
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      TaskDefinition: !Ref FalkorTaskDef
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+          SecurityGroups: [!Ref FalkorSg]
+      ServiceRegistries:
+        - RegistryArn: !GetAtt FalkorDiscovery.Arn
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export: { Name: scudo-poc-vpc-id }
+  PrivateSubnetIds:
+    Value: !Join [',', [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+    Export: { Name: scudo-poc-private-subnets }
+  LambdaSecurityGroupId:
+    Value: !Ref LambdaSg
+    Export: { Name: scudo-poc-lambda-sg }
+  PublicSubnetIds:
+    Value: !Join [',', [!Ref PublicSubnetA, !Ref PublicSubnetB]]
+    Export: { Name: scudo-poc-public-subnets }
+  FalkorSecurityGroupId:
+    Value: !Ref FalkorSg
+    Export: { Name: scudo-poc-falkor-sg }
+  FalkorEndpoint:
+    Value: falkordb.scudo.local:6379
+  FalkorUrl:
+    Value: falkordb://falkordb.scudo.local:6379

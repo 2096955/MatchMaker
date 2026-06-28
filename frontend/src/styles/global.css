@@ -214,7 +214,7 @@ tbody tr:hover { background: #fafafa; }
 @media (max-width: 768px) {
   .app-sidebar { display: none; }
   .app-content { padding: 16px; }
-.form-grid   { grid-template-columns: 1fr; }
+  .form-grid   { grid-template-columns: 1fr; }
   .form-col-2  { grid-column: span 1; }
 }
 

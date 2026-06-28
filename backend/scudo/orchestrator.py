@@ -20,12 +20,14 @@ from typing import Any, Optional
 from pydantic import ValidationError
 
 from .prompts import mapping_prompt, research_prompt, verifier_prompt
+from .rdf.fake import serialise_mapping, validate_shapes
 from .schemas import (
     BriefBundle,
     IntakeRequest,
     MappingObject,
     MappingResult,
     Outcome,
+    ProposedTriple,
     Route,
     SCHEMA_VERSION,
     VerifierReport,
@@ -41,7 +43,10 @@ CONFIDENCE_FLOOR = 0.80  # clarif. F31
 # Only IRIs matching one of these patterns can flow through publish.
 # `mds.<vendor>:<uuid>` for vendor products, `jpmorgan:data:cdao:` for CDAO nodes.
 _IRI_DETERMINISM = re.compile(
-    r"^(mds\.[a-z0-9_]+:[0-9a-f-]{36}|jpmorgan:data:cdao:.+)$"
+    # Vendor segment allows upper/lower/digits/_/- so real vendor names (e.g.
+    # "LSEG") pass; the <uuid> suffix is uuid5-derived (deterministic), so the
+    # only thing this gate proves is the structural shape, not randomness.
+    r"^(mds\.[A-Za-z0-9_-]+:[0-9a-f-]{36}|jpmorgan:data:cdao:.+)$"
 )
 
 
@@ -105,7 +110,17 @@ class Orchestrator:
         return Route.NEW_MAPPING
 
     # ── run — end to end ─────────────────────────────────────────────────
-    def run(self, request_payload: dict) -> MappingObject:
+    def run(
+        self, request_payload: dict, *, prior_rejection: str | None = None
+    ) -> MappingObject:
+        """Map one vendor product end to end.
+
+        `prior_rejection` is the self-verifying-loop's requeue signal: when a
+        batch re-runs a unit that previously scored in the retry band, the prior
+        rejection reason rides back in so the maker knows what to fix. It steers
+        the *maker* only (never the verifier — that would break verifier
+        independence). Default None keeps the single-product path unchanged.
+        """
         request = IntakeRequest.model_validate(request_payload)
         route = self.route(request)
         log.info(
@@ -126,7 +141,8 @@ class Orchestrator:
         if route is Route.RESEARCH:
             return self._handle_research(bundle, pins)
 
-        result = self._call_mapping(bundle)
+        result = self._call_mapping(bundle, prior_rejection=prior_rejection)
+        result = self._ensure_serialised_triples(result, bundle)
         # Two cheap guards BEFORE the verifier — failing them never wastes a
         # verifier call. The verifier itself can still flag them via dimensions.
         defects_pre = self._pre_verify_defects(result, bundle)
@@ -171,10 +187,51 @@ class Orchestrator:
         # New API returns an AgentResult; unwrap the structured payload.
         return getattr(result, "structured_output", result)
 
-    def _call_mapping(self, bundle: BriefBundle) -> MappingResult:
-        return self._structured_call(
-            self.mapping, MappingResult, mapping_prompt(bundle)
-        )
+    def _call_mapping(
+        self, bundle: BriefBundle, *, prior_rejection: str | None = None
+    ) -> MappingResult:
+        prompt = mapping_prompt(bundle)
+        if prior_rejection:
+            # Mirror how _call_verifier appends defects_pre — the reason is a
+            # maker-steering signal, appended to the maker prompt only.
+            prompt += (
+                "\n\nThis is a re-attempt. A previous mapping for this product "
+                "was rejected for the following reason — address it directly:\n  - "
+                + prior_rejection
+            )
+        return self._structured_call(self.mapping, MappingResult, prompt)
+
+    def _ensure_serialised_triples(
+        self, result: MappingResult, bundle: BriefBundle
+    ) -> MappingResult:
+        """Populate publish triples deterministically when the model omits them."""
+        if result.proposed_triples:
+            return result
+        try:
+            payload = result.model_dump(mode="json")
+            payload["ontology_snapshot"] = (
+                bundle.ontology_snapshot or self.ontology_snapshot
+            )
+            serialised = serialise_mapping(payload)
+            triples = serialised.get("triples") or []
+            validation = validate_shapes(triples)
+            if not serialised.get("conforms", False) or not validation.get(
+                "conforms", False
+            ):
+                log.error(
+                    "rdf serialisation failed: serialiser=%s validation=%s",
+                    serialised.get("report"),
+                    validation.get("report"),
+                )
+                return result.model_copy(update={"requires_human_review": True})
+            return result.model_copy(
+                update={
+                    "proposed_triples": [ProposedTriple(**t) for t in triples],
+                }
+            )
+        except Exception:
+            log.exception("rdf serialisation failed")
+            return result.model_copy(update={"requires_human_review": True})
 
     def _call_verifier(
         self, result: MappingResult, *, defects_pre: list[str], bundle: BriefBundle

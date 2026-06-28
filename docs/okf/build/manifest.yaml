@@ -1,0 +1,664 @@
+# 37 SCUDO concepts → docs/okf/scudo/
+concepts:
+- out: architecture/overview.md
+  sources:
+  - README.md
+  type: Architecture
+  title: SCUDO MatchMaker — Project Overview
+  description: 'Top-level overview of the vendor→CDAO mapping prototype: cost ladder,
+    three-MCP trust gradient, HMAC seal, repo layout, run/deploy paths, and explicit
+    gaps.'
+  tags:
+  - overview
+  - architecture
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites:
+    backend/scudo/DEPLOY.md: '@inline'
+    backend/scudo/template.yaml: '@inline'
+    backend/scudo_mapping_mcp/docs/architecture/: /architecture/diagrams-and-sources.md
+    backend/scudo_mapping_mcp/docs/architecture/README.md: /architecture/diagrams-and-sources.md
+    backend/scudo_mapping_mcp/docs/architecture/scudo-overview.mmd: '@inline'
+    backend/scudo_mapping_mcp/docs/architecture/scudo-match-verify.mmd: '@inline'
+    backend/scudo_mapping_mcp/docs/architecture/scudo-retrieval.mmd: '@inline'
+    backend/scudo_mapping_mcp/docs/architecture/arb-review-pack.md: /architecture/arb-review-pack.md
+    docs/okf/scudo/index.md: '@inline'
+    docs/okf/scudo/: '@inline'
+  related:
+  - &id001
+    label: Confidence bands & provenance (canonical)
+    target: /reference/matching-data-provenance.md
+- out: architecture/hooks.md
+  sources:
+  - hooks.md
+  type: Architecture
+  title: Deterministic Enforcement Hooks
+  description: Deterministic Agent-SDK lifecycle hooks (SessionStart through SubagentStop)
+    that enforce SCUDO's non-negotiable invariants at the agent boundary — publish gate,
+    mandatory verifier, confidence floor / HITL routing, no raw SPARQL/Turtle, deterministic
+    IRIs — independent of the model in the loop.
+  tags:
+  - hooks
+  - architecture
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - *id001
+- out: architecture/batch.md
+  sources:
+  - backend/scudo/BATCH.md
+  type: Architecture
+  title: BATCH — Self-Verifying Loop Made Durable
+  description: How the BATCH self-verifying loop is made durable across sessions with
+    checkpoints and replay semantics.
+  tags:
+  - batch
+  - architecture
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: architecture/arb-review-pack.md
+  sources:
+  - backend/scudo_mapping_mcp/docs/architecture/arb-review-pack.md
+  type: Decision Record
+  title: ARB Review Pack
+  description: Architecture review board pack summarizing key SCUDO matching design
+    decisions and open questions.
+  tags:
+  - arb
+  - decision
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - *id001
+- out: architecture/diagrams-and-sources.md
+  sources:
+  - backend/scudo_mapping_mcp/docs/architecture/README.md
+  - backend/scudo_mapping_mcp/docs/README.md
+  type: Architecture
+  title: SCUDO Architecture Diagrams & Sources
+  description: Canonical .mmd diagram set, supersession mapping, diagrams-win-over-prose
+    rule, and quick orientation for new readers.
+  tags:
+  - architecture
+  - diagrams
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: fold_diagrams
+  link_rewrites:
+    ../i5-lift-preconditions.md: /specs/i5-lift-preconditions.md
+    ../diagram-1-main-flow.md: /architecture/diagram-main-flow.md
+    ../diagram-2-falkor-internals.md: /architecture/diagram-falkor-internals.md
+    i5-lift-preconditions.md: /specs/i5-lift-preconditions.md
+    diagram-1-main-flow.md: /architecture/diagram-main-flow.md
+    diagram-2-falkor-internals.md: /architecture/diagram-falkor-internals.md
+    architecture/diagram-1-main-flow.md: /architecture/diagram-main-flow.md
+    architecture/diagram-2-falkor-internals.md: /architecture/diagram-falkor-internals.md
+    architecture/i5-lift-preconditions.md: /specs/i5-lift-preconditions.md
+  related: []
+- out: architecture/diagram-main-flow.md
+  sources:
+  - backend/scudo_mapping_mcp/docs/diagram-1-main-flow.md
+  type: Architecture
+  title: Diagram — Main Flow (superseded)
+  description: Legacy main-flow diagram doc; superseded by the canonical .mmd set
+    documented in diagrams-and-sources.
+  tags:
+  - diagram
+  - legacy
+  staleness: superseded
+  supersedes: null
+  superseded_by: /architecture/diagrams-and-sources.md
+  transform: null
+  link_rewrites:
+    diagram-1-main-flow.md: /architecture/diagram-main-flow.md
+    architecture/i5-lift-preconditions.md: /specs/i5-lift-preconditions.md
+    i5-lift-preconditions.md: /specs/i5-lift-preconditions.md
+  related:
+  - *id001
+  - label: Diagrams & sources (canonical)
+    target: /architecture/diagrams-and-sources.md
+- out: architecture/diagram-falkor-internals.md
+  sources:
+  - backend/scudo_mapping_mcp/docs/diagram-2-falkor-internals.md
+  type: Architecture
+  title: Diagram — Falkor Internals (superseded)
+  description: Legacy Falkor internals diagram doc; superseded by scudo-retrieval.mmd
+    in diagrams-and-sources.
+  tags:
+  - diagram
+  - legacy
+  staleness: superseded
+  supersedes: null
+  superseded_by: /architecture/diagrams-and-sources.md
+  transform: null
+  link_rewrites:
+    diagram-1-main-flow.md: /architecture/diagram-main-flow.md
+    architecture/diagram-1-main-flow.md: /architecture/diagram-main-flow.md
+    architecture/i5-lift-preconditions.md: /specs/i5-lift-preconditions.md
+    i5-lift-preconditions.md: /specs/i5-lift-preconditions.md
+  related:
+  - *id001
+  - label: Diagrams & sources (canonical)
+    target: /architecture/diagrams-and-sources.md
+- out: reference/matching-data-provenance.md
+  sources:
+  - docs/superpowers/matching-data-provenance.md
+  type: Reference
+  title: Matching Data Provenance & Confidence Bands
+  description: Canonical PASS/BORDERLINE/FAIL bands, IRI schemes, and synthetic-data
+    classification for the matching demo.
+  tags:
+  - reference
+  - bands
+  - provenance
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: reference/agents.md
+  sources:
+  - AGENTS.md
+  type: Reference
+  title: Agent Operating Rules (Learned Preferences & Workspace Facts)
+  description: 'Standing rules for agents working in this repo: UI targets, mock-data
+    honesty, graph schemas, and deploy boundaries.'
+  tags:
+  - reference
+  - agents
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - *id001
+  - label: Matching frontend spec (binding)
+    target: /specs/matching-frontend.md
+- out: skills/taxonomy-mapping.md
+  sources:
+  - backend/scudo/skills/taxonomy-mapping/SKILL.md
+  type: Skill
+  title: Taxonomy Mapping Specialist Skill
+  description: Procedure for mapping a vendor product to a JPMC CDAO taxonomy node
+    via retrieval, confirmation, and confidence calibration.
+  tags:
+  - skill
+  - mapping
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - label: GraphRAG retrieval
+    target: /skills/graphrag-retrieval.md
+  - label: Neptune I/O
+    target: /skills/neptune-io.md
+  - label: RDF serialisation
+    target: /skills/rdf-serialisation.md
+  - *id001
+- out: skills/graphrag-retrieval.md
+  sources:
+  - backend/scudo/skills/graphrag-retrieval/SKILL.md
+  type: Skill
+  title: GraphRAG Retrieval Skill
+  description: Candidate discovery via graph-augmented retrieval for vendor→CDAO mapping.
+  tags:
+  - skill
+  - graphrag
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - label: Neptune I/O (confirmation)
+    target: /skills/neptune-io.md
+- out: skills/neptune-io.md
+  sources:
+  - backend/scudo/skills/neptune-io/SKILL.md
+  type: Skill
+  title: Neptune I/O Skill
+  description: Authoritative RDF graph reads and writes against Neptune (or FalkorDB
+    stand-in).
+  tags:
+  - skill
+  - neptune
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - label: RDF serialisation (publish)
+    target: /skills/rdf-serialisation.md
+- out: skills/rdf-serialisation.md
+  sources:
+  - backend/scudo/skills/rdf-serialisation/SKILL.md
+  type: Skill
+  title: RDF Serialisation Skill
+  description: Publish confirmed mappings as RDF/JSON-LD with ODRL rights metadata.
+  tags:
+  - skill
+  - rdf
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: skills/rights-odrl.md
+  sources:
+  - backend/scudo/skills/rights-odrl/SKILL.md
+  type: Skill
+  title: Rights & ODRL Skill
+  description: Attach ODRL policy metadata to published canonical product records.
+  tags:
+  - skill
+  - odrl
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: specs/self-improving-agent.md
+  sources:
+  - docs/superpowers/specs/2026-06-16-self-improving-agent-system-design.md
+  type: Spec
+  title: Self-Improving Agent System Design
+  description: Design for compounding orchestrator memory via precedents, rules, and
+    verified-facts-only promotion.
+  tags:
+  - spec
+  - agent
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: specs/matching-frontend.md
+  sources:
+  - docs/superpowers/specs/2026-06-24-scudo-matching-frontend-spec.md
+  type: Spec
+  title: SCUDO Matching Frontend Spec
+  description: 'Binding spec: ship understand-anything dashboard, honest synthetic
+    data, dual graph schemas, deploy gate.'
+  tags:
+  - spec
+  - matching
+  - frontend
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - label: Agent operating rules
+    target: /reference/agents.md
+  - *id001
+- out: specs/hitl-two-way-chat.md
+  sources:
+  - docs/superpowers/specs/2026-06-25-hitl-two-way-chat-spec.md
+  type: Spec
+  title: HITL Two-Way Chat Spec
+  description: Human-in-the-loop two-way chat design for reviewer adjudication.
+  tags:
+  - spec
+  - hitl
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: specs/auth-gate-strip-inject.md
+  sources:
+  - infra/AUTH_GATE_SPEC_strip_inject.md
+  type: Spec
+  title: Auth Gate — Strip & Inject
+  description: Spec for stripping dev-auth and injecting real auth at the CloudFront→ALB
+    boundary.
+  tags:
+  - spec
+  - auth
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - label: Code review fixes (B1/B2)
+    target: /handovers/code-review-fixes.md
+  - label: Deploy runbook
+    target: /deployment/deploy-runbook-scudo-poc.md
+- out: specs/i5-lift-preconditions.md
+  sources:
+  - backend/scudo_mapping_mcp/docs/i5-lift-preconditions.md
+  type: Spec
+  title: I5 Lift Preconditions
+  description: Hard preconditions that must hold before invariant I5 can be lifted to
+    let sealed PASS-band verdicts auto-persist to Neptune without reviewer approval —
+    band semantics, seal/IAM hardening, golden-set calibration, audit-back, and governance
+    sign-off.
+  tags:
+  - spec
+  - i5
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - *id001
+  - label: HITL bands handover
+    target: /handovers/hitl-bands-2026-06-26.md
+- out: specs/ingestion-framework.md
+  sources:
+  - docs/ingestion_framework_spec.md
+  type: Spec
+  title: Ingestion Framework Spec (ETL §1–11)
+  description: Format-agnostic ETL ingestion spec; SCUDO pipeline diagrams live in
+    architecture/, not here.
+  tags:
+  - spec
+  - ingestion
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: split_ingestion
+  link_rewrites: {}
+  related:
+  - *id001
+  - label: Architecture diagrams
+    target: /architecture/diagrams-and-sources.md
+- out: plans/phase0-foundations.md
+  sources:
+  - docs/superpowers/plans/2026-06-18-scudo-phase0-foundations.md
+  type: Plan
+  title: Phase 0 Foundations Plan
+  description: Implementation plan for SCUDO phase-0 foundations (mostly executed).
+  tags:
+  - plan
+  - phase0
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: plans/matching-dashboard.md
+  sources:
+  - docs/superpowers/plans/2026-06-24-scudo-matching-dashboard.md
+  type: Plan
+  title: Matching Dashboard Plan
+  description: Plan for honest matching UI on understand-anything dashboard (implemented).
+  tags:
+  - plan
+  - matching
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - label: Matching frontend spec
+    target: /specs/matching-frontend.md
+- out: plans/matching-frontend-and-deploy.md
+  sources:
+  - docs/superpowers/plans/2026-06-24-scudo-matching-frontend-and-deploy.md
+  type: Plan
+  title: Matching Frontend & Deploy Plan (combined)
+  description: Original combined plan; front-end target superseded by dashboard decision;
+    Codex C-1..C-8 retained.
+  tags:
+  - plan
+  - matching
+  - deploy
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: plans/dense-arm-sdk-adoption.md
+  sources:
+  - backend/scudo_mapping_mcp/docs/dense-arm-sdk-adoption.md
+  type: Plan
+  title: Dense ARM SDK Adoption (v0.3)
+  description: Replan that ships the Opus-4.8 prompt dense arm for similarity scoring
+    now and DROPS/PARKS the GraphRAG-SDK + Titan vector path behind the SCUDO_DENSE_BACKEND
+    flag; supersedes dense-arm-swap v0.2.
+  tags:
+  - plan
+  - dense-arm
+  staleness: current
+  supersedes: /plans/dense-arm-swap.md
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: plans/dense-arm-swap.md
+  sources:
+  - backend/scudo_mapping_mcp/docs/dense-arm-swap.md
+  type: Plan
+  title: Dense ARM Swap (v0.2, superseded)
+  description: Earlier dense-arm swap plan superseded by SDK adoption v0.3.
+  tags:
+  - plan
+  - dense-arm
+  staleness: superseded
+  supersedes: null
+  superseded_by: /plans/dense-arm-sdk-adoption.md
+  transform: null
+  link_rewrites:
+    i5-lift-preconditions.md: /specs/i5-lift-preconditions.md
+    plans/i5-lift-preconditions.md: /specs/i5-lift-preconditions.md
+  related: []
+- out: plans/precedent-hydrator-workstream.md
+  sources:
+  - backend/scudo_mapping_mcp/docs/precedent-hydrator-workstream.md
+  type: Plan
+  title: Precedent Hydrator Workstream
+  description: Workstream plan for precedent hydration and replay at boot.
+  tags:
+  - plan
+  - precedent
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: deployment/deploy.md
+  sources:
+  - backend/scudo/DEPLOY.md
+  type: Runbook
+  title: SCUDO Backend Deploy Notes
+  description: How to deploy the SCUDO backend stack and verify health.
+  tags:
+  - runbook
+  - deploy
+  staleness: current
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: deployment/deploy-runbook-scudo-poc.md
+  sources:
+  - infra/DEPLOY_RUNBOOK_scudo-poc.md
+  type: Runbook
+  title: SCUDO PoC Deploy Runbook
+  description: Step-by-step handoff runbook for one scudo-poc console deploy in us-east-1
+    (commit/branch/CloudFront-domain pinned).
+  tags:
+  - runbook
+  - poc
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: deployment/demo-runbook.md
+  sources:
+  - backend/scudo_mapping_mcp/docs/demo-runbook.md
+  type: Runbook
+  title: Demo Runbook
+  description: How to run and verify the matching demo locally and in PoC.
+  tags:
+  - runbook
+  - demo
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: handovers/aws-handoff.md
+  sources:
+  - backend/scudo/AWS_HANDOFF.md
+  type: Handover
+  title: AWS Handoff (commit-pinned)
+  description: Point-in-time AWS handoff snapshot; read for history only.
+  tags:
+  - handover
+  - aws
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: handovers/hitl-bands-2026-06-26.md
+  sources:
+  - infra/HANDOVER_hitl_bands_2026-06-26.md
+  type: Handover
+  title: HITL Bands Handover (2026-06-26)
+  description: Handover noting live CodeBuild project name correction and HITL band
+    UI state.
+  tags:
+  - handover
+  - hitl
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - label: Deploy runbook (scudo-poc)
+    target: /deployment/deploy-runbook-scudo-poc.md
+- out: handovers/dashboard-repo-push.md
+  sources:
+  - infra/handoff/README.md
+  - infra/DASHBOARD_REPO_PUSH_HANDOFF.md
+  type: Handover
+  title: Handover — Push Dashboard Source Repo
+  description: Instructions for pushing stranded dashboard commits to Egonex-AI/Understand-Anything
+    via git-bundle workaround.
+  tags:
+  - handover
+  - dashboard
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: merge
+  link_rewrites: {}
+  related: []
+- out: handovers/code-review-fixes.md
+  sources:
+  - infra/CODE_REVIEW_FIXES.md
+  type: Handover
+  title: Code Review Fixes Handover
+  description: Point-in-time code review fix list including dev-auth security gaps
+    B1/B2.
+  tags:
+  - handover
+  - review
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related:
+  - label: Auth gate spec
+    target: /specs/auth-gate-strip-inject.md
+- out: handovers/architecture-gap-analysis.md
+  sources:
+  - docs/superpowers/2026-06-16-scudo-architecture-gap-analysis.md
+  type: Handover
+  title: Architecture Gap Analysis (2026-06-16)
+  description: Dated gap analysis between intended SCUDO architecture and implementation
+    at that point in time.
+  tags:
+  - handover
+  - architecture
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: handovers/smoke-fixes-round1.md
+  sources:
+  - infra/SMOKE_FIXES_round1.md
+  type: Handover
+  title: Smoke Fixes Round 1
+  description: Point-in-time smoke test fix log from round 1.
+  tags:
+  - handover
+  - smoke
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: handovers/smoke-upload-flow-live.md
+  sources:
+  - infra/SMOKE_upload_flow_live.md
+  type: Handover
+  title: Smoke — Upload Flow Live
+  description: Point-in-time verification of the live upload flow.
+  tags:
+  - handover
+  - smoke
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []
+- out: handovers/redeploy-branding.md
+  sources:
+  - infra/REDEPLOY_NOTE_branding.md
+  type: Handover
+  title: Redeploy Branding Note
+  description: Point-in-time note on redeploying the dashboard with updated SCUDO tab
+    title + favicon (incl. the /demo/ vs /cogJPMdemo/ base-path wrinkle).
+  tags:
+  - handover
+  - branding
+  staleness: historical
+  supersedes: null
+  superseded_by: null
+  transform: null
+  link_rewrites: {}
+  related: []

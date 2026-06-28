@@ -56,9 +56,8 @@ Thumbs.db
 # ─── Build / IaC artefacts that don't belong in the runtime image ───────
 Dockerfile
 backend/Dockerfile
-backend/scudo/
-# vendor_catalogue_mcp/ is imported by routes/catalogue.py — must stay in
-# the image even though it predates the SCUDO matching work.
+# vendor_catalogue_mcp/ is imported by routes/catalogue.py and backend/scudo/
+# is imported by routes/mapping.py, so both must stay in the runtime image.
 *.SKILL.md
 *.md
 !backend/README.md

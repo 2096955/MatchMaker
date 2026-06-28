@@ -8,20 +8,21 @@
 
 ## TL;DR
 
-Partially covered. **12 ✅ / 6 🟡 / 5 🟠 / 9 ❌** across 32 boxes. The *data plane* (ingestion → matcher → graph store → precedent memory → confidence gate → signed verdict) is real and runs locally. The *live infra* (Neptune semantic retrieval, S3 write, real vendor APIs) and the *consumer + governance edges* (Fusion SPI V2, iFusion catalog, and the entire DQ Framework) are stubs, mocks, or missing.
+Partially covered. **13 ✅ / 5 🟡 / 5 🟠 / 9 ❌** across 32 boxes. The *data plane* (ingestion → matcher → graph store → precedent memory → confidence gate → signed verdict) is real and runs locally. The *live infra* (Neptune semantic retrieval, S3 write, real vendor APIs) and the *consumer + governance edges* (Fusion SPI V2, iFusion catalog, and the entire DQ Framework) are stubs, mocks, or missing.
 
-## ⚠️ Correction to the "orchestrator" finding (hand-verified)
+## ⚠️ Correction to the "orchestrator" finding (hand-verified; updated after independent review)
 
-The diagram's **orchestrator + matching engine + nodes** loop **already exists and works** — but in the MCP layer, not the Strands file. There are two parallel implementations:
+The diagram's **orchestrator + matching engine + nodes** loop **already exists and works** — in *two* real forms, plus one skeleton. There are THREE implementations:
 
 | Orchestrator | File | Reality |
 |---|---|---|
-| MCP agent host | `backend/scudo_mapping_mcp/agent.py` | ✅ **Real.** Runs `find_similar_products → get_node → get_neighbourhood`, then the deterministic matcher runs as the final step and **gates**. Code rule: *"matcher wins; agent surfaces, matcher gates… agent and matcher cannot disagree by construction."* |
-| Strands wiring | `scudo_strands_app.py` (repo root) | 🟠 **Skeleton.** `Orchestrator.route()` exists but every helper (`_assemble_bundle`, `_mapping_prompt`, `_gate_and_publish` tail, …) raises `NotImplementedError`. A blueprint, not wired. |
+| Deterministic orchestrator + verifier + publish gate | `backend/scudo/orchestrator.py` | ✅ **Real.** `run()` (l.92) routes → assembles bundle → `_call_mapping` → **`_call_verifier`** (l.154, scores the real `VerifierReport`) → **`_gate_and_decide`** (l.215: verifier ≥16 + 0.80 floor + deterministic-IRI + named-graph). Bedrock-wired in `lambda_handler.py:136–224`; bundle assembler is injectable (fake for tests, real pipeline for prod). |
+| MCP agent host + matcher | `backend/scudo_mapping_mcp/agent.py` + `matching.py` | ✅ **Real.** Runs `find_similar_products → get_node → get_neighbourhood`, then `map_vendor_product` runs last and **gates**. Rule: *"matcher wins; agent surfaces, matcher gates… cannot disagree by construction."* |
+| Strands wiring | `scudo_strands_app.py` (repo root) | 🟠 **Skeleton.** `route()` exists but every helper raises `NotImplementedError`. A blueprint, not wired. |
 
-So you do **not** need to build the orchestrator→matcher→nodes feed — it runs today on FalkorDB/memory via `agent.py` + `matching.map_vendor_product`. The open decision is whether to finish the Strands scaffold or retire it in favor of `agent.py`.
+So you do **not** need to build the orchestrator→matcher→nodes feed — it runs today, and the `scudo/` orchestrator already has a **real 10-dim verifier scorer + publish gate**. The open decision is consolidating the two real paths and retiring the Strands skeleton.
 
-Note there are also three namespaces: `backend/scudo_mapping_mcp/` (the working matcher/store/feedback/verdict), `backend/scudo/` (a "faithful FAKE" RDF/ODRL layer — `rdf/fake.py`), and `scudo_strands_app.py` (the skeleton).
+Namespaces: `backend/scudo_mapping_mcp/` (matcher/store/feedback/HMAC verdict), `backend/scudo/` (a **real** deterministic orchestrator + verifier + schemas + Bedrock lambda handler — only its `rdf/fake.py` serializer is a stub), and `scudo_strands_app.py` (the skeleton). *(The first row was missed in the initial pass and surfaced by an independent review.)*
 
 ## Coverage matrix
 
@@ -37,7 +38,7 @@ Note there are also three namespaces: `backend/scudo_mapping_mcp/` (the working 
 ### Storage & metadata tiers
 | Box | Status | Evidence | Gap |
 |---|---|---|---|
-| S3 "as-is" store | ✅ | `frames.py:134` `_read_s3_frame` (get_object + SHA-256); `hydrate.py:162` reads canonical bundle | **write/put_object path absent** (`persistence_mcp.py:326` returns JSON string only) |
+| S3 "as-is" store | ✅ | `frames.py:134` `_read_s3_frame` (get_object + SHA-256); `hydrate.py:162` reads canonical bundle | **write/put_object path absent** (`persistence_mcp.py:329` returns JSON string only) |
 | "Aurora PostgreSQL" metadata/mapping/lineage | 🟡 | `init_db.sql` + `db.py:29` — but it's **MySQL** (`pymysql`), SCD-2 versioning on `tp_provider/dataset/col` | not Aurora-PG; tracks ETL not mapping lineage; mapping state lives only in graph |
 | Graph store seam (Falkor/Neptune/memory) | ✅ | `store/factory.py:18`; `falkordb_store.py:95` + `neptune_store.py:463` (SigV4 SPARQL) + `memory_store.py:31` all implement the 15-method contract | Neptune `find_similar_products:547` is a **placeholder (sim=0.0, "M9")** |
 | Canonical bundle hydrate/export | ✅ | `bundle.py:113` export / `:198` idempotent import; `hydrate.py:161` S3 replay, graceful cold-start | full-snapshot only; export doesn't write S3 |
@@ -45,9 +46,9 @@ Note there are also three namespaces: `backend/scudo_mapping_mcp/` (the working 
 ### Graph DB + RDF + ODRL (semantic core)
 | Box | Status | Evidence | Gap |
 |---|---|---|---|
-| Neptune ontology graph (CDAO nodes) | ✅ | `neptune_store.py:46–270` 17 SPARQL templates (skos:Concept/broader/narrower); `backend/scudo/authoritative/mcp.py` openCypher | — |
+| Neptune ontology graph (CDAO nodes) | ✅ | `neptune_store.py:46–270` 12 SPARQL templates (skos:Concept/broader/narrower); `backend/scudo/authoritative/mcp.py` openCypher | — |
 | SPARQL templates | ✅ | `neptune_store.py:46` parameterized templates, `_lit()/_iri()` escaping l.276 | — |
-| RDF/DCAT + SHACL | 🟡 | `backend/scudo/rdf/fake.py:54` deterministic DCAT triples | **SHACL is a stub** (`validate_shapes:132` always conforms); "faithful FAKE" awaiting `modules.rdf` |
+| RDF/DCAT + SHACL | 🟡 | `backend/scudo/rdf/fake.py:54` deterministic DCAT triples | **SHACL is a stub** (`validate_shapes:132` — no real shapes; flags only empty/malformed triples); "faithful FAKE" awaiting `modules.rdf` |
 | Product-Rights-Contracts edges | 🟠 | prompts/skills exist; `backend/scudo/rdf/fake.py:121` `serialise_rights` returns empty stub | no Permission/Prohibition/Duty/Contract models |
 | ODRL rights (terms/policies/license) | 🟠 | `rights-odrl.SKILL.md` + agent wiring; `tools.py:108` → fake stub | actual ODRL triple generation `NotImplemented` |
 
@@ -57,7 +58,7 @@ Note there are also three namespaces: `backend/scudo_mapping_mcp/` (the working 
 | OpenSearch / AOSS vector search | ❌ | `opus_dense.py:5` Titan-Embed **PARKED**; dense arm uses Opus 4.8 as judge | no embeddings/vector index |
 | Fuzzy + exact match | ✅ | `falkordb_store.py:53` Jaro-Winkler; `base.py:318` BM25 (exact-token recovery, smoke-tested) | — |
 | Vendor-specific rule engine | 🟡 | `validations.py:59` `default_field_rules` (name→prefLabel…) | only field normalization; per-vendor scoring "via M6 bundle" |
-| Confidence scoring (0.80 floor / bands) | ✅ | `config.py:42` floor 0.80 / half 0.05; `matching.py:247` 3-band PASS/BORDERLINE/FAIL | — |
+| Confidence scoring (0.80 floor / bands) | ✅ | `config.py:44` floor 0.80 / `:49` half 0.05; `matching.py:247` 3-band PASS/BORDERLINE/FAIL | — |
 | Semantic classification / search | ✅ | `opus_dense.py:70` scorer; `retrieval.py:74` `multi_path_retrieve`; flag `SCUDO_USE_OPUS_DENSE` | — |
 | Ranking (RRF) | ✅ | `base.py:235` RRF_K=60; `:368` `reciprocal_rank_fusion`; fused in `falkordb_store.py:306` | — |
 | Approved overrides | ✅ | `feedback.py:44` `apply_decision` (approve/override/reject); precedent reuse `matching.py:167` | — |
@@ -66,8 +67,8 @@ Note there are also three namespaces: `backend/scudo_mapping_mcp/` (the working 
 ### Orchestrator + verifier + DQ framework
 | Box | Status | Evidence | Gap |
 |---|---|---|---|
-| Orchestrator routing + publish gate | ✅ (MCP) / 🟠 (Strands) | **real:** `agent.py` host + `matching.map_vendor_product` gate. **skeleton:** `scudo_strands_app.py:262` all helpers `NotImplementedError` | consolidate the two; finish or retire Strands |
-| Independent verifier + HMAC verdict | 🟡 | **`verdict.py:1–255` HMAC sign/verify is production-grade**; deterministic gate authoritative | **10-dim LLM rubric is prompt-only** — `VerifierReport` model undefined, no scorer (`scudo_strands_app.py:252`) |
+| Orchestrator routing + publish gate | ✅ | **two real:** `backend/scudo/orchestrator.py` (route + verifier + gate, Bedrock-wired) and `agent.py` + `matching.map_vendor_product` (matcher-gates). **skeleton:** `scudo_strands_app.py:262` all helpers `NotImplementedError` | consolidate the two real paths; retire Strands |
+| Independent verifier (10-dim rubric) + HMAC verdict | ✅ | **two real mechanisms:** `verdict.py:1–255` HMAC sign/verify (production-grade); AND `scudo/orchestrator.py:154` `_call_verifier` scores the real `VerifierReport` (`schemas.py:207` — 10 dims, total≤20, `recompute_total`) and gates in `_gate_and_decide:215`; Bedrock-wired (`lambda_handler.py:147`) | verifier output quality depends on the live LLM; `scudo_strands_app.py:252` rubric is the unwired skeleton's copy |
 | DQ framework: completeness/accuracy/cross-ref | ❌ | zero matches for dq/completeness/accuracy; `validations.py:83` is scope/IRI/length checks only | **no DQ framework at all** |
 | DQ metrics + error reports | ❌ | `mcp_host.py:281` metrics are circuit-breaker/availability, not data quality | no quality dimensions/error reports |
 | Vendor-specific quality assessments | ❌ | only `check_scope` allow/deny + adapters | no profiling/quality scoring |
@@ -87,7 +88,7 @@ Note there are also three namespaces: `backend/scudo_mapping_mcp/` (the working 
 2. **Fusion SPI V2 + iFusion** (🟠/❌) — real SPI client, Fusion JSON envelope, and the consumer (pull + physical-name mapping + rights ingestion).
 3. **Live infra swaps** — Neptune semantic retrieval (replace `sim=0.0` placeholder), S3 write path, real vendor APIs, real CDAO ontology load.
 4. **ODRL + SHACL** (🟠) — replace `backend/scudo/rdf/fake.py` stubs with real ODRL triple generation + SHACL shapes.
-5. **Orchestrator consolidation** — finish or retire `scudo_strands_app.py`; promote `agent.py` as the conductor; add a real 10-dim verifier scorer (or formalize the deterministic gate as the verifier of record).
+5. **Orchestrator consolidation** — two real orchestrators already exist (`backend/scudo/orchestrator.py` with a real verifier + publish gate, and `agent.py`+`matching.py`); pick one as the conductor and retire the `scudo_strands_app.py` skeleton.
 6. **Scheduler**, **S3 write**, **Aurora-vs-MySQL** decision.
 
 ## Where the self-improving layer plugs in
@@ -122,8 +123,8 @@ LEGEND   [✅] working   [🟡] partial   [🟠] stub/mock   [❌] missing
   ║   ┌── VERIFIER / GATE ──────────┐         ┌── GRAPH / RDF / ODRL ─────────────────────┐  ║
   ║   │ [✅] deterministic gate      │         │ [✅] Neptune ontology (CDAO nodes)         │  ║
   ║   │ [✅] HMAC-signed verdict      │         │ [✅] SPARQL templates                      │  ║
-  ║   │ [🟡] 10-dim LLM rubric        │         │ [🟡] RDF/DCAT (SHACL = stub)               │  ║
-  ║   │      (advisory, no scorer)    │         │ [🟠] ODRL triples / rights-contract edges  │  ║
+  ║   │ [✅] 10-dim verifier scorer  │         │ [🟡] RDF/DCAT (SHACL = stub)               │  ║
+  ║   │      + gate (scudo/orch.py)  │         │ [🟠] ODRL triples / rights-contract edges  │  ║
   ║   └──────────────────────────────┘         │ [🟠] Neptune semantic retrieval (sim=0.0)  │  ║
   ║                                             └────────────────────────────────────────────┘ ║
   ║   ┌── SELF-IMPROVING LOOP (new skill) ──────────────────────────────────────────────────┐ ║
