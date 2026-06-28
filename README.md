@@ -20,7 +20,7 @@ Deterministic vendor-to-canonical product mapping with a three-MCP trust gradien
 
 ## SCUDO as the visibility platform
 
-SCUDO is positioned as the **visibility platform** for the matching backend: the three-MCP trust gradient, the cost ladder, the HMAC seal contract, and the reviewer queue are not just plumbing — they are the audit surface that makes every mapping decision inspectable end-to-end. The Flask SPA + REST tier exposes the trust gradient to the operator: dataset configuration, the reviewer queue, the per-decision trajectory, and the sealed verdict are all visible artefacts of the matching pipeline. Read the backend through this lens — every component exists to make the matching decision visible, attributable, and reversible, not merely to compute it.
+SCUDO is the **visibility platform** for the matching backend. The three-MCP trust gradient, the cost ladder, the HMAC seal, and the reviewer queue aren't just plumbing — they are the audit surface that makes every mapping decision inspectable end-to-end. The Flask SPA + REST tier exposes that surface to the operator: dataset config, the reviewer queue, the per-decision trajectory, and the sealed verdict are all visible artefacts. Read the backend through this lens — every component exists to make the decision **visible, attributable, and reversible**, not merely to compute it.
 
 ---
 
@@ -36,38 +36,89 @@ What this repo is **not**: a complete SCUDO. There is no production Neptune retr
 
 ## Architecture at a glance
 
+Read the flow top-to-bottom: a vendor file enters at the top, travels the
+three-MCP spine left-to-right, and anything the system isn't sure about exits into
+the **human-in-the-loop** (green), whose decisions loop back to make future matches
+better. Solid arrows are the publish path; dotted arrows are reads / advisory signals.
+
 ```mermaid
-C4Context
-    title SCUDO MatchMaker - system context (dev sandbox)
+flowchart TB
+    vendorOps(["Vendor Ops"]):::actor -->|upload| flask["Flask SPA + REST<br/>visibility &amp; control plane"]:::ctrl
+    flask -->|POST /ingest| ing
 
-    Person(reviewer, "Mapping Reviewer", "Approves / overrides / rejects borderline mappings")
-    Person(vendor_ops, "Vendor Ops", "Uploads vendor reference files")
+    subgraph spine["Trust gradient — three MCPs, each a separate IAM role"]
+        direction LR
+        ing["Ingestion :8001<br/>untrusted vendor in · no signing key"] -->|VendorProductRef| mv["Match-Verify :8002<br/>cost ladder + 3-band gate<br/>mints HMAC seal"] -->|sealed result| per["Persistence :8003<br/>sole writer · publish gate (I5)"]
+    end
 
-    System_Boundary(scudo, "SCUDO MatchMaker") {
-        System(flask, "Flask SPA + REST", "React frontend + Flask API; auth, dataset config, reviewer queue UI")
-        System(ingestion, "Ingestion MCP :8001", "Normalises untrusted vendor rows to VendorProductRef")
-        System(matchverify, "Match-Verify MCP :8002", "Cost ladder + 3-band gate; HMAC-seals verdicts")
-        System(persistence, "Persistence MCP :8003", "Sole writer; verifies seal; publishes to graph of record")
-    }
+    per ==>|NEEDS_REVIEW| queue
+    subgraph hitl["Human-in-the-loop — uncertain ⇒ human, never auto-published"]
+        direction LR
+        queue[("Reviewer queue<br/>DynamoDB")]:::hitl --> reviewer(["Mapping Reviewer"]):::actor ==>|approve / override / reject| precedent[("Precedent graph")]:::hitl
+    end
+    precedent -. rank tilt (feedback) .-> mv
 
-    SystemDb_Ext(neptune, "Neptune", "Canonical product graph (RDF / SPARQL)")
-    SystemDb_Ext(falkor, "FalkorDB", "Non-authoritative retrieval cache (Cypher)")
-    SystemDb_Ext(s3, "S3 frames + bundles", "Vendor frames + canonical mapping bundles")
-    SystemDb_Ext(ddb, "DynamoDB reviewer queue", "HITL decisions")
-    System_Ext(bedrock, "Bedrock - Claude Opus 4.8", "Specialist arm for BORDERLINE band only")
+    mv -. reads .-> neptune
+    mv -. retrieval .-> falkor
+    mv -. borderline .-> bedrock
+    per -->|publishes| neptune
+    per -->|bundles| s3
+    subgraph data["Stores &amp; specialist"]
+        direction LR
+        neptune[("Neptune<br/>canonical graph")]:::store
+        falkor[("FalkorDB<br/>retrieval stand-in")]:::store
+        bedrock{{"Bedrock · Opus 4.8<br/>BORDERLINE only"}}:::ext
+        s3[("S3 frames<br/>+ bundles")]:::store
+        neptune ~~~ falkor ~~~ bedrock ~~~ s3
+    end
 
-    Rel(vendor_ops, flask, "Upload + configure")
-    Rel(reviewer, flask, "Review queue")
-    Rel(flask, ingestion, "POST /ingest")
-    Rel(ingestion, matchverify, "VendorProductRef")
-    Rel(matchverify, persistence, "Sealed MappingResult")
-    Rel(matchverify, neptune, "Read-only SPARQL")
-    Rel(matchverify, falkor, "Hybrid retrieval")
-    Rel(matchverify, bedrock, "Borderline only")
-    Rel(persistence, neptune, "Writes canonical")
-    Rel(persistence, s3, "Bundle artifacts")
-    Rel(persistence, ddb, "Reviewer decisions")
+    classDef actor fill:#fde68a,stroke:#b45309,color:#1a1a1a
+    classDef ctrl fill:#f5f3ef,stroke:#1a1a1a,color:#1a1a1a
+    classDef store fill:#dbeafe,stroke:#1e40af,color:#1a1a1a
+    classDef ext fill:#e9d5ff,stroke:#6b21a8,color:#1a1a1a
+    classDef hitl fill:#bbf7d0,stroke:#15803d,color:#1a1a1a
 ```
+
+The thick green loop is the point: a mapping the matcher can't confidently decide is
+written to the reviewer queue as `NEEDS_REVIEW` — never to the canonical graph — and a
+human's verdict feeds the precedent graph that tilts the next match. See
+[Human-in-the-loop by design](#human-in-the-loop-by-design).
+
+---
+
+## Human-in-the-loop by design
+
+SCUDO never auto-publishes a mapping it isn't sure about. Human review is a
+first-class stage of the pipeline, not a bolt-on — five mechanisms keep the human in
+control of every uncertain decision:
+
+1. **Uncertain mappings escalate; they don't guess.** A mapping auto-publishes only
+   when it clears the gate cleanly — a confirmed-precedent reuse, or a PASS band the
+   Opus specialist concurs with. A BORDERLINE result the specialist can't confirm
+   (verifier dissent), or one a reviewer-tightened window pushes below PASS, is marked
+   `NEEDS_REVIEW` and routed to the reviewer queue — *not* the graph of record. (When,
+   exactly, is the [cost ladder](#the-matching-cost-ladder) below.)
+2. **The publish gate is hard (invariant I5).** Persistence is the *only* writer and
+   refuses any verdict whose HMAC seal it can't verify. There is no code path that
+   writes canonical data around a NEEDS_REVIEW decision — releasing one requires a
+   human.
+3. **The review surface is always visible.** In the dashboard, Approve / Override /
+   Reject and the decision reasoning render on load (not hidden until a borderline run
+   happens), and each action is prerequisite-gated by the backend result — a reviewer
+   can't approve a mapping that has no candidate, or override without an alternative.
+4. **Reviewers set the risk threshold, live.** The borderline window is reviewer-movable
+   *per request*; re-running with a tighter or looser window changes what auto-maps
+   versus what escalates. The human owns the threshold — it is not a hard-coded constant.
+5. **Decisions compound.** Approve / override / reject feed the precedent graph, which
+   tilts future retrieval ranking — so each human decision makes the next similar
+   mapping cheaper and more likely to clear without review.
+
+Every decision is attributable and reversible: the per-decision trajectory, the sealed
+verdict, and the human action are all recorded artefacts — the [visibility
+platform](#scudo-as-the-visibility-platform) lens. Implementation:
+`feedback.py` (write-back → precedent), `persistence_mcp.py` + `verdict.py` (publish
+gate), and the dashboard HITL surface in
+[Matching dashboard](#human-in-the-loop--reviewer-tunable-bands).
 
 ---
 
@@ -88,10 +139,13 @@ flowchart TD
     band -->|BORDERLINE 0.75-0.85| r4[Rung 4: Opus 4.8 specialist<br/>one-shot, concur-cap MIN not MAX]
     r4 --> r5{{Rung 5: re-gate<br/>verifier concurs?}}
     r5 -->|concur PASS| seal
-    r5 -->|dissent| queue[(HITL reviewer queue)]
+    r5 -->|dissent → NEEDS_REVIEW| queue[(HITL reviewer queue)]
     seal --> persist[Persistence MCP verifies HMAC seal<br/>then publishes]
-    queue -.feedback.-> precedent[(Precedent graph)]
+    queue -.human verdict.-> precedent[(Precedent graph)]
     precedent -.rank tilt.-> r3
+
+    classDef hitl fill:#bbf7d0,stroke:#15803d,color:#1a1a1a
+    class queue,precedent hitl
 ```
 
 Implementation lives in `backend/scudo_mapping_mcp/matching.py`. Validations and field normalisation in `validations.py`. The HMAC verdict seal contract is in `verdict.py` — `v=2` carries the band, Persistence refuses any agent-passed verdict dict.
@@ -457,7 +511,53 @@ The Mermaid diagrams in [`backend/scudo_mapping_mcp/docs/architecture/`](backend
 
 The ARB review pack at [`backend/scudo_mapping_mcp/docs/architecture/arb-review-pack.md`](backend/scudo_mapping_mcp/docs/architecture/arb-review-pack.md) carries the decision log, consistency findings, and open questions. `docs/diagram-1-main-flow.md`, `docs/diagram-2-falkor-internals.md`, and `docs/dense-arm-swap.md` are **SUPERSEDED** by the three diagrams above.
 
-An index-first OKF mirror of the scattered docs lives at [`docs/okf/scudo/`](docs/okf/scudo/index.md) — navigate via `index.md`, not grep. Rebuild with `docs/okf/build_bundle.sh`.
+These `.mmd` diagrams — and the rest of the project's scattered docs — are also consolidated into a single navigable knowledge base. See [Knowledge base (OKF bundle)](#knowledge-base-okf-bundle).
+
+---
+
+## Knowledge base (OKF bundle)
+
+This project's knowledge — architecture, specs, plans, runbooks, handovers, agent
+skills — had accreted across five places (`backend/scudo/`,
+`backend/scudo_mapping_mcp/docs/`, `docs/superpowers/`, `infra/`, and the repo root).
+Worse, ~14 of those files were commit-pinned, point-in-time snapshots that still *read*
+as current truth. Finding the right, still-accurate doc meant grepping and guessing.
+
+**What it is.** [`docs/okf/scudo/`](docs/okf/scudo/index.md) is a navigable
+[Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf)
+bundle: **37 concepts** (one markdown file each) organised into 7 topic folders —
+`architecture/`, `reference/`, `skills/`, `specs/`, `plans/`, `deployment/`,
+`handovers/`.
+
+**What it does** — makes the knowledge *clearer and trustworthy*:
+
+- **Index-first navigation** — start at `index.md` and follow links; you don't grep
+  the tree (every folder has its own `index.md` + `claude.md` agent guide).
+- **Typed, summarised concepts** — each file carries a `type` (Architecture / Spec /
+  Plan / Runbook / Handover / Skill / Reference / Decision Record), a one-line
+  description, and cross-links, so you can decide what to open without reading it.
+- **Honest staleness** — every concept is tagged `current` / `historical` /
+  `superseded`, and replaced docs carry a visible "superseded by →" banner. The
+  point-in-time snapshots that used to masquerade as current are now labelled
+  (20 current · 14 historical · 3 superseded).
+- **Link graph** — `docs/okf/scudo/viz.html` visualises how the concepts relate.
+
+**Why we did it.** To make the codebase's *knowledge* as clear as its code — a human
+or an agent should reach the one authoritative doc in a couple of hops instead of
+re-deriving context every session. The bundle is **deploy-safe** (it is `docs/`-only,
+excluded from the backend image and the S3 sync) and **reproducible**.
+
+**Use / rebuild.** Read it from `docs/okf/scudo/index.md`. It is *generated*, not
+hand-maintained: sources are **copied**, never moved, so edit
+`docs/okf/build/manifest.yaml` and rebuild — don't hand-edit `docs/okf/scudo/`.
+
+```bash
+# OKF toolkit lives in a separate repo/venv (one-time: pip install -e . there)
+OKF_BIN=/path/to/OpenKnowledgeFormat/.venv/bin/okf ./docs/okf/build_bundle.sh
+```
+
+Status + rebuild details: [`docs/okf/README.md`](docs/okf/README.md),
+[`docs/okf/SUMMARY.md`](docs/okf/SUMMARY.md).
 
 ---
 
