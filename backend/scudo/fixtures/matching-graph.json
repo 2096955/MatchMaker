@@ -21,7 +21,7 @@
       "AWS AppSync",
       "scudo-cost-ladder"
     ],
-    "analyzedAt": "2026-06-24T15:07:06.385656+00:00",
+    "analyzedAt": "2026-07-02T13:12:58.060209+00:00",
     "gitCommitHash": "offline-fixture"
   },
   "nodes": [
@@ -528,6 +528,171 @@
       "complexity": "moderate"
     },
     {
+      "id": "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
+      "type": "conceptual",
+      "name": "Equity Prices EOD CSV Distribution",
+      "summary": "distribution attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "distribution"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
+      "type": "conceptual",
+      "name": "Market Data Distribution Service",
+      "summary": "data service attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "data_service"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
+      "type": "conceptual",
+      "name": "Equity Prices Historical Series",
+      "summary": "marketing dataset attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "marketing_dataset"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:2b480e49-3ce8-5392-b634-de2e670b081e",
+      "type": "conceptual",
+      "name": "Equity Prices Real-Time Feed",
+      "summary": "delivery product attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "delivery_product"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:2d17c28c-69c3-5b3a-9e1e-86e81cfbb1f2",
+      "type": "conceptual",
+      "name": "Closing Price",
+      "summary": "field attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "field"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
+      "type": "conceptual",
+      "name": "Secure FTP Delivery Channel",
+      "summary": "delivery channel attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "delivery_channel"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:3cbaf61e-e5ba-59b1-b822-9cf5fcf09e27",
+      "type": "conceptual",
+      "name": "Trade Date",
+      "summary": "field attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "field"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:408e3be4-d76b-539b-927d-44c55eca0182",
+      "type": "conceptual",
+      "name": "Equity Prices Market Data Package",
+      "summary": "product package attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "product_package"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:42ad4075-4381-501c-903c-c01fd5790be8",
+      "type": "conceptual",
+      "name": "Ticker Symbol",
+      "summary": "field attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "field"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:46d541b6-ecf4-5c8d-b007-e22c57237613",
+      "type": "conceptual",
+      "name": "Closing Price",
+      "summary": "business data element attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "business_data_element"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
+      "type": "conceptual",
+      "name": "Equity Price Observation",
+      "summary": "business concept element attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "business_concept_element"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:7e8b0772-604a-5c85-87a4-91c9a644a92e",
+      "type": "conceptual",
+      "name": "Market Data Taxonomy",
+      "summary": "data taxonomy attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "data_taxonomy"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:b678b990-526e-561d-89f8-439b7f6495db",
+      "type": "conceptual",
+      "name": "Equity Prices Data Dictionary",
+      "summary": "data dictionary attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "data_dictionary"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+      "type": "conceptual",
+      "name": "Equity Price Record",
+      "summary": "field group attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "field_group"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394",
+      "type": "conceptual",
+      "name": "Equity Prices EOD Dataset",
+      "summary": "distributed dataset attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "distributed_dataset"
+      ],
+      "complexity": "simple"
+    },
+    {
       "id": "mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f",
       "type": "entity",
       "name": "FX Spot and Forward Rates",
@@ -881,6 +1046,122 @@
       }
     },
     {
+      "source": "jpmorgan:data:cdao:concept:equity-prices",
+      "target": "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
+      "type": "conceptual",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:concept:equity-prices",
+      "target": "mds.enrich:408e3be4-d76b-539b-927d-44c55eca0182",
+      "type": "conceptual",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:concept:equity-prices",
+      "target": "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
+      "type": "conceptual",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "jpmorgan:data:cdao:concept:equity-prices",
+      "target": "mds.enrich:b678b990-526e-561d-89f8-439b7f6495db",
+      "type": "conceptual",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
+      "target": "mds.enrich:2b480e49-3ce8-5392-b634-de2e670b081e",
+      "type": "made_available_through",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "delivered over"
+    },
+    {
+      "source": "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
+      "target": "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
+      "type": "delivered_by",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "serves via"
+    },
+    {
+      "source": "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
+      "target": "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
+      "type": "accessed_through",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "accessed via"
+    },
+    {
+      "source": "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394",
+      "target": "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
+      "type": "formatted_as",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "formatted as"
+    },
+    {
+      "source": "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
+      "target": "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394",
+      "type": "in_series",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "in series"
+    },
+    {
+      "source": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+      "target": "mds.enrich:42ad4075-4381-501c-903c-c01fd5790be8",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "contains"
+    },
+    {
+      "source": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+      "target": "mds.enrich:3cbaf61e-e5ba-59b1-b822-9cf5fcf09e27",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "contains"
+    },
+    {
+      "source": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+      "target": "mds.enrich:2d17c28c-69c3-5b3a-9e1e-86e81cfbb1f2",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "contains"
+    },
+    {
+      "source": "mds.enrich:b678b990-526e-561d-89f8-439b7f6495db",
+      "target": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "contains"
+    },
+    {
+      "source": "mds.enrich:2d17c28c-69c3-5b3a-9e1e-86e81cfbb1f2",
+      "target": "mds.enrich:46d541b6-ecf4-5c8d-b007-e22c57237613",
+      "type": "classified_as",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "classified as"
+    },
+    {
+      "source": "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
+      "target": "mds.enrich:7e8b0772-604a-5c85-87a4-91c9a644a92e",
+      "type": "classified_as",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "classified under"
+    },
+    {
       "source": "match-confidence-gate",
       "target": "jpmorgan:data:cdao:concept:fixed-income-prices",
       "type": "similar_to",
@@ -1191,6 +1472,28 @@
         "mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0",
         "mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f",
         "mds.ice:17320f3d-2679-5765-9359-646a2908c9f0"
+      ]
+    },
+    {
+      "id": "layer:m10-conceptual-enrichment",
+      "name": "M10 Conceptual Enrichment",
+      "description": "Additive Product/Delivery/DataDictionary/Field metadata attached to already-mapped CDAO Concepts.",
+      "nodeIds": [
+        "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
+        "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
+        "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
+        "mds.enrich:2b480e49-3ce8-5392-b634-de2e670b081e",
+        "mds.enrich:2d17c28c-69c3-5b3a-9e1e-86e81cfbb1f2",
+        "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
+        "mds.enrich:3cbaf61e-e5ba-59b1-b822-9cf5fcf09e27",
+        "mds.enrich:408e3be4-d76b-539b-927d-44c55eca0182",
+        "mds.enrich:42ad4075-4381-501c-903c-c01fd5790be8",
+        "mds.enrich:46d541b6-ecf4-5c8d-b007-e22c57237613",
+        "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
+        "mds.enrich:7e8b0772-604a-5c85-87a4-91c9a644a92e",
+        "mds.enrich:b678b990-526e-561d-89f8-439b7f6495db",
+        "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+        "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394"
       ]
     }
   ],
