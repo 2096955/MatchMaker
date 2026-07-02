@@ -19,6 +19,7 @@ import traceback
 from .. import agent as agent_mod
 from .. import bundle as bundle_mod
 from .. import config as config_mod
+from .. import enrichment as enrichment_mod
 from .. import frames as frames_mod
 from .. import hydrate as hydrate_mod
 from .. import store as store_pkg
@@ -36,9 +37,14 @@ from ..hydrate import HydrationError, hydrate
 from ..matching import map_vendor_product
 from ..models import (
     Candidate,
+    ConceptualEdge,
+    ConceptualEdgeKind,
+    ConceptualNode,
+    ConceptualNodeKind,
     MappingStatus,
     TaxonomyNode,
     VendorProductRef,
+    conceptual_iri,
     mds_iri,
 )
 from ..store.base import RetrievalStore
@@ -904,6 +910,162 @@ def _():
         assert "incompatible" in str(e), str(e)
     else:
         raise AssertionError("expected ValueError on major version mismatch")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# ENRICHMENT (M10) — conceptual layer + LLM abstention contracts
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _swap_enrichment_backend(backend: str):
+    saved = enrichment_mod.settings
+    enrichment_mod.settings = dataclasses.replace(saved, enrichment_backend=backend)
+    return saved
+
+
+@case("ENRICHMENT_conceptual_iri_is_deterministic")
+def _():
+    a = conceptual_iri(EQ_PRICES_IRI, ConceptualNodeKind.FIELD, "Ticker")
+    b = conceptual_iri(EQ_PRICES_IRI, ConceptualNodeKind.FIELD, "ticker")
+    c = conceptual_iri(EQ_PRICES_IRI, ConceptualNodeKind.FIELD_GROUP, "ticker")
+    assert a == b, (a, b)
+    assert a != c, (a, c)
+    assert a.startswith("mds.enrich:"), a
+
+
+@case("ENRICHMENT_backend_off_abstains_without_llm")
+def _():
+    saved = _swap_enrichment_backend("off")
+    try:
+        ref = VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="EQ-M10-OFF",
+            name="Equity Prices",
+            raw={"ticker": "JPM"},
+        )
+        graph = enrichment_mod.extract_field_structure(ref, EQ_PRICES_IRI)
+        assert graph.root_concept_iri == EQ_PRICES_IRI
+        assert graph.nodes == []
+        assert graph.edges == []
+
+        candidate = ConceptualNode(
+            iri=conceptual_iri(
+                EQ_PRICES_IRI,
+                ConceptualNodeKind.BUSINESS_CONCEPT_ELEMENT,
+                "price",
+            ),
+            kind=ConceptualNodeKind.BUSINESS_CONCEPT_ELEMENT,
+            label="Price",
+            attaches_to_concept_iri=EQ_PRICES_IRI,
+        )
+        assert (
+            enrichment_mod.classify_business_concept(ref, EQ_PRICES_IRI, [candidate])
+            is None
+        )
+    finally:
+        enrichment_mod.settings = saved
+
+
+@case("ENRICHMENT_extract_abstains_on_malformed_llm_output")
+def _():
+    saved = _swap_enrichment_backend("opus")
+    orig_extract = enrichment_mod._extract_invoke
+    try:
+        enrichment_mod._extract_invoke = lambda ref: (_ for _ in ()).throw(  # type: ignore[assignment]
+            RuntimeError("malformed model JSON")
+        )
+        ref = VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="EQ-M10-BAD",
+            name="Equity Prices",
+            raw={"ticker": "JPM"},
+        )
+        graph = enrichment_mod.extract_field_structure(ref, EQ_PRICES_IRI)
+        assert graph.nodes == []
+        assert graph.edges == []
+    finally:
+        enrichment_mod._extract_invoke = orig_extract  # type: ignore[assignment]
+        enrichment_mod.settings = saved
+
+
+@case("ENRICHMENT_classify_rejects_empty_and_off_list_candidates")
+def _():
+    saved = _swap_enrichment_backend("opus")
+    orig_pick = enrichment_mod._classify_best_pick
+    try:
+        ref = VendorProductRef(
+            vendor=IN_SCOPE_VENDOR,
+            product_id="EQ-M10-CLASSIFY",
+            name="Equity Prices",
+            raw={},
+        )
+        assert enrichment_mod.classify_business_concept(ref, EQ_PRICES_IRI, []) is None
+
+        offered = ConceptualNode(
+            iri=conceptual_iri(
+                EQ_PRICES_IRI,
+                ConceptualNodeKind.BUSINESS_CONCEPT_ELEMENT,
+                "offered",
+            ),
+            kind=ConceptualNodeKind.BUSINESS_CONCEPT_ELEMENT,
+            label="Offered",
+            attaches_to_concept_iri=EQ_PRICES_IRI,
+        )
+        rogue = ConceptualNode(
+            iri=conceptual_iri(
+                EQ_PRICES_IRI,
+                ConceptualNodeKind.BUSINESS_CONCEPT_ELEMENT,
+                "rogue",
+            ),
+            kind=ConceptualNodeKind.BUSINESS_CONCEPT_ELEMENT,
+            label="Rogue",
+            attaches_to_concept_iri=EQ_PRICES_IRI,
+        )
+        enrichment_mod._classify_best_pick = (  # type: ignore[assignment]
+            lambda ref, concept_iri, candidates: rogue
+        )
+        assert (
+            enrichment_mod.classify_business_concept(ref, EQ_PRICES_IRI, [offered])
+            is None
+        )
+    finally:
+        enrichment_mod._classify_best_pick = orig_pick  # type: ignore[assignment]
+        enrichment_mod.settings = saved
+
+
+@case("ENRICHMENT_fake_store_round_trips_conceptual_graph")
+def _():
+    fake = _fresh_store()
+    group = ConceptualNode(
+        iri=conceptual_iri(EQ_PRICES_IRI, ConceptualNodeKind.FIELD_GROUP, "fg"),
+        kind=ConceptualNodeKind.FIELD_GROUP,
+        label="Equity price fields",
+        attaches_to_concept_iri=EQ_PRICES_IRI,
+    )
+    field = ConceptualNode(
+        iri=conceptual_iri(EQ_PRICES_IRI, ConceptualNodeKind.FIELD, "ticker"),
+        kind=ConceptualNodeKind.FIELD,
+        label="Ticker",
+        attaches_to_concept_iri=EQ_PRICES_IRI,
+        vendor_field_name="ticker",
+        data_type="string",
+        primary_key=True,
+    )
+    edge = ConceptualEdge(
+        from_iri=group.iri,
+        to_iri=field.iri,
+        kind=ConceptualEdgeKind.CONTAINS,
+        label="contains",
+    )
+    fake.upsert_conceptual_node(group)
+    fake.upsert_conceptual_node(field)
+    fake.upsert_conceptual_edge(edge)
+
+    graph = fake.get_conceptual_graph(EQ_PRICES_IRI)
+    assert {n.iri for n in graph.nodes} == {group.iri, field.iri}
+    assert [(e.from_iri, e.to_iri, e.kind) for e in graph.edges] == [
+        (group.iri, field.iri, ConceptualEdgeKind.CONTAINS)
+    ]
 
 
 # ──────────────────────────────────────────────────────────────────────────

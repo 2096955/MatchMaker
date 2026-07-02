@@ -12,6 +12,8 @@ exposes them over plain JSON for the browser:
 - ``POST /api/mapping/similar``                       — top-N CDAO candidates
 - ``POST /api/mapping/map``                           — map one vendor product
 - ``POST /api/mapping/decision``                      — record a HITL decision
+- ``POST /api/mapping/enrich``                        — M10 conceptual enrichment
+- ``GET  /api/mapping/conceptual/<concept_iri>``      — M10 conceptual layer read
 - ``GET  /api/mapping/bundle``                        — export the M6 bundle
 - ``POST /api/mapping/bundle/import``                 — import an M6 bundle
 - ``POST /api/mapping/ingest``                        — drop in a vendor file
@@ -35,16 +37,26 @@ from scudo.build_matching_graph import build_match_payload
 from scudo_mapping_mcp.agent import get_agent
 from scudo_mapping_mcp.bundle import export_bundle, import_bundle
 from scudo_mapping_mcp.config import PRIORITY_VENDORS
+from scudo_mapping_mcp.enrichment import (
+    classify_business_concept,
+    extract_field_structure,
+)
 from scudo_mapping_mcp.feedback import apply_decision
 from scudo_mapping_mcp.frames import FrameDataError, _read_vendor_frame, all_frames
 from scudo_mapping_mcp.hydrate import HydrationError, hydrate
-from scudo_mapping_mcp.ingest import ingest_bytes, seed_taxonomy
+from scudo_mapping_mcp.ingest import ingest_bytes, seed_conceptual_layer, seed_taxonomy
 from scudo_mapping_mcp.matching import map_vendor_product
+from scudo_mapping_mcp.models import ConceptualGraph, MappingBundle, MappingStatus, VendorProductRef
 from scudo_mapping_mcp.specialist import make_rest_specialist
-from scudo_mapping_mcp.models import MappingBundle, VendorProductRef
 from scudo_mapping_mcp.store import get_store
 
 mapping_bp = Blueprint("mapping", __name__)
+
+_ENRICHABLE_STATUSES = {
+    MappingStatus.AUTO_MAPPED,
+    MappingStatus.APPROVED,
+    MappingStatus.OVERRIDDEN,
+}
 
 # One-shot best-effort seed of the CDAO taxonomy. Mirrors the MCP server's
 # lifespan hook: the store stays usable even if it isn't reachable yet (a later
@@ -77,6 +89,19 @@ def _ensure_seeded():
         _readiness["last_error"] = f"seed: {type(e).__name__}: {e}"
         # Do NOT set _seeded=True — leave it so the next request retries.
         return
+    # M10 — best-effort seed of the illustrative conceptual-enrichment layer.
+    # Additive metadata only (Section 10c): a failure here never blocks
+    # taxonomy readiness and never retries on its own — the layer is not
+    # required for the cost ladder, so a one-shot failed attempt just means
+    # GET /api/mapping/conceptual/<iri> serves an empty graph.
+    try:
+        n_concept = seed_conceptual_layer()
+        ui_logger.info("conceptual layer seeded", nodes_and_edges=n_concept)
+    except Exception as e:  # noqa: BLE001 — additive only, never gates readiness
+        ui_logger.warning(
+            "conceptual layer seed failed (non-fatal)",
+            error=f"{type(e).__name__}: {e}",
+        )
     # Replay the M6 canonical bundle into FalkorDB so confirmed precedents are
     # available on boot — the resilience pin from the matching strategy:
     # stale or empty FalkorDB serves confident-but-wrong matches. Best-effort
@@ -675,6 +700,148 @@ def record_decision():
         node_iri=node_iri,
     )
     return jsonify(result.model_dump(mode="json"))
+
+
+def _coerce_mapping_status(value) -> MappingStatus | None:
+    try:
+        return value if isinstance(value, MappingStatus) else MappingStatus(value)
+    except ValueError:
+        return None
+
+
+def _conceptual_graph_response(graph: ConceptualGraph):
+    return jsonify(graph.model_dump(mode="json"))
+
+
+@mapping_bp.post("/mapping/enrich")
+def enrich_mapped_product():
+    """Run additive M10 enrichment for an already-decided mapping.
+
+    The route does not add a new input to the cost ladder. It first resolves
+    the product's existing mapping through the same store/matcher contract as
+    `/mapping/map`, and only writes conceptual metadata when that mapping is
+    already AUTO_MAPPED, APPROVED, or OVERRIDDEN.
+    """
+    body = request.get_json(silent=True) or {}
+    vendor = (body.get("vendor") or "").strip()
+    product_id = (body.get("product_id") or "").strip()
+    if not vendor:
+        return jsonify({"error": "vendor is required"}), 400
+    if not product_id:
+        return jsonify({"error": "product_id is required"}), 400
+    err = _validate_vendor(vendor)
+    if err:
+        return jsonify({"error": err}), 400
+
+    try:
+        ref = _read_vendor_frame(vendor, product_id)
+    except ValidationError as e:
+        return jsonify({"error": e.errors()}), 400
+    except FrameDataError as e:
+        ui_logger.error(
+            "Frame data invalid",
+            op="enrich_mapped_product",
+            vendor=vendor,
+            product_id=product_id,
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": f"upstream frame invalid: {e}"}), 502
+    except NotImplementedError as e:
+        ui_logger.error(
+            "Frame source unavailable",
+            op="enrich_mapped_product",
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": f"frame source unavailable: {e}"}), 503
+
+    if ref is None:
+        return jsonify({"error": "vendor product frame not found"}), 404
+
+    store = get_store()
+    try:
+        mapping = store.get_precedent_mapping(vendor, product_id)
+        if mapping is None:
+            mapping = map_vendor_product(ref, store=store)
+    except (ConnectionError, TimeoutError, OSError) as e:
+        ui_logger.error(
+            "Mapping store unavailable",
+            op="enrich_mapped_product",
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": "mapping store unavailable"}), 503
+
+    status = _coerce_mapping_status(mapping.status)
+    if status not in _ENRICHABLE_STATUSES or not mapping.mapped_node_iri:
+        return (
+            jsonify(
+                {
+                    "error": "product mapping is not ready for enrichment",
+                    "status": mapping.status,
+                }
+            ),
+            409,
+        )
+
+    concept_iri = mapping.mapped_node_iri
+    try:
+        existing = store.get_conceptual_graph(concept_iri)
+        extracted = extract_field_structure(ref, concept_iri)
+        classified = classify_business_concept(ref, concept_iri, existing.nodes)
+
+        nodes = {node.iri: node for node in extracted.nodes}
+        if classified is not None:
+            nodes[classified.iri] = classified
+        edges = list(extracted.edges)
+
+        for node in nodes.values():
+            store.upsert_conceptual_node(node)
+        for edge in edges:
+            store.upsert_conceptual_edge(edge)
+    except (ConnectionError, TimeoutError, OSError) as e:
+        ui_logger.error(
+            "Mapping store unavailable",
+            op="enrich_mapped_product",
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": "mapping store unavailable"}), 503
+
+    return _conceptual_graph_response(
+        ConceptualGraph(
+            root_concept_iri=concept_iri,
+            nodes=list(nodes.values()),
+            edges=edges,
+        )
+    )
+
+
+@mapping_bp.get("/mapping/conceptual/<path:concept_iri>")
+def get_conceptual_graph(concept_iri):
+    """Read the additive M10 conceptual graph attached to one CDAO concept."""
+    if not concept_iri or not concept_iri.strip():
+        return jsonify({"error": "concept_iri is required"}), 400
+    try:
+        max_depth = int(request.args.get("max_depth", 2))
+        max_nodes = int(request.args.get("max_nodes", 50))
+    except ValueError:
+        return jsonify({"error": "max_depth/max_nodes must be integers"}), 400
+    if not 1 <= max_depth <= 3:
+        return jsonify({"error": "max_depth must be between 1 and 3"}), 400
+    if not 1 <= max_nodes <= 100:
+        return jsonify({"error": "max_nodes must be between 1 and 100"}), 400
+    try:
+        graph = get_store().get_conceptual_graph(
+            concept_iri,
+            max_depth=max_depth,
+            max_nodes=max_nodes,
+        )
+    except (ConnectionError, TimeoutError, OSError) as e:
+        ui_logger.error(
+            "Mapping store unavailable",
+            op="get_conceptual_graph",
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": "mapping store unavailable"}), 503
+    return _conceptual_graph_response(graph)
 
 
 @mapping_bp.get("/mapping/bundle")

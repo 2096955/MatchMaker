@@ -6,12 +6,16 @@ boost, provisional-edge exclusion, negative precedents — so the matcher's
 behaviour can be exercised without a FalkorDB container. Real-store behaviour
 (I/O, transactions, ro_query) is out of scope; correctness of the contract is in.
 """
+
 from __future__ import annotations
 
 from typing import Optional
 
 from ..models import (
     Candidate,
+    ConceptualEdge,
+    ConceptualGraph,
+    ConceptualNode,
     MappingResult,
     MappingStatus,
     Subgraph,
@@ -57,6 +61,11 @@ class FakeStore(RetrievalStore):
         # FalkorDB property write. Survives reject so it remains the
         # canonical key for rank_signals_for derivation.
         self._vp_signatures: dict[tuple[str, str], str] = {}
+        # M10 — conceptual enrichment layer, dict-backed like everything
+        # else on this store. Edges keyed by (from_iri, to_iri, kind) so a
+        # re-upsert of the same triple MERGEs rather than duplicating.
+        self._conceptual_nodes: dict[str, ConceptualNode] = {}
+        self._conceptual_edges: dict[tuple[str, str, str], ConceptualEdge] = {}
 
     def _fake_now_ms(self) -> int:
         self._now_counter += 1
@@ -85,18 +94,28 @@ class FakeStore(RetrievalStore):
         # exactly the production bug r2 finding #1 surfaced.
         key = (ref.vendor, ref.product_id)
         self._vp_signatures[key] = self.vendor_signature(
-            ref.vendor, ref.name, ref.product_id,
+            ref.vendor,
+            ref.name,
+            ref.product_id,
         )
 
     # --- HITL write side ------------------------------------------------
-    def upsert_precedent(self, *, ref, node, decision, decided_by,
-                         confidence, provisional=False, decided_at_ms=None):
+    def upsert_precedent(
+        self,
+        *,
+        ref,
+        node,
+        decision,
+        decided_by,
+        confidence,
+        provisional=False,
+        decided_at_ms=None,
+    ):
         key = (ref.vendor, ref.product_id)
         d = decision.strip().lower()
         # Stamp the edge timestamp (epoch ms) so list_confirmed_precedents
         # and the M6 bundle export carry it through to provenance.
-        at_ms = int(decided_at_ms) if decided_at_ms is not None else \
-            self._fake_now_ms()
+        at_ms = int(decided_at_ms) if decided_at_ms is not None else self._fake_now_ms()
         # ON CREATE: capture the VendorProduct's signature once, mirroring
         # FalkorDB's `ON CREATE SET v.signature=$sig`. Subsequent upserts
         # for the same (vendor, product_id) keep the first signature so
@@ -104,7 +123,9 @@ class FakeStore(RetrievalStore):
         # whose name is the product_id.
         if key not in self._vp_signatures:
             self._vp_signatures[key] = self.vendor_signature(
-                ref.vendor, ref.name, ref.product_id,
+                ref.vendor,
+                ref.name,
+                ref.product_id,
             )
         if d == "reject":
             self._negatives.setdefault(key, set()).add(node.iri)
@@ -117,14 +138,16 @@ class FakeStore(RetrievalStore):
             self._provisional.pop(key, None)
             return
 
-        status = (
-            MappingStatus.OVERRIDDEN if d == "override" else MappingStatus.APPROVED
-        )
+        status = MappingStatus.OVERRIDDEN if d == "override" else MappingStatus.APPROVED
         result = MappingResult(
-            vendor_product_iri=ref.iri, vendor=ref.vendor,
-            product_id=ref.product_id, product_name=ref.name,
-            mapped_node_iri=node.iri, mapped_node_label=node.label,
-            confidence=confidence, status=status,
+            vendor_product_iri=ref.iri,
+            vendor=ref.vendor,
+            product_id=ref.product_id,
+            product_name=ref.name,
+            mapped_node_iri=node.iri,
+            mapped_node_label=node.label,
+            confidence=confidence,
+            status=status,
             rationale=f"precedent: HITL '{d}' by {decided_by}",
         )
         if provisional:
@@ -175,23 +198,25 @@ class FakeStore(RetrievalStore):
         for key in sorted(self._precedents.keys()):
             r = self._precedents[key]
             meta = self._precedent_meta.get(key, {})
-            out.append({
-                "vendor": r.vendor,
-                "product_id": r.product_id,
-                "product_name": r.product_name or "",
-                "description": meta.get("description", ""),
-                "mapped_node_iri": r.mapped_node_iri or "",
-                "mapped_node_label": r.mapped_node_label or "",
-                "decision": meta.get("decision", "approve"),
-                "decided_by": meta.get("decided_by", ""),
-                "decided_at_ms": int(meta.get("decided_at_ms") or 0),
-                "confidence": float(r.confidence or 0.0),
-                # M8 federated-audit fields — carried through the bundle so
-                # an importer in another env can replay the decision-time
-                # source identity onto the new edge.
-                "source_content_hash": meta.get("source_content_hash"),
-                "source_file_audit_id": meta.get("source_file_audit_id"),
-            })
+            out.append(
+                {
+                    "vendor": r.vendor,
+                    "product_id": r.product_id,
+                    "product_name": r.product_name or "",
+                    "description": meta.get("description", ""),
+                    "mapped_node_iri": r.mapped_node_iri or "",
+                    "mapped_node_label": r.mapped_node_label or "",
+                    "decision": meta.get("decision", "approve"),
+                    "decided_by": meta.get("decided_by", ""),
+                    "decided_at_ms": int(meta.get("decided_at_ms") or 0),
+                    "confidence": float(r.confidence or 0.0),
+                    # M8 federated-audit fields — carried through the bundle so
+                    # an importer in another env can replay the decision-time
+                    # source identity onto the new edge.
+                    "source_content_hash": meta.get("source_content_hash"),
+                    "source_file_audit_id": meta.get("source_file_audit_id"),
+                }
+            )
         return out
 
     def list_taxonomy_nodes(self) -> list[TaxonomyNode]:
@@ -201,8 +226,9 @@ class FakeStore(RetrievalStore):
     def get_taxonomy_node(self, node_iri: str) -> Optional[TaxonomyNode]:
         return self._nodes.get(node_iri)
 
-    def find_similar_products(self, ref, max_results=10, min_similarity=0.0,
-                              *, candidate_filter=None):
+    def find_similar_products(
+        self, ref, max_results=10, min_similarity=0.0, *, candidate_filter=None
+    ):
         limit = self.clamp_results(max_results)
         sig = self.vendor_signature(ref.vendor, ref.name, ref.product_id)
         boosts = self.rank_signals_for(sig)
@@ -256,3 +282,34 @@ class FakeStore(RetrievalStore):
             source_content_hash=meta.get("source_content_hash"),
             source_file_audit_id=meta.get("source_file_audit_id"),
         )
+
+    # --- M10 — conceptual enrichment layer -------------------------------
+    def upsert_conceptual_node(self, node: ConceptualNode) -> None:
+        self._conceptual_nodes[node.iri] = node
+
+    def upsert_conceptual_edge(self, edge: ConceptualEdge) -> None:
+        key = (edge.from_iri, edge.to_iri, edge.kind.value)
+        self._conceptual_edges[key] = edge
+
+    def get_conceptual_graph(
+        self, concept_iri: str, max_depth: int = 2, max_nodes: int = 50
+    ) -> ConceptualGraph:
+        cap = self.clamp_nodes(max_nodes)
+        _ = self.clamp_depth(max_depth)
+        # Sort by iri before capping so a tight max_nodes selects the same
+        # subset the FalkorDB backend's `ORDER BY n.iri LIMIT $cap` does.
+        nodes = sorted(
+            (
+                n
+                for n in self._conceptual_nodes.values()
+                if n.attaches_to_concept_iri == concept_iri
+            ),
+            key=lambda n: n.iri,
+        )[:cap]
+        node_iris = {n.iri for n in nodes}
+        edges = [
+            e
+            for e in self._conceptual_edges.values()
+            if e.from_iri in node_iris and e.to_iri in node_iris
+        ]
+        return ConceptualGraph(root_concept_iri=concept_iri, nodes=nodes, edges=edges)

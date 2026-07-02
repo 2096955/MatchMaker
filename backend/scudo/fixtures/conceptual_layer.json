@@ -1,0 +1,168 @@
+{
+  "@context": "https://catalogue.jpm/ontology/enrich/v0.1",
+  "_meta": {
+    "note": "ILLUSTRATIVE — synthetic conceptual enrichment layer for demonstration. Not the authoritative bank export.",
+    "provenance": "synthetic",
+    "grounding": "Node/edge kinds mirror the DCAT/SKOS-based CatalogueOntology transcript (cat:/dcat: prefixes) — see ConceptualNodeKind/ConceptualEdgeKind in scudo_mapping_mcp/models.py."
+  },
+  "concept_iri": "jpmorgan:data:cdao:concept:equity-prices",
+  "nodes": [
+    {
+      "local_id": "product-package",
+      "kind": "product_package",
+      "label": "Equity Prices Market Data Package"
+    },
+    {
+      "local_id": "delivery-product",
+      "kind": "delivery_product",
+      "label": "Equity Prices Real-Time Feed"
+    },
+    {
+      "local_id": "data-service",
+      "kind": "data_service",
+      "label": "Market Data Distribution Service"
+    },
+    {
+      "local_id": "delivery-channel",
+      "kind": "delivery_channel",
+      "label": "Secure FTP Delivery Channel"
+    },
+    {
+      "local_id": "distribution",
+      "kind": "distribution",
+      "label": "Equity Prices EOD CSV Distribution"
+    },
+    {
+      "local_id": "distributed-dataset",
+      "kind": "distributed_dataset",
+      "label": "Equity Prices EOD Dataset"
+    },
+    {
+      "local_id": "marketing-dataset",
+      "kind": "marketing_dataset",
+      "label": "Equity Prices Historical Series"
+    },
+    {
+      "local_id": "business-concept-element",
+      "kind": "business_concept_element",
+      "label": "Equity Price Observation"
+    },
+    {
+      "local_id": "data-taxonomy",
+      "kind": "data_taxonomy",
+      "label": "Market Data Taxonomy"
+    },
+    {
+      "local_id": "data-dictionary",
+      "kind": "data_dictionary",
+      "label": "Equity Prices Data Dictionary"
+    },
+    {
+      "local_id": "field-group-price-record",
+      "kind": "field_group",
+      "label": "Equity Price Record",
+      "database_notation": "EQ_PRICE_RECORD",
+      "schema_notation": "equity.price_record"
+    },
+    {
+      "local_id": "field-ticker",
+      "kind": "field",
+      "label": "Ticker Symbol",
+      "vendor_field_name": "ticker",
+      "data_type": "string",
+      "primary_key": true,
+      "nullable": false
+    },
+    {
+      "local_id": "field-trade-date",
+      "kind": "field",
+      "label": "Trade Date",
+      "vendor_field_name": "trade_date",
+      "data_type": "date",
+      "primary_key": true,
+      "nullable": false
+    },
+    {
+      "local_id": "field-close-price",
+      "kind": "field",
+      "label": "Closing Price",
+      "vendor_field_name": "close_price",
+      "data_type": "decimal",
+      "primary_key": false,
+      "nullable": false
+    },
+    {
+      "local_id": "business-data-element-closing-price",
+      "kind": "business_data_element",
+      "label": "Closing Price"
+    }
+  ],
+  "edges": [
+    {
+      "from_local_id": "delivery-channel",
+      "to_local_id": "delivery-product",
+      "kind": "made_available_through",
+      "label": "delivered over"
+    },
+    {
+      "from_local_id": "data-service",
+      "to_local_id": "delivery-channel",
+      "kind": "delivered_by",
+      "label": "serves via"
+    },
+    {
+      "from_local_id": "distribution",
+      "to_local_id": "data-service",
+      "kind": "accessed_through",
+      "label": "accessed via"
+    },
+    {
+      "from_local_id": "distributed-dataset",
+      "to_local_id": "distribution",
+      "kind": "formatted_as",
+      "label": "formatted as"
+    },
+    {
+      "from_local_id": "marketing-dataset",
+      "to_local_id": "distributed-dataset",
+      "kind": "in_series",
+      "label": "in series"
+    },
+    {
+      "from_local_id": "field-group-price-record",
+      "to_local_id": "field-ticker",
+      "kind": "contains",
+      "label": "contains"
+    },
+    {
+      "from_local_id": "field-group-price-record",
+      "to_local_id": "field-trade-date",
+      "kind": "contains",
+      "label": "contains"
+    },
+    {
+      "from_local_id": "field-group-price-record",
+      "to_local_id": "field-close-price",
+      "kind": "contains",
+      "label": "contains"
+    },
+    {
+      "from_local_id": "data-dictionary",
+      "to_local_id": "field-group-price-record",
+      "kind": "contains",
+      "label": "contains"
+    },
+    {
+      "from_local_id": "field-close-price",
+      "to_local_id": "business-data-element-closing-price",
+      "kind": "classified_as",
+      "label": "classified as"
+    },
+    {
+      "from_local_id": "business-concept-element",
+      "to_local_id": "data-taxonomy",
+      "kind": "classified_as",
+      "label": "classified under"
+    }
+  ]
+}

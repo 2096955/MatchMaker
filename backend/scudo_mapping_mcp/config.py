@@ -72,6 +72,7 @@ def borderline_threshold(
 
 _ALLOWED_TAXONOMY_LOADERS: tuple[str, ...] = ("cdao",)
 _ALLOWED_PERSIST_TARGETS: tuple[str, ...] = ("falkordb", "neptune", "none", "memory")
+_ALLOWED_ENRICHMENT_BACKENDS: tuple[str, ...] = ("opus", "off")
 
 
 def _default_vendor_adapters() -> tuple[str, ...]:
@@ -158,6 +159,11 @@ class Settings:
     # BM25 + RRF path runs unchanged. Gated so the 86 smoke gates keep
     # exercising the legacy path until the new path is fully calibrated.
     use_opus_dense: bool  # SCUDO_USE_OPUS_DENSE — "1"/"true"/"yes" -> True
+    # M10 conceptual-enrichment backend — see enrichment.py. "off" (default)
+    # means extract_field_structure/classify_business_concept abstain with no
+    # AWS call, so smoke gates stay green without Bedrock creds. "opus" turns
+    # on the real Bedrock call.
+    enrichment_backend: str  # SCUDO_ENRICHMENT_BACKEND — "opus" | "off"
 
     @staticmethod
     def from_env() -> "Settings":
@@ -215,6 +221,18 @@ class Settings:
             "on",
         }
 
+        # M10 enrichment backend: case-insensitive; validated against
+        # allow-list; defaults to "off" so smoke gates stay green without
+        # Bedrock creds until an environment explicitly opts in.
+        enrichment_backend = (
+            os.getenv("SCUDO_ENRICHMENT_BACKEND", "off").strip().lower()
+        )
+        if enrichment_backend not in _ALLOWED_ENRICHMENT_BACKENDS:
+            raise ValueError(
+                f"SCUDO_ENRICHMENT_BACKEND={enrichment_backend!r} not in "
+                f"{_ALLOWED_ENRICHMENT_BACKENDS!r}"
+            )
+
         return Settings(
             store_backend=store_backend,
             falkordb_url=os.getenv("FALKORDB_URL", "falkordb://localhost:6379"),
@@ -233,6 +251,7 @@ class Settings:
             taxonomy_loader=taxonomy_loader,
             persist_target=persist_target,
             use_opus_dense=use_opus_dense,
+            enrichment_backend=enrichment_backend,
         )
 
 

@@ -27,6 +27,7 @@ PRAGMATIC LIMITS
   taxonomy node with similarity=0.0 — clearly stubbed but non-empty so the
   matcher's structural pass still has nodes to score, filter and tilt.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,6 +35,9 @@ from typing import Optional
 
 from ..models import (
     Candidate,
+    ConceptualEdge,
+    ConceptualGraph,
+    ConceptualNode,
     MappingResult,
     MappingStatus,
     Subgraph,
@@ -52,26 +56,34 @@ PREFIX prov: <http://www.w3.org/ns/prov#>
 """
 
 # get_taxonomy_node — one hop, parent + children.
-SPARQL_TAXONOMY_NODE = _PREFIXES + """
+SPARQL_TAXONOMY_NODE = (
+    _PREFIXES
+    + """
 SELECT ?label ?parent (GROUP_CONCAT(?child; SEPARATOR=",") AS ?children) WHERE {
   <%(iri)s> skos:prefLabel ?label .
   OPTIONAL { <%(iri)s> skos:broader ?parent }
   OPTIONAL { ?child skos:broader <%(iri)s> }
 } GROUP BY ?label ?parent
 """
+)
 
 # get_ontology_neighbourhood — bounded property path (depth clamped at the edge).
-SPARQL_NEIGHBOURHOOD = _PREFIXES + """
+SPARQL_NEIGHBOURHOOD = (
+    _PREFIXES
+    + """
 SELECT ?node ?label ?parent WHERE {
   <%(iri)s> skos:narrower{1,%(depth)d} ?node .
   ?node skos:prefLabel ?label .
   OPTIONAL { ?node skos:broader ?parent }
 } LIMIT %(cap)d
 """
+)
 
 # upsert_taxonomy_node — idempotent: drop the prior triples for this IRI, then
 # re-insert. Named graph carries provenance.
-SPARQL_UPSERT_TAXONOMY_NODE = _PREFIXES + """
+SPARQL_UPSERT_TAXONOMY_NODE = (
+    _PREFIXES
+    + """
 WITH <%(graph)s>
 DELETE { <%(iri)s> skos:prefLabel ?l . <%(iri)s> skos:broader ?p }
 WHERE  { OPTIONAL { <%(iri)s> skos:prefLabel ?l }
@@ -81,9 +93,12 @@ INSERT DATA { GRAPH <%(graph)s> {
   %(parent_triple)s
 } }
 """
+)
 
 # upsert_vendor_product — same idempotent shape.
-SPARQL_UPSERT_VENDOR_PRODUCT = _PREFIXES + """
+SPARQL_UPSERT_VENDOR_PRODUCT = (
+    _PREFIXES
+    + """
 WITH <%(graph)s>
 DELETE { <%(iri)s> mds:vendor ?v . <%(iri)s> mds:productId ?p .
          <%(iri)s> mds:name ?n . <%(iri)s> mds:description ?d .
@@ -102,9 +117,12 @@ INSERT DATA { GRAPH <%(graph)s> {
             mds:signature   %(sig)s .
 } }
 """
+)
 
 # get_precedent_mapping — CONFIRMED edge only (exclude provisional, I5).
-SPARQL_GET_PRECEDENT = _PREFIXES + """
+SPARQL_GET_PRECEDENT = (
+    _PREFIXES
+    + """
 SELECT ?vIri ?vName ?tIri ?tLabel ?conf ?decision ?at ?srcHash ?srcAudit WHERE {
   ?vIri a mds:VendorProduct ;
         mds:vendor    %(vendor)s ;
@@ -122,21 +140,27 @@ SELECT ?vIri ?vName ?tIri ?tLabel ?conf ?decision ?at ?srcHash ?srcAudit WHERE {
   FILTER ( !BOUND(?prov) || ?prov = false )
 } ORDER BY DESC(?at) LIMIT 1
 """
+)
 
 # find_similar_products — placeholder per the brief: every taxonomy node with
 # similarity 0.0. Production wires Neptune Analytics / Bedrock vector search.
-SPARQL_LIST_TAXONOMY_NODES = _PREFIXES + """
+SPARQL_LIST_TAXONOMY_NODES = (
+    _PREFIXES
+    + """
 SELECT ?iri ?label ?parent WHERE {
   ?iri a skos:Concept .
   OPTIONAL { ?iri skos:prefLabel ?label }
   OPTIONAL { ?iri skos:broader   ?parent }
 } ORDER BY ?iri LIMIT %(cap)d
 """
+)
 
 # upsert_precedent (approve / override) — single-positive-precedent invariant
 # enforced by deleting ALL prior mds:mappedTo edges from this VendorProduct,
 # then inserting the new one. Negative edge on the chosen target is cleared.
-SPARQL_UPSERT_PRECEDENT_POSITIVE = _PREFIXES + """
+SPARQL_UPSERT_PRECEDENT_POSITIVE = (
+    _PREFIXES
+    + """
 WITH <%(graph)s>
 DELETE {
   <%(v_iri)s> mds:mappedTo ?old_edge .
@@ -172,12 +196,15 @@ INSERT DATA { GRAPH <%(graph)s> {
   <%(v_iri)s> mds:mappedTo <%(edge_iri)s> .
 } }
 """
+)
 
 # upsert_precedent (reject) — record a NOT_MAPPED_TO edge and wipe any prior
 # positive edge to THIS exact target (so a reject of a previously-approved
 # node is recorded as a reversal). Other positive precedents on different
 # targets stay.
-SPARQL_UPSERT_PRECEDENT_NEGATIVE = _PREFIXES + """
+SPARQL_UPSERT_PRECEDENT_NEGATIVE = (
+    _PREFIXES
+    + """
 WITH <%(graph)s>
 DELETE {
   <%(v_iri)s> mds:mappedTo ?pos_edge .
@@ -210,10 +237,13 @@ INSERT DATA { GRAPH <%(graph)s> {
   <%(v_iri)s> mds:notMappedTo <%(edge_iri)s> .
 } }
 """
+)
 
 # rank_signals_for — count distinct VendorProducts whose signature matches
 # and that have a CONFIRMED MAPPED_TO edge into the node.
-SPARQL_RANK_SIGNALS = _PREFIXES + """
+SPARQL_RANK_SIGNALS = (
+    _PREFIXES
+    + """
 SELECT ?tIri (COUNT(DISTINCT ?vIri) AS ?count) WHERE {
   ?vIri a mds:VendorProduct ;
         mds:signature %(sig)s ;
@@ -223,10 +253,13 @@ SELECT ?tIri (COUNT(DISTINCT ?vIri) AS ?count) WHERE {
   FILTER ( !BOUND(?prov) || ?prov = false )
 } GROUP BY ?tIri
 """
+)
 
 # get_negative_precedents — node IRIs that the human rejected for this
 # (vendor, product_id).
-SPARQL_NEGATIVE_PRECEDENTS = _PREFIXES + """
+SPARQL_NEGATIVE_PRECEDENTS = (
+    _PREFIXES
+    + """
 SELECT DISTINCT ?tIri WHERE {
   ?vIri a mds:VendorProduct ;
         mds:vendor    %(vendor)s ;
@@ -235,9 +268,12 @@ SELECT DISTINCT ?tIri WHERE {
   ?edge mds:target ?tIri .
 }
 """
+)
 
 # list_confirmed_precedents — every CONFIRMED MAPPED_TO edge, flat.
-SPARQL_LIST_CONFIRMED = _PREFIXES + """
+SPARQL_LIST_CONFIRMED = (
+    _PREFIXES
+    + """
 SELECT ?vendor ?pid ?name ?desc ?tIri ?tLabel
        ?decision ?by ?at ?conf ?srcHash ?srcAudit WHERE {
   ?vIri a mds:VendorProduct ;
@@ -258,20 +294,25 @@ SELECT ?vendor ?pid ?name ?desc ?tIri ?tLabel
   FILTER ( !BOUND(?prov) || ?prov = false )
 } ORDER BY ?vendor ?pid
 """
+)
 
 # list_taxonomy_nodes — every skos:Concept the store knows about.
-SPARQL_LIST_ALL_TAXONOMY = _PREFIXES + """
+SPARQL_LIST_ALL_TAXONOMY = (
+    _PREFIXES
+    + """
 SELECT ?iri ?label ?parent WHERE {
   ?iri a skos:Concept .
   OPTIONAL { ?iri skos:prefLabel ?label }
   OPTIONAL { ?iri skos:broader   ?parent }
 } ORDER BY ?iri
 """
+)
 
 
 # ────────────────────────────────────────────────────────────────────
 # SigV4-signed SPARQL transport
 # ────────────────────────────────────────────────────────────────────
+
 
 def _iri(value: str) -> str:
     """Escape an IRI for inline substitution inside <...>.
@@ -352,7 +393,7 @@ class _NeptuneSparqlClient:
         # Strip an accidental scheme; Neptune is always https.
         for prefix in ("https://", "http://"):
             if host.startswith(prefix):
-                host = host[len(prefix):]
+                host = host[len(prefix) :]
         # Strip an accidental port suffix; we always go to 8182.
         host = host.split(":", 1)[0].rstrip("/")
         self._host = host
@@ -373,8 +414,9 @@ class _NeptuneSparqlClient:
         cert_reqs = "CERT_REQUIRED" if verify_tls else "CERT_NONE"
         self._http = urllib3.PoolManager(
             cert_reqs=cert_reqs,
-            timeout=urllib3.Timeout(connect=self.TIMEOUT_SECONDS,
-                                    read=self.TIMEOUT_SECONDS),
+            timeout=urllib3.Timeout(
+                connect=self.TIMEOUT_SECONDS, read=self.TIMEOUT_SECONDS
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -404,8 +446,7 @@ class _NeptuneSparqlClient:
         )
         if resp.status < 200 or resp.status >= 300:
             raise RuntimeError(
-                f"Neptune SPARQL POST failed: HTTP {resp.status} "
-                f"{resp.data[:512]!r}"
+                f"Neptune SPARQL POST failed: HTTP {resp.status} {resp.data[:512]!r}"
             )
         return resp.data
 
@@ -418,7 +459,8 @@ class _NeptuneSparqlClient:
         """
         body = ("query=" + _urlencode(sparql)).encode("utf-8")
         data = self._signed_post(
-            body, content_type="application/x-www-form-urlencoded",
+            body,
+            content_type="application/x-www-form-urlencoded",
         )
         try:
             payload = json.loads(data.decode("utf-8"))
@@ -432,13 +474,15 @@ class _NeptuneSparqlClient:
         """Run a SPARQL INSERT/DELETE. No return value; raises on non-2xx."""
         body = ("update=" + _urlencode(sparql)).encode("utf-8")
         self._signed_post(
-            body, content_type="application/x-www-form-urlencoded",
+            body,
+            content_type="application/x-www-form-urlencoded",
         )
 
 
 def _urlencode(value: str) -> str:
     """URL-encode the SPARQL body for ``application/x-www-form-urlencoded``."""
     import urllib.parse
+
     return urllib.parse.quote(value, safe="")
 
 
@@ -459,6 +503,7 @@ def _cell_or(row: dict, var: str, default: str = "") -> str:
 # ────────────────────────────────────────────────────────────────────
 # Store
 # ────────────────────────────────────────────────────────────────────
+
 
 class NeptuneStore(RetrievalStore):
     def __init__(self, endpoint: str, graph_name: str):
@@ -591,11 +636,15 @@ class NeptuneStore(RetrievalStore):
         return candidates
 
     def get_ontology_neighbourhood(
-        self, node_iri: str, max_depth: int = 2, max_nodes: int = 50,
+        self,
+        node_iri: str,
+        max_depth: int = 2,
+        max_nodes: int = 50,
     ) -> Subgraph:
         client = self._require_client()
         rows = client.query_select(
-            SPARQL_NEIGHBOURHOOD % {
+            SPARQL_NEIGHBOURHOOD
+            % {
                 "iri": _iri(node_iri),
                 "depth": self.clamp_depth(max_depth),
                 "cap": self.clamp_nodes(max_nodes),
@@ -609,9 +658,14 @@ class NeptuneStore(RetrievalStore):
                 continue
             label = _cell_or(row, "label", "")
             parent = _cell(row, "parent")
-            seen.setdefault(iri, TaxonomyNode(
-                iri=iri, label=label, parent_iri=parent,
-            ))
+            seen.setdefault(
+                iri,
+                TaxonomyNode(
+                    iri=iri,
+                    label=label,
+                    parent_iri=parent,
+                ),
+            )
             if parent:
                 edges.add((parent, iri))
         return Subgraph(
@@ -621,11 +675,14 @@ class NeptuneStore(RetrievalStore):
         )
 
     def get_precedent_mapping(
-        self, vendor: str, product_id: str,
+        self,
+        vendor: str,
+        product_id: str,
     ) -> Optional[MappingResult]:
         client = self._require_client()
         rows = client.query_select(
-            SPARQL_GET_PRECEDENT % {
+            SPARQL_GET_PRECEDENT
+            % {
                 "vendor": _lit(vendor),
                 "pid": _lit(product_id),
             },
@@ -644,7 +701,8 @@ class NeptuneStore(RetrievalStore):
         except ValueError:
             conf = 1.0
         status = (
-            MappingStatus.OVERRIDDEN if decision == "override"
+            MappingStatus.OVERRIDDEN
+            if decision == "override"
             else MappingStatus.APPROVED
         )
         return MappingResult(
@@ -682,9 +740,7 @@ class NeptuneStore(RetrievalStore):
                 f"decision must be 'approve' | 'override' | 'reject', got {decision!r}"
             )
         signature = self.vendor_signature(ref.vendor, ref.name, ref.product_id)
-        at_ms = (
-            int(decided_at_ms) if decided_at_ms is not None else self._now_ms()
-        )
+        at_ms = int(decided_at_ms) if decided_at_ms is not None else self._now_ms()
         # Edge IRI: deterministic per (v, t, decision_kind) so re-applying the
         # same decision MERGEs onto the same edge node, and a prior delete
         # actually clears the right one.
@@ -713,7 +769,8 @@ class NeptuneStore(RetrievalStore):
             "src_audit": _lit(ref.source_file_audit_id or ""),
         }
         template = (
-            SPARQL_UPSERT_PRECEDENT_NEGATIVE if d == "reject"
+            SPARQL_UPSERT_PRECEDENT_NEGATIVE
+            if d == "reject"
             else SPARQL_UPSERT_PRECEDENT_POSITIVE
         )
         client.query_update(template % params)
@@ -736,11 +793,14 @@ class NeptuneStore(RetrievalStore):
         return out
 
     def get_negative_precedents(
-        self, vendor: str, product_id: str,
+        self,
+        vendor: str,
+        product_id: str,
     ) -> list[str]:
         client = self._require_client()
         rows = client.query_select(
-            SPARQL_NEGATIVE_PRECEDENTS % {
+            SPARQL_NEGATIVE_PRECEDENTS
+            % {
                 "vendor": _lit(vendor),
                 "pid": _lit(product_id),
             },
@@ -765,20 +825,22 @@ class NeptuneStore(RetrievalStore):
                 conf = float(conf_cell) if conf_cell is not None else 1.0
             except ValueError:
                 conf = 1.0
-            out.append({
-                "vendor": _cell_or(row, "vendor", ""),
-                "product_id": _cell_or(row, "pid", ""),
-                "product_name": _cell_or(row, "name", ""),
-                "description": _cell_or(row, "desc", ""),
-                "mapped_node_iri": _cell_or(row, "tIri", ""),
-                "mapped_node_label": _cell_or(row, "tLabel", ""),
-                "decision": (_cell_or(row, "decision", "") or "").strip().lower(),
-                "decided_by": _cell_or(row, "by", ""),
-                "decided_at_ms": at_ms,
-                "confidence": conf,
-                "source_content_hash": _cell(row, "srcHash") or None,
-                "source_file_audit_id": _cell(row, "srcAudit") or None,
-            })
+            out.append(
+                {
+                    "vendor": _cell_or(row, "vendor", ""),
+                    "product_id": _cell_or(row, "pid", ""),
+                    "product_name": _cell_or(row, "name", ""),
+                    "description": _cell_or(row, "desc", ""),
+                    "mapped_node_iri": _cell_or(row, "tIri", ""),
+                    "mapped_node_label": _cell_or(row, "tLabel", ""),
+                    "decision": (_cell_or(row, "decision", "") or "").strip().lower(),
+                    "decided_by": _cell_or(row, "by", ""),
+                    "decided_at_ms": at_ms,
+                    "confidence": conf,
+                    "source_content_hash": _cell(row, "srcHash") or None,
+                    "source_file_audit_id": _cell(row, "srcAudit") or None,
+                }
+            )
         return out
 
     def list_taxonomy_nodes(self) -> list[TaxonomyNode]:
@@ -789,12 +851,33 @@ class NeptuneStore(RetrievalStore):
             iri = _cell(row, "iri")
             if not iri:
                 continue
-            out.append(TaxonomyNode(
-                iri=iri,
-                label=_cell_or(row, "label", ""),
-                parent_iri=_cell(row, "parent"),
-            ))
+            out.append(
+                TaxonomyNode(
+                    iri=iri,
+                    label=_cell_or(row, "label", ""),
+                    parent_iri=_cell(row, "parent"),
+                )
+            )
         return out
+
+    # ----------------------------------------------------------------
+    # M10 — conceptual enrichment layer (explicit stub, same precedent as
+    # find_similar_products above: no RDF mapping has been designed for the
+    # cat:/dcat: enrichment terms yet, so writes are documented no-ops and
+    # reads return an empty ConceptualGraph rather than silently pretending
+    # to persist. Do not treat this as real on Neptune.
+    # ----------------------------------------------------------------
+    def upsert_conceptual_node(self, node: ConceptualNode) -> None:
+        pass
+
+    def upsert_conceptual_edge(self, edge: ConceptualEdge) -> None:
+        pass
+
+    def get_conceptual_graph(
+        self, concept_iri: str, max_depth: int = 2, max_nodes: int = 50
+    ) -> ConceptualGraph:
+        _ = self.clamp_depth(max_depth), self.clamp_nodes(max_nodes)
+        return ConceptualGraph(root_concept_iri=concept_iri)
 
     # ----------------------------------------------------------------
     # Internals
@@ -802,10 +885,12 @@ class NeptuneStore(RetrievalStore):
     @staticmethod
     def _now_ms() -> int:
         import time
+
         return int(time.time() * 1000)
 
 
 def _safe_segment(value: str) -> str:
     """Slug an IRI into a URL-safe path segment for deterministic edge IRIs."""
     import urllib.parse
+
     return urllib.parse.quote(value or "", safe="")

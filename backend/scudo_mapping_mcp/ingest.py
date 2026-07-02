@@ -26,7 +26,15 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .frames import put_frame
-from .models import TaxonomyNode, VendorProductRef
+from .models import (
+    ConceptualEdge,
+    ConceptualEdgeKind,
+    ConceptualNode,
+    ConceptualNodeKind,
+    TaxonomyNode,
+    VendorProductRef,
+    conceptual_iri,
+)
 from .store import get_store
 
 # Callback signature for streaming ETL stage telemetry. ``stage`` is one of the
@@ -43,6 +51,14 @@ _MAX_ROWS = int(os.getenv("SCUDO_MAX_ROWS", "10000"))
 # Canonical illustrative taxonomy — same fixture FalkorDB seeding uses.
 _CATALOGUE_FIXTURE = (
     Path(__file__).resolve().parents[1] / "scudo" / "fixtures" / "cdao_catalogue.json"
+)
+
+# M10 — illustrative conceptual-enrichment layer, anchored to one Concept
+# (jpmorgan:data:cdao:concept:equity-prices). Additive only: seeding this is
+# never required for the cost ladder to function, so a missing/malformed
+# file degrades to "no conceptual layer" rather than blocking taxonomy seed.
+_CONCEPTUAL_LAYER_FIXTURE = (
+    Path(__file__).resolve().parents[1] / "scudo" / "fixtures" / "conceptual_layer.json"
 )
 
 _COL_ALIASES = {
@@ -103,6 +119,60 @@ def seed_taxonomy() -> int:
                 iri=str(raw["iri"]),
                 label=str(raw["label"]),
                 parent_iri=raw.get("parent_iri") or None,
+            )
+        )
+        count += 1
+    return count
+
+
+def seed_conceptual_layer(path: Path | None = None) -> int:
+    """Seed the illustrative M10 conceptual-enrichment layer (Section 10c).
+
+    Reads ``conceptual_layer.json`` (``local_id``-keyed nodes/edges anchored
+    to one ``concept_iri``), resolves each ``local_id`` to a deterministic
+    IRI via ``conceptual_iri``, and upserts nodes then edges. Returns the
+    total upsert count (nodes + edges) so the caller can log it the same way
+    ``seed_taxonomy`` does. A missing fixture file is not an error — this
+    layer is additive metadata, never required for the cost ladder — so it
+    returns 0 rather than raising.
+    """
+    fixture = path or _CONCEPTUAL_LAYER_FIXTURE
+    if not fixture.exists():
+        return 0
+    data = json.loads(fixture.read_text(encoding="utf-8"))
+    concept_iri = str(data["concept_iri"])
+    store = get_store()
+
+    local_to_iri: dict[str, str] = {}
+    count = 0
+    for raw in data.get("nodes", []):
+        kind = ConceptualNodeKind(raw["kind"])
+        local_id = str(raw["local_id"])
+        iri = conceptual_iri(concept_iri, kind, local_id)
+        local_to_iri[local_id] = iri
+        store.upsert_conceptual_node(
+            ConceptualNode(
+                iri=iri,
+                kind=kind,
+                label=str(raw.get("label") or ""),
+                attaches_to_concept_iri=concept_iri,
+                vendor_field_name=raw.get("vendor_field_name"),
+                data_type=raw.get("data_type"),
+                primary_key=raw.get("primary_key"),
+                nullable=raw.get("nullable"),
+                database_notation=raw.get("database_notation"),
+                schema_notation=raw.get("schema_notation"),
+            )
+        )
+        count += 1
+
+    for raw in data.get("edges", []):
+        store.upsert_conceptual_edge(
+            ConceptualEdge(
+                from_iri=local_to_iri[str(raw["from_local_id"])],
+                to_iri=local_to_iri[str(raw["to_local_id"])],
+                kind=ConceptualEdgeKind(raw["kind"]),
+                label=str(raw.get("label") or ""),
             )
         )
         count += 1

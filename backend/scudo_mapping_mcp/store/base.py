@@ -22,12 +22,22 @@ DIAGRAM 2 — what the seam owns:
                     LlamaIndex BM25Retriever.
   Fusion          = ``reciprocal_rank_fusion`` over [dense_ranks, lexical_ranks].
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
-from ..models import Candidate, MappingResult, Subgraph, TaxonomyNode, VendorProductRef
+from ..models import (
+    Candidate,
+    ConceptualEdge,
+    ConceptualGraph,
+    ConceptualNode,
+    MappingResult,
+    Subgraph,
+    TaxonomyNode,
+    VendorProductRef,
+)
 
 # Per-candidate filter callable signature. Returning False drops the
 # candidate from the retrieved set BEFORE ranking is finalised. The
@@ -70,7 +80,7 @@ class RetrievalStore(ABC):
         *,
         ref: VendorProductRef,
         node: TaxonomyNode,
-        decision: str,          # "approve" | "override" | "reject"
+        decision: str,  # "approve" | "override" | "reject"
         decided_by: str,
         confidence: float,
         provisional: bool = False,
@@ -127,9 +137,7 @@ class RetrievalStore(ABC):
         """
 
     @abstractmethod
-    def get_negative_precedents(
-        self, vendor: str, product_id: str
-    ) -> list[str]:
+    def get_negative_precedents(self, vendor: str, product_id: str) -> list[str]:
         """Return CDAO node IRIs rejected for ``(vendor, product_id)``."""
 
     # --- read side (the agent's entire surface) --------------------------
@@ -205,6 +213,35 @@ class RetrievalStore(ABC):
         re-seeding.
         """
 
+    # --- M10 — conceptual enrichment layer (ADDITIVE, Section 10c) -------
+    # Governance/lineage metadata that hangs off an already-mapped CDAO
+    # Concept. Never fed into matching.py's cost ladder (I5); never
+    # queried above this seam as raw Cypher/SPARQL (I2).
+    @abstractmethod
+    def upsert_conceptual_node(self, node: ConceptualNode) -> None:
+        """Write (or MERGE-update) one conceptual-layer node."""
+
+    @abstractmethod
+    def upsert_conceptual_edge(self, edge: ConceptualEdge) -> None:
+        """Write (or MERGE-update) one conceptual-layer edge.
+
+        Implementations MAY assume both ``edge.from_iri`` and ``edge.to_iri``
+        were already upserted via ``upsert_conceptual_node`` — this method
+        is not responsible for creating missing endpoint nodes.
+        """
+
+    @abstractmethod
+    def get_conceptual_graph(
+        self, concept_iri: str, max_depth: int = 2, max_nodes: int = 50
+    ) -> ConceptualGraph:
+        """All conceptual-layer nodes/edges attached to one CDAO Concept.
+
+        Read-only. Depth and node count are clamped exactly like
+        ``get_ontology_neighbourhood`` (``clamp_depth`` / ``clamp_nodes``).
+        Returns an empty ``ConceptualGraph`` (not an error) when nothing is
+        attached to ``concept_iri`` yet.
+        """
+
     # Shared clamping helpers so both backends behave identically at the edge.
     @staticmethod
     def clamp_results(n: int) -> int:
@@ -254,7 +291,9 @@ class RetrievalStore(ABC):
 
     @classmethod
     def compute_rank_boost_scaled_for_dense(
-        cls, boosts: dict, node_iri: str,
+        cls,
+        boosts: dict,
+        node_iri: str,
     ) -> float:
         """Rank-signal boost, scaled for a dense-score sort key in [0, 1].
 
@@ -311,6 +350,7 @@ class RetrievalStore(ABC):
         doesn't sneak into the indexed token.
         """
         import re
+
         raw = re.split(r"[^a-z0-9.]+", (text or "").lower())
         return [t.strip(".") for t in raw if t.strip(".")]
 
@@ -340,10 +380,8 @@ class RetrievalStore(ABC):
                 df[term] = df.get(term, 0) + 1
         N = len(tokenised)
         import math
-        idf = {
-            term: math.log(1 + (N - n + 0.5) / (n + 0.5))
-            for term, n in df.items()
-        }
+
+        idf = {term: math.log(1 + (N - n + 0.5) / (n + 0.5)) for term, n in df.items()}
         q_terms = cls._tokenise(query)
         scores: dict[str, float] = {}
         for d_id, toks in tokenised:
