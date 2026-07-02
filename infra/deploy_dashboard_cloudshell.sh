@@ -35,8 +35,18 @@ echo "[deploy] bucket=$BUCKET distribution=$DIST_ID"
 echo "[deploy] syncing dashboard-dist/ → s3://$BUCKET/demo/"
 aws s3 sync "$DIST/" "s3://$BUCKET/demo/" --delete
 
-echo "[deploy] invalidating CloudFront /demo/*"
-aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/demo/*" >/dev/null
+echo "[deploy] publishing trailing-slash entrypoint /demo/"
+aws s3api put-object \
+  --bucket "$BUCKET" \
+  --key "demo/" \
+  --body "$DIST/index.html" \
+  --content-type "text/html; charset=utf-8" \
+  --cache-control "no-cache" >/dev/null
+
+echo "[deploy] invalidating CloudFront /demo, /demo/, and /demo/*"
+aws cloudfront create-invalidation \
+  --distribution-id "$DIST_ID" \
+  --paths "/demo" "/demo/" "/demo/*" >/dev/null
 
 DOMAIN="$(aws cloudfront get-distribution --id "$DIST_ID" \
   --query "Distribution.DomainName" --output text 2>/dev/null || true)"
