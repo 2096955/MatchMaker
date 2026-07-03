@@ -66,6 +66,11 @@ class TaxonomyNode(BaseModel):
     label: str
     parent_iri: Optional[str] = None
     children_iris: list[str] = Field(default_factory=list)
+    definition: str = ""
+    alt_labels: list[str] = Field(default_factory=list)
+    node_kind: Literal["concept", "class", "property"] = "concept"
+    superclass_iris: list[str] = Field(default_factory=list)
+    superproperty_iris: list[str] = Field(default_factory=list)
 
 
 class Candidate(BaseModel):

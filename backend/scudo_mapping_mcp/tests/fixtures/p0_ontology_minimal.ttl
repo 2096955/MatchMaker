@@ -1,0 +1,46 @@
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix ex: <https://example.com/p0-minimal/> .
+@prefix odrl: <http://www.w3.org/ns/odrl/2/> .
+
+# owl:Class — definition, alt label, superclass link
+ex:RootClass a owl:Class ;
+    rdfs:label "Root Class" ;
+    skos:definition "Root class definition." ;
+    skos:altLabel "RootAlt" .
+
+ex:ChildClass a owl:Class ;
+    rdfs:label "Child Class" ;
+    rdfs:subClassOf ex:RootClass ;
+    skos:definition "Child class definition." .
+
+# skos:Concept — prefLabel, definition, scopeNote, broader, alt label
+ex:PriceConcept a skos:Concept ;
+    skos:prefLabel "Price Concept" ;
+    skos:broader ex:ChildClass ;
+    skos:definition "Concept definition body." ;
+    skos:scopeNote "Concept scope note." ;
+    skos:altLabel "PX" .
+
+# owl:DatatypeProperty — subPropertyOf chain
+ex:baseAmount a owl:DatatypeProperty ;
+    rdfs:label "base amount" ;
+    skos:definition "Base numeric amount field." .
+
+ex:priceAmount a owl:DatatypeProperty ;
+    rdfs:label "price amount" ;
+    rdfs:subPropertyOf ex:baseAmount .
+
+# dcat:Dataset — theme + keywords folded into taxonomy projection
+ex:vendorDataset a dcat:Dataset ;
+    dct:title "Vendor Dataset" ;
+    dct:description "Packaged vendor prices." ;
+    dcat:theme ex:ChildClass ;
+    dcat:keyword "equities", "prices" .
+
+# Non-taxonomy entity — must not appear in loader output
+ex:ignoredPolicy a odrl:Policy ;
+    odrl:uid "ignore-me" .

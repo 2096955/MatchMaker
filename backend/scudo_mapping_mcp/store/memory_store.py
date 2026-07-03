@@ -18,12 +18,18 @@ The SCUDO_DENSE_BACKEND=opus branch is honoured here too, so a local demo
 with Bedrock credentials exercises the same Opus-dense path the deployed
 Match&Verify uses.
 """
+
 from __future__ import annotations
 
-import os
 from typing import Optional
 
-from ..models import Candidate, TaxonomyNode, VendorProductRef
+from ..config import env_dense_backend
+from ..models import Candidate, VendorProductRef
+from ..taxonomy_text import (
+    taxonomy_bm25_doc,
+    taxonomy_candidate_desc,
+    taxonomy_dense_text,
+)
 from ..tests.fake_store import FakeStore
 from .falkordb_store import _jaro_winkler
 
@@ -47,9 +53,7 @@ class MemoryStore(FakeStore):
         # Structural filter (a) — negative-precedent drop, up front.
         rejected = set(self.get_negative_precedents(ref.vendor, ref.product_id))
 
-        dense_backend = (
-            os.getenv("SCUDO_DENSE_BACKEND") or "jaro_winkler"
-        ).strip().lower()
+        dense_backend = env_dense_backend()
 
         dense_scores: dict[str, float] = {}
         labels: dict[str, str] = {}
@@ -57,6 +61,7 @@ class MemoryStore(FakeStore):
 
         if dense_backend == "opus":
             from ..opus_dense import opus_dense_score
+
             query_label = ref.name or ref.product_id
             query_desc = ref.description or ""
             for iri, node in self._nodes.items():
@@ -68,7 +73,7 @@ class MemoryStore(FakeStore):
                     query_label=query_label,
                     query_desc=query_desc,
                     candidate_label=node.label or "",
-                    candidate_desc="",
+                    candidate_desc=taxonomy_candidate_desc(node),
                 )
         else:
             for iri, node in self._nodes.items():
@@ -76,12 +81,15 @@ class MemoryStore(FakeStore):
                     continue
                 labels[iri] = node.label or ""
                 parents[iri] = node.parent_iri
-                dense_scores[iri] = _jaro_winkler(query_text, node.label or "")
+                dense_scores[iri] = _jaro_winkler(
+                    query_text,
+                    taxonomy_dense_text(node),
+                )
 
         # Arm 2 — BM25 lexical sidecar. SORT-only, same as FalkorDBStore.
         bm25 = self.bm25_scores(
             query_text,
-            [(iri, labels[iri]) for iri in labels],
+            [(iri, taxonomy_bm25_doc(self._nodes[iri])) for iri in labels],
         )
 
         # RRF fuses the two RANKINGS into the sort score. Never similarity.
@@ -99,9 +107,7 @@ class MemoryStore(FakeStore):
             # CRITICAL: Candidate.similarity is the RAW DENSE SCORE
             # (arb-review §5.2). No rerank, no boost, no fusion.
             candidate = Candidate(
-                node=TaxonomyNode(
-                    iri=iri, label=labels[iri], parent_iri=parents[iri],
-                ),
+                node=self._nodes[iri],
                 similarity=round(similarity, 4),
             )
             if candidate_filter is not None and not candidate_filter(candidate):

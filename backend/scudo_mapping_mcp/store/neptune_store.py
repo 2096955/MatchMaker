@@ -50,20 +50,33 @@ from .base import CandidateFilter, RetrievalStore
 _PREFIXES = """
 PREFIX mds:  <https://jpmc.example/mds#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dcat: <http://www.w3.org/ns/dcat#>
 PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
 PREFIX prov: <http://www.w3.org/ns/prov#>
 """
 
-# get_taxonomy_node — one hop, parent + children.
+# get_taxonomy_node — one hop, parent + children + SKOS text + subsumption.
 SPARQL_TAXONOMY_NODE = (
     _PREFIXES
     + """
-SELECT ?label ?parent (GROUP_CONCAT(?child; SEPARATOR=",") AS ?children) WHERE {
-  <%(iri)s> skos:prefLabel ?label .
+SELECT ?label ?definition ?parent ?kind
+       (GROUP_CONCAT(DISTINCT ?child; SEPARATOR=",") AS ?children)
+       (GROUP_CONCAT(DISTINCT ?alt; SEPARATOR="|") AS ?alts)
+       (GROUP_CONCAT(DISTINCT ?super; SEPARATOR=",") AS ?superclasses)
+       (GROUP_CONCAT(DISTINCT ?superp; SEPARATOR=",") AS ?superproperties)
+WHERE {
+  OPTIONAL { <%(iri)s> skos:prefLabel ?prefLabel }
+  OPTIONAL { <%(iri)s> rdfs:label ?rdfsLabel }
+  BIND(COALESCE(?prefLabel, ?rdfsLabel) AS ?label)
+  OPTIONAL { <%(iri)s> skos:definition ?definition }
+  OPTIONAL { <%(iri)s> mds:nodeKind ?kind }
   OPTIONAL { <%(iri)s> skos:broader ?parent }
   OPTIONAL { ?child skos:broader <%(iri)s> }
-} GROUP BY ?label ?parent
+  OPTIONAL { <%(iri)s> skos:altLabel ?alt }
+  OPTIONAL { <%(iri)s> rdfs:subClassOf ?super }
+  OPTIONAL { <%(iri)s> rdfs:subPropertyOf ?superp }
+} GROUP BY ?label ?definition ?parent ?kind
 """
 )
 
@@ -79,18 +92,38 @@ SELECT ?node ?label ?parent WHERE {
 """
 )
 
-# upsert_taxonomy_node — idempotent: drop the prior triples for this IRI, then
-# re-insert. Named graph carries provenance.
+# upsert_taxonomy_node — idempotent: drop prior triples, re-insert.
 SPARQL_UPSERT_TAXONOMY_NODE = (
     _PREFIXES
     + """
 WITH <%(graph)s>
-DELETE { <%(iri)s> skos:prefLabel ?l . <%(iri)s> skos:broader ?p }
-WHERE  { OPTIONAL { <%(iri)s> skos:prefLabel ?l }
-         OPTIONAL { <%(iri)s> skos:broader   ?p } } ;
+DELETE {
+  <%(iri)s> skos:prefLabel ?l .
+  <%(iri)s> skos:definition ?d .
+  <%(iri)s> skos:altLabel ?a .
+  <%(iri)s> skos:broader ?p .
+  <%(iri)s> rdfs:subClassOf ?sc .
+  <%(iri)s> rdfs:subPropertyOf ?sp .
+  <%(iri)s> mds:nodeKind ?nk .
+}
+WHERE  {
+  OPTIONAL { <%(iri)s> skos:prefLabel ?l }
+  OPTIONAL { <%(iri)s> skos:definition ?d }
+  OPTIONAL { <%(iri)s> skos:altLabel ?a }
+  OPTIONAL { <%(iri)s> skos:broader ?p }
+  OPTIONAL { <%(iri)s> rdfs:subClassOf ?sc }
+  OPTIONAL { <%(iri)s> rdfs:subPropertyOf ?sp }
+  OPTIONAL { <%(iri)s> mds:nodeKind ?nk }
+} ;
 INSERT DATA { GRAPH <%(graph)s> {
-  <%(iri)s> skos:prefLabel %(label)s .
+  <%(iri)s> a skos:Concept ;
+            skos:prefLabel %(label)s .
+  %(definition_triple)s
   %(parent_triple)s
+  %(alt_triples)s
+  %(subclass_triples)s
+  %(subproperty_triples)s
+  %(node_kind_triple)s
 } }
 """
 )
@@ -300,11 +333,23 @@ SELECT ?vendor ?pid ?name ?desc ?tIri ?tLabel
 SPARQL_LIST_ALL_TAXONOMY = (
     _PREFIXES
     + """
-SELECT ?iri ?label ?parent WHERE {
+SELECT ?iri ?label ?parent ?definition ?kind
+       (GROUP_CONCAT(DISTINCT ?alt; SEPARATOR="|") AS ?alts)
+       (GROUP_CONCAT(DISTINCT ?super; SEPARATOR=",") AS ?superclasses)
+       (GROUP_CONCAT(DISTINCT ?superp; SEPARATOR=",") AS ?superproperties)
+WHERE {
   ?iri a skos:Concept .
-  OPTIONAL { ?iri skos:prefLabel ?label }
-  OPTIONAL { ?iri skos:broader   ?parent }
-} ORDER BY ?iri
+  OPTIONAL { ?iri skos:prefLabel ?prefLabel }
+  OPTIONAL { ?iri rdfs:label ?rdfsLabel }
+  BIND(COALESCE(?prefLabel, ?rdfsLabel) AS ?label)
+  OPTIONAL { ?iri skos:broader ?parent }
+  OPTIONAL { ?iri skos:definition ?definition }
+  OPTIONAL { ?iri skos:altLabel ?alt }
+  OPTIONAL { ?iri rdfs:subClassOf ?super }
+  OPTIONAL { ?iri rdfs:subPropertyOf ?superp }
+  OPTIONAL { ?iri mds:nodeKind ?kind }
+} GROUP BY ?iri ?label ?parent ?definition ?kind
+ORDER BY ?iri
 """
 )
 
@@ -345,13 +390,22 @@ def _lit(value) -> str:
 
 
 def _opt_iri_triple(subject: str, predicate: str, obj_iri: Optional[str]) -> str:
-    """Render an optional IRI triple inline; empty string when obj_iri is None.
-
-    Lets the upsert templates stay total without UNION / OPTIONAL gymnastics.
-    """
+    """Render an optional IRI triple inline; empty string when obj_iri is None."""
     if not obj_iri:
         return ""
-    return f"<{_iri(subject)}> {predicate} <{_iri(obj_iri)}> ."
+    return f"<{_iri(subject)}> {predicate} <{_iri(obj_iri)}> .\n  "
+
+
+def _opt_lit_triple(subject: str, predicate: str, value: Optional[str]) -> str:
+    if not value:
+        return ""
+    return f"<{_iri(subject)}> {predicate} {_lit(value)} .\n  "
+
+
+def _multi_iri_triples(subject: str, predicate: str, iris: list[str]) -> str:
+    return "".join(
+        f"<{_iri(subject)}> {predicate} <{_iri(obj)}> .\n  " for obj in iris if obj
+    )
 
 
 class _NeptuneSparqlClient:
@@ -543,12 +597,29 @@ class NeptuneStore(RetrievalStore):
     # ----------------------------------------------------------------
     def upsert_taxonomy_node(self, node: TaxonomyNode) -> None:
         client = self._require_client()
-        parent_triple = _opt_iri_triple(node.iri, "skos:broader", node.parent_iri)
+        alt_triples = "".join(
+            f"<{_iri(node.iri)}> skos:altLabel {_lit(a)} .\n  "
+            for a in node.alt_labels
+            if a
+        )
         sparql = SPARQL_UPSERT_TAXONOMY_NODE % {
             "graph": _iri(self._graph_iri),
             "iri": _iri(node.iri),
             "label": _lit(node.label or ""),
-            "parent_triple": parent_triple,
+            "definition_triple": _opt_lit_triple(
+                node.iri, "skos:definition", node.definition or None
+            ),
+            "parent_triple": _opt_iri_triple(node.iri, "skos:broader", node.parent_iri),
+            "alt_triples": alt_triples,
+            "subclass_triples": _multi_iri_triples(
+                node.iri, "rdfs:subClassOf", node.superclass_iris
+            ),
+            "subproperty_triples": _multi_iri_triples(
+                node.iri, "rdfs:subPropertyOf", node.superproperty_iris
+            ),
+            "node_kind_triple": _opt_lit_triple(
+                node.iri, "mds:nodeKind", node.node_kind or "concept"
+            ),
         }
         client.query_update(sparql)
 
@@ -582,11 +653,20 @@ class NeptuneStore(RetrievalStore):
             return None
         children_cell = _cell(row, "children") or ""
         children = [c for c in children_cell.split(",") if c]
+        alts = [a for a in (_cell(row, "alts") or "").split("|") if a]
+        super_cls = [c for c in (_cell(row, "superclasses") or "").split(",") if c]
+        super_prop = [c for c in (_cell(row, "superproperties") or "").split(",") if c]
+        kind = _cell_or(row, "kind", "concept") or "concept"
         return TaxonomyNode(
             iri=node_iri,
             label=label,
             parent_iri=_cell(row, "parent"),
             children_iris=children,
+            definition=_cell_or(row, "definition", ""),
+            alt_labels=alts,
+            node_kind=kind if kind in ("concept", "class", "property") else "concept",
+            superclass_iris=super_cls,
+            superproperty_iris=super_prop,
         )
 
     def find_similar_products(
@@ -601,33 +681,19 @@ class NeptuneStore(RetrievalStore):
 
         Returns every taxonomy node with similarity=0.0 so the seam contract
         (non-empty when nodes exist; clamped count; negative-precedent drop;
-        ``candidate_filter`` applied) is honoured.
-
-        ``Candidate.similarity`` stays the raw oracle score — here, 0.0 — so
-        the matcher's 0.80 floor sees the calibrated quantity (I5). The
-        production swap will return real dense scores from Neptune Analytics
-        / Bedrock vector search; the contract above this line does not change.
+        ``candidate_filter`` applied) is honoured. Full ``TaxonomyNode``
+        fields are preserved on each candidate node.
         """
-        client = self._require_client()
         limit = self.clamp_results(max_results)
         rejected = set(self.get_negative_precedents(ref.vendor, ref.product_id))
-        rows = client.query_select(
-            SPARQL_LIST_TAXONOMY_NODES % {"cap": self.clamp_nodes(100)},
-        )
         candidates: list[Candidate] = []
-        for row in rows:
-            iri = _cell(row, "iri")
-            if not iri or iri in rejected:
+        for node in self.list_taxonomy_nodes():
+            if node.iri in rejected:
                 continue
-            label = _cell_or(row, "label", "")
-            parent = _cell(row, "parent")
             similarity = 0.0
             if similarity < min_similarity:
                 continue
-            cand = Candidate(
-                node=TaxonomyNode(iri=iri, label=label, parent_iri=parent),
-                similarity=similarity,
-            )
+            cand = Candidate(node=node, similarity=similarity)
             if candidate_filter is not None and not candidate_filter(cand):
                 continue
             candidates.append(cand)
@@ -851,11 +917,24 @@ class NeptuneStore(RetrievalStore):
             iri = _cell(row, "iri")
             if not iri:
                 continue
+            alts = [a for a in (_cell(row, "alts") or "").split("|") if a]
+            super_cls = [c for c in (_cell(row, "superclasses") or "").split(",") if c]
+            super_prop = [
+                c for c in (_cell(row, "superproperties") or "").split(",") if c
+            ]
+            kind = _cell_or(row, "kind", "concept") or "concept"
             out.append(
                 TaxonomyNode(
                     iri=iri,
                     label=_cell_or(row, "label", ""),
                     parent_iri=_cell(row, "parent"),
+                    definition=_cell_or(row, "definition", ""),
+                    alt_labels=alts,
+                    node_kind=kind
+                    if kind in ("concept", "class", "property")
+                    else "concept",
+                    superclass_iris=super_cls,
+                    superproperty_iris=super_prop,
                 )
             )
         return out

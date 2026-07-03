@@ -1,0 +1,51 @@
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix ex: <https://example.com/taxonomy/> .
+@prefix odrl: <http://www.w3.org/ns/odrl/2/> .
+
+ex:FinancialData a owl:Class ;
+    rdfs:label "Financial Data" ;
+    skos:definition "Market and reference financial datasets." .
+
+ex:Equities a owl:Class ;
+    rdfs:label "Equities" ;
+    rdfs:subClassOf ex:FinancialData ;
+    skos:definition "Listed equity instruments and related data." ;
+    skos:altLabel "Stocks" .
+
+ex:EquityPrices a skos:Concept ;
+    skos:prefLabel "Equity Prices" ;
+    skos:broader ex:Equities ;
+    skos:definition "Real-time and delayed equity price observations." ;
+    skos:scopeNote "Includes trades, quotes, and indicative prices." ;
+    skos:example "AAPL last trade" .
+
+ex:FX a skos:Concept ;
+    skos:prefLabel "Foreign Exchange" ;
+    skos:broader ex:FinancialData ;
+    skos:definition "Spot and forward foreign-exchange rates." .
+
+ex:priceField a owl:DatatypeProperty ;
+    rdfs:label "price" ;
+    rdfs:subPropertyOf ex:amountField .
+
+ex:amountField a owl:DatatypeProperty ;
+    rdfs:label "amount" ;
+    skos:definition "Numeric amount on a record." .
+
+ex:sample-dataset a dcat:Dataset ;
+    dct:title "Sample Equity Dataset" ;
+    dct:description "Vendor equity prices packaged as DCAT dataset." ;
+    dcat:theme ex:Equities ;
+    dcat:keyword "equities", "prices" .
+
+<https://example.com/odrl/policy-1> a odrl:Policy ;
+    odrl:uid "policy-1" ;
+    odrl:permission [
+        odrl:action odrl:use ;
+        odrl:target ex:sample-dataset ;
+        odrl:assignee <https://example.com/vendor/lseg>
+    ] .

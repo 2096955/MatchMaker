@@ -23,6 +23,7 @@ The rdf-serialisation skill calls three tools:
 All three are stubs pointing at the JPMC-side /modules/rdf/ until that
 module lands.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -31,7 +32,7 @@ from strands import tool
 
 from . import authoritative as _authoritative
 from . import sidecar as _sidecar
-from .rdf import fake as _rdf_fake
+from .rdf import backend as _rdf_backend
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -74,7 +75,9 @@ def neptune_existing_mapping(vendor: str, vendor_product_ref: str) -> Optional[d
     Drives the deterministic NEW_MAPPING vs EXTEND_MAPPING route — but the
     routing itself happens in the orchestrator, not here.
     """
-    return _authoritative.existing_mapping(vendor=vendor, vendor_product_ref=vendor_product_ref)
+    return _authoritative.existing_mapping(
+        vendor=vendor, vendor_product_ref=vendor_product_ref
+    )
 
 
 @tool
@@ -101,7 +104,7 @@ def rdf_serialise_mapping(mapping_result: dict) -> dict:
     free-form input. Backed today by the deterministic fake in scudo.rdf.fake;
     swap this import to modules.rdf.serialiser when the JPMC one lands.
     """
-    return _rdf_fake.serialise_mapping(mapping_result)
+    return _rdf_backend.serialise_mapping(mapping_result)
 
 
 @tool
@@ -112,7 +115,7 @@ def rdf_serialise_rights(rights_result: dict) -> dict:
     Same contract as rdf_serialise_mapping: structured dict in, triples +
     SHACL conformance out. Never hand-write Turtle. Fake-backed today.
     """
-    return _rdf_fake.serialise_rights(rights_result)
+    return _rdf_backend.serialise_rights(rights_result)
 
 
 @tool
@@ -127,7 +130,7 @@ def rdf_validate_shapes(triples: list[dict]) -> dict:
     Fake-backed today (returns conforms=True for any non-empty, well-formed
     triple list). Real shapes live in /modules/rdf/shapes/.
     """
-    return _rdf_fake.validate_shapes(triples)
+    return _rdf_backend.validate_shapes(triples)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -142,7 +145,9 @@ def neptune_publish_triples(named_graph: str, triples: list[dict]) -> dict:
     deterministic publish gate passes. The PublishGateHook denies any attempt
     to reach this from inside an agent loop.
     """
-    raise NotImplementedError("→ modules.neptune.publish.publish_triples (orchestrator only)")
+    raise NotImplementedError(
+        "→ modules.neptune.publish.publish_triples (orchestrator only)"
+    )
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -172,8 +177,14 @@ ORCHESTRATOR_ONLY_TOOLS = [neptune_publish_triples]
 
 __all__ = [
     "graphrag_retrieve",
-    "neptune_node_by_iri", "neptune_existing_mapping", "neptune_conflicts",
-    "rdf_serialise_mapping", "rdf_serialise_rights", "rdf_validate_shapes",
+    "neptune_node_by_iri",
+    "neptune_existing_mapping",
+    "neptune_conflicts",
+    "rdf_serialise_mapping",
+    "rdf_serialise_rights",
+    "rdf_validate_shapes",
     "neptune_publish_triples",
-    "MAPPING_SPECIALIST_TOOLS", "RIGHTS_SPECIALIST_TOOLS", "ORCHESTRATOR_ONLY_TOOLS",
+    "MAPPING_SPECIALIST_TOOLS",
+    "RIGHTS_SPECIALIST_TOOLS",
+    "ORCHESTRATOR_ONLY_TOOLS",
 ]

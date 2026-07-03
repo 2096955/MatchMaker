@@ -148,15 +148,47 @@ class FalkorDBStore(RetrievalStore):
 
     # --- write side (seed / index build only) ----------------------------
     def upsert_taxonomy_node(self, node: TaxonomyNode) -> None:
+        alt = "|".join(node.alt_labels) if node.alt_labels else ""
         self._g.query(
-            "MERGE (t:TaxonomyNode {iri:$iri}) SET t.label=$label, t.parent_iri=$parent",
-            {"iri": node.iri, "label": node.label, "parent": node.parent_iri or ""},
+            "MERGE (t:TaxonomyNode {iri:$iri}) "
+            "SET t.label=$label, t.parent_iri=$parent, t.definition=$definition, "
+            "    t.alt_labels=$alt_labels, t.node_kind=$node_kind",
+            {
+                "iri": node.iri,
+                "label": node.label,
+                "parent": node.parent_iri or "",
+                "definition": node.definition or "",
+                "alt_labels": alt,
+                "node_kind": node.node_kind,
+            },
+        )
+        # Drop stale hierarchy edges before re-wiring (re-seed / DCAT reload).
+        self._g.query(
+            "MATCH (:TaxonomyNode)-[r:HAS_CHILD]->(c:TaxonomyNode {iri:$c}) DELETE r",
+            {"c": node.iri},
+        )
+        self._g.query(
+            "MATCH (c:TaxonomyNode {iri:$c})-[r:SUBCLASS_OF|SUBPROPERTY_OF]->() "
+            "DELETE r",
+            {"c": node.iri},
         )
         if node.parent_iri:
             self._g.query(
                 "MATCH (p:TaxonomyNode {iri:$p}),(c:TaxonomyNode {iri:$c}) "
                 "MERGE (p)-[:HAS_CHILD]->(c)",
                 {"p": node.parent_iri, "c": node.iri},
+            )
+        for sup in node.superclass_iris:
+            self._g.query(
+                "MATCH (c:TaxonomyNode {iri:$c}), (p:TaxonomyNode {iri:$p}) "
+                "MERGE (c)-[:SUBCLASS_OF]->(p)",
+                {"c": node.iri, "p": sup},
+            )
+        for sup in node.superproperty_iris:
+            self._g.query(
+                "MATCH (c:TaxonomyNode {iri:$c}), (p:TaxonomyNode {iri:$p}) "
+                "MERGE (c)-[:SUBPROPERTY_OF]->(p)",
+                {"c": node.iri, "p": sup},
             )
 
     def upsert_vendor_product(self, ref: VendorProductRef) -> None:
@@ -189,17 +221,37 @@ class FalkorDBStore(RetrievalStore):
             "MATCH (t:TaxonomyNode {iri:$iri}) "
             "OPTIONAL MATCH (t)-[:HAS_CHILD]->(c:TaxonomyNode) "
             "OPTIONAL MATCH (p:TaxonomyNode)-[:HAS_CHILD]->(t) "
-            "RETURN t.iri, t.label, p.iri, collect(DISTINCT c.iri)",
+            "OPTIONAL MATCH (t)-[:SUBCLASS_OF]->(sc:TaxonomyNode) "
+            "OPTIONAL MATCH (t)-[:SUBPROPERTY_OF]->(sp:TaxonomyNode) "
+            "RETURN t.iri, t.label, t.definition, t.alt_labels, t.node_kind, "
+            "       p.iri, collect(DISTINCT c.iri), collect(DISTINCT sc.iri), "
+            "       collect(DISTINCT sp.iri)",
             {"iri": node_iri},
         )
         if not rows:
             return None
-        iri, label, parent, children = rows[0]
+        (
+            iri,
+            label,
+            definition,
+            alt_raw,
+            kind,
+            parent,
+            children,
+            super_cls,
+            super_prop,
+        ) = rows[0]
+        alts = [a for a in (alt_raw or "").split("|") if a]
         return TaxonomyNode(
             iri=iri,
             label=label,
             parent_iri=parent or None,
             children_iris=[c for c in (children or []) if c],
+            definition=definition or "",
+            alt_labels=alts,
+            node_kind=(kind or "concept"),
+            superclass_iris=[c for c in (super_cls or []) if c],
+            superproperty_iris=[c for c in (super_prop or []) if c],
         )
 
     def find_similar_products(
@@ -253,9 +305,9 @@ class FalkorDBStore(RetrievalStore):
         # path. Closes ARB finding A1 (flag-on no longer hardwires
         # dense_scorer=None — every match got 0.5 → NEEDS_REVIEW) and
         # A2 (one canonical surface).
-        from ..config import settings as _settings
+        from ..config import env_dense_backend, env_use_opus_dense
 
-        if _settings.use_opus_dense:
+        if env_use_opus_dense():
             from .. import retrieval as _retrieval  # type: ignore
             from .. import opus_dense as _opus_dense  # type: ignore
 
@@ -290,15 +342,19 @@ class FalkorDBStore(RetrievalStore):
         #   "opus":                   Bedrock invoke on Claude Opus 4.8.
         # In both cases the returned value is in [0, 1] and lands on
         # Candidate.similarity unmodified — arb-review §5.2 invariant.
-        import os as _os
 
-        dense_backend = (
-            (_os.getenv("SCUDO_DENSE_BACKEND") or "jaro_winkler").strip().lower()
+        from ..taxonomy_text import (
+            taxonomy_bm25_doc,
+            taxonomy_candidate_desc,
+            taxonomy_dense_text,
         )
+
+        dense_backend = env_dense_backend()
 
         dense_scores: dict[str, float] = {}
         labels: dict[str, str] = {}
         parents: dict[str, Optional[str]] = {}
+        node_by_iri: dict[str, TaxonomyNode] = {}
 
         if dense_backend == "opus":
             # Lazy import so the package still loads when boto3 is absent.
@@ -309,27 +365,40 @@ class FalkorDBStore(RetrievalStore):
             for iri, label, parent in rows:
                 if iri in rejected:
                     continue
-                labels[iri] = label or ""
-                parents[iri] = parent or None
+                full = self.get_taxonomy_node(iri)
+                node = full or TaxonomyNode(
+                    iri=iri, label=label or "", parent_iri=parent or None
+                )
+                node_by_iri[iri] = node
+                labels[iri] = node.label or ""
+                parents[iri] = node.parent_iri
                 dense_scores[iri] = opus_dense_score(
                     query_label=query_label,
                     query_desc=query_desc,
-                    candidate_label=label or "",
-                    candidate_desc="",
+                    candidate_label=node.label or "",
+                    candidate_desc=taxonomy_candidate_desc(node),
                 )
         else:
             for iri, label, parent in rows:
                 if iri in rejected:
                     continue
-                labels[iri] = label or ""
-                parents[iri] = parent or None
-                dense_scores[iri] = _jaro_winkler(query_text, label or "")
+                full = self.get_taxonomy_node(iri)
+                node = full or TaxonomyNode(
+                    iri=iri, label=label or "", parent_iri=parent or None
+                )
+                node_by_iri[iri] = node
+                labels[iri] = node.label or ""
+                parents[iri] = node.parent_iri
+                dense_scores[iri] = _jaro_winkler(
+                    query_text,
+                    taxonomy_dense_text(node),
+                )
 
         # Arm 2 — BM25 (lexical sidecar). Recovers exact-token hits the
         # dense arm misses on tickers / RICs / acronyms. SORT-only.
         bm25_scores = self.bm25_scores(
             query_text,
-            [(iri, labels[iri]) for iri in labels],
+            [(iri, taxonomy_bm25_doc(node_by_iri[iri])) for iri in labels],
         )
 
         # RRF fuses the two RANKINGS into a single ordering score. This
@@ -367,11 +436,7 @@ class FalkorDBStore(RetrievalStore):
             # CRITICAL: Candidate.similarity is the RAW DENSE SCORE
             # (arb-review §5.2). No rerank, no boost, no fusion.
             candidate = Candidate(
-                node=TaxonomyNode(
-                    iri=iri,
-                    label=labels[iri],
-                    parent_iri=parents[iri],
-                ),
+                node=node_by_iri[iri],
                 similarity=round(similarity, 4),
             )
             # Structural filter (b) — per-candidate filter from the matcher.
@@ -656,13 +721,40 @@ class FalkorDBStore(RetrievalStore):
 
     def list_taxonomy_nodes(self) -> list[TaxonomyNode]:
         rows = self._ro(
-            "MATCH (t:TaxonomyNode) RETURN t.iri, t.label, t.parent_iri ORDER BY t.iri"
+            "MATCH (t:TaxonomyNode) "
+            "OPTIONAL MATCH (t)-[:SUBCLASS_OF]->(sc:TaxonomyNode) "
+            "OPTIONAL MATCH (t)-[:SUBPROPERTY_OF]->(sp:TaxonomyNode) "
+            "RETURN t.iri, t.label, t.parent_iri, t.definition, t.alt_labels, "
+            "       t.node_kind, collect(DISTINCT sc.iri), collect(DISTINCT sp.iri) "
+            "ORDER BY t.iri"
         )
-        return [
-            TaxonomyNode(iri=iri, label=label or "", parent_iri=(parent or None))
-            for iri, label, parent in rows
-            if iri
-        ]
+        out: list[TaxonomyNode] = []
+        for (
+            iri,
+            label,
+            parent,
+            definition,
+            alt_raw,
+            kind,
+            super_cls,
+            super_prop,
+        ) in rows:
+            if not iri:
+                continue
+            alts = [a for a in (alt_raw or "").split("|") if a]
+            out.append(
+                TaxonomyNode(
+                    iri=iri,
+                    label=label or "",
+                    parent_iri=(parent or None),
+                    definition=definition or "",
+                    alt_labels=alts,
+                    node_kind=(kind or "concept"),
+                    superclass_iris=[c for c in (super_cls or []) if c],
+                    superproperty_iris=[c for c in (super_prop or []) if c],
+                )
+            )
+        return out
 
     # --- M10 — conceptual enrichment layer --------------------------------
     def upsert_conceptual_node(self, node: ConceptualNode) -> None:

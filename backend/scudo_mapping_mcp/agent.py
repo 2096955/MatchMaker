@@ -226,9 +226,7 @@ class ScriptedMappingAgent:
             # Ingestion only exposes ingest.list_frames / ingest.get_frame.
             try:
                 result_json = host.call(
-                    _TIER_MATCH_VERIFY,
-                    "matchverify.find_candidates",
-                    find_args,
+                    _TIER_MATCH_VERIFY, "matchverify.find_candidates", find_args
                 )
                 candidates = _candidates_from_host_result(result_json)
             except Exception as e:  # noqa: BLE001 — host transport surface
@@ -315,9 +313,7 @@ class ScriptedMappingAgent:
             if host is not None:
                 try:
                     host.call(
-                        _TIER_MATCH_VERIFY,
-                        "matchverify.get_neighbourhood",
-                        sub_args,
+                        _TIER_MATCH_VERIFY, "matchverify.get_neighbourhood", sub_args
                     )
                 except Exception:  # noqa: BLE001 — best-effort visibility hop
                     pass

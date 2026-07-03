@@ -31,7 +31,6 @@ from .models import (
     ConceptualEdgeKind,
     ConceptualNode,
     ConceptualNodeKind,
-    TaxonomyNode,
     VendorProductRef,
     conceptual_iri,
 )
@@ -48,11 +47,6 @@ StageCallback = Callable[[str, dict], None]
 # earlier by Flask MAX_CONTENT_LENGTH; this bounds row explosion.
 _MAX_ROWS = int(os.getenv("SCUDO_MAX_ROWS", "10000"))
 
-# Canonical illustrative taxonomy — same fixture FalkorDB seeding uses.
-_CATALOGUE_FIXTURE = (
-    Path(__file__).resolve().parents[1] / "scudo" / "fixtures" / "cdao_catalogue.json"
-)
-
 # M10 — illustrative conceptual-enrichment layer, anchored to one Concept
 # (jpmorgan:data:cdao:concept:equity-prices). Additive only: seeding this is
 # never required for the cost ladder to function, so a missing/malformed
@@ -68,40 +62,11 @@ _COL_ALIASES = {
 }
 
 
-def _coerce_ref(value) -> str | None:
-    if isinstance(value, dict):
-        value = value.get("@id")
-    return str(value) if value else None
-
-
-def _normalize_catalogue_node(raw: dict) -> dict:
-    iri = _coerce_ref(raw.get("iri") or raw.get("@id"))
-    label = raw.get("label") or raw.get("prefLabel") or raw.get("title")
-    parent = _coerce_ref(
-        raw.get("parent_iri") or raw.get("inSubdomain") or raw.get("inDomain")
-    )
-    if not label and iri:
-        label = iri.rsplit(":", 1)[-1].replace("-", " ").replace("_", " ").title()
-    return {"iri": iri, "label": label, "parent_iri": parent}
-
-
-def _load_catalogue_fixture(path: Path | None = None) -> list[dict]:
-    fixture = path or _CATALOGUE_FIXTURE
-    data = json.loads(fixture.read_text(encoding="utf-8"))
-    if isinstance(data, dict):
-        data = data.get("nodes") or data.get("@graph") or []
-    nodes: list[dict] = []
-    for raw in data:
-        if not isinstance(raw, dict):
-            continue
-        node = _normalize_catalogue_node(raw)
-        if node.get("iri") and node.get("label"):
-            nodes.append(node)
-    return nodes
-
-
 def seed_taxonomy() -> int:
-    """Seed taxonomy from the canonical catalogue fixture (jpmorgan:data:cdao IRIs)."""
+    """Seed taxonomy from the configured loader (cdao fixture or DCAT RDF)."""
+    from .config import settings
+    from .loaders.taxonomy_loader import load_taxonomy_nodes
+
     store = get_store()
     override = os.getenv("SCUDO_TAXONOMY_SEED", "").strip()
     if override:
@@ -112,17 +77,10 @@ def seed_taxonomy() -> int:
             store.upsert_taxonomy_node(_to_taxonomy_node(raw))
         return len(nodes)
 
-    count = 0
-    for raw in _load_catalogue_fixture():
-        store.upsert_taxonomy_node(
-            TaxonomyNode(
-                iri=str(raw["iri"]),
-                label=str(raw["label"]),
-                parent_iri=raw.get("parent_iri") or None,
-            )
-        )
-        count += 1
-    return count
+    nodes = load_taxonomy_nodes(settings)
+    for node in nodes:
+        store.upsert_taxonomy_node(node)
+    return len(nodes)
 
 
 def seed_conceptual_layer(path: Path | None = None) -> int:
@@ -179,16 +137,25 @@ def seed_conceptual_layer(path: Path | None = None) -> int:
     return count
 
 
-def _pick(row: dict, key: str) -> str:
+def _pick(
+    row: dict,
+    key: str,
+    col_aliases: dict[str, tuple[str, ...]] | None = None,
+) -> str:
+    aliases = col_aliases or _COL_ALIASES
     lower = {k.lower().strip(): v for k, v in row.items()}
-    for alias in _COL_ALIASES[key]:
-        if alias in lower and lower[alias]:
-            return str(lower[alias]).strip()
+    for alias in aliases[key]:
+        al = alias.lower().strip()
+        if al in lower and lower[al]:
+            return str(lower[al]).strip()
     return ""
 
 
 def _rows_to_frames(
-    vendor: str, rows: list[dict]
+    vendor: str,
+    rows: list[dict],
+    *,
+    col_aliases: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[list[VendorProductRef], int]:
     """Turn rows into frames. Rows with no usable ``product_id`` (the vendor's
     native primary key) are REJECTED — not synthesized into a ``row-N`` frame —
@@ -197,7 +164,7 @@ def _rows_to_frames(
     frames: list[VendorProductRef] = []
     rejected = 0
     for row in rows:
-        pid = _pick(row, "product_id")
+        pid = _pick(row, "product_id", col_aliases)
         if not pid:
             # null/empty primary key → quarantine (matches the upstream ETL
             # contract: rows with a null PK go to the rejected bucket, never
@@ -208,8 +175,8 @@ def _rows_to_frames(
             VendorProductRef(
                 vendor=vendor,
                 product_id=pid,
-                name=_pick(row, "name"),
-                description=_pick(row, "description"),
+                name=_pick(row, "name", col_aliases),
+                description=_pick(row, "description", col_aliases),
                 raw=row,
             )
         )
@@ -222,6 +189,7 @@ def ingest_bytes(
     data: bytes,
     upsert: bool = True,
     on_stage: Optional[StageCallback] = None,
+    csvw_metadata: Optional[dict] = None,
 ) -> list[VendorProductRef]:
     """Parse a vendor file into frames and (optionally) upsert them.
 
@@ -229,11 +197,26 @@ def ingest_bytes(
     pipeline step with actual counts — mirroring the architecture's
     EventBridge → SQS → Lambda → Validate/Transform → S3/DynamoDB flow. These
     are NOT simulated: every count is produced by this run.
+
+    ``csvw_metadata`` optionally supplies a CSVW Table Schema document whose
+    column names/titles extend the default CSV column alias map.
     """
 
     def emit(stage: str, **detail) -> None:
         if on_stage is not None:
             on_stage(stage, detail)
+
+    from scudo_mapping_mcp.turtle_ingester import TurtleIngester
+
+    if TurtleIngester.handles(filename):
+        TurtleIngester().ingest(data, filename=filename, on_stage=on_stage)
+        return []
+
+    col_aliases: dict[str, tuple[str, ...]] = dict(_COL_ALIASES)
+    if csvw_metadata is not None:
+        from scudo_mapping_mcp.csvw_aliases import merge_col_aliases
+
+        col_aliases = merge_col_aliases(col_aliases, csvw_metadata)
 
     # received — the upload arrives (EventBridge/SQS framing in the architecture)
     emit("received", filename=filename, vendor=vendor, bytes=len(data))
@@ -254,6 +237,12 @@ def ingest_bytes(
         elif isinstance(payload, dict) and "products" in payload:
             rows = payload["products"]
         elif isinstance(payload, dict):
+            from scudo_mapping_mcp.csvw_aliases import is_csvw_document
+
+            if is_csvw_document(payload):
+                raise ValueError(
+                    "CSVW metadata cannot be ingested alone; pass csvw_metadata with CSV"
+                )
             rows = [payload]  # a single product object
         else:
             raise ValueError(
@@ -279,7 +268,7 @@ def ingest_bytes(
 
     # validate / transform — rows → typed frames; rows with no usable
     # product_id are rejected (quarantine), counted truthfully.
-    frames, rejected = _rows_to_frames(vendor, rows)
+    frames, rejected = _rows_to_frames(vendor, rows, col_aliases=col_aliases)
     emit("validate", valid=len(frames), rejected=rejected)
 
     # sink — persist to the working set (+ store upsert: S3/DynamoDB analogue)

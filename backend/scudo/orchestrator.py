@@ -20,7 +20,7 @@ from typing import Any, Optional
 from pydantic import ValidationError
 
 from .prompts import mapping_prompt, research_prompt, verifier_prompt
-from .rdf.fake import serialise_mapping, validate_shapes
+from .rdf.backend import serialise_mapping, validate_shapes
 from .schemas import (
     BriefBundle,
     IntakeRequest,
