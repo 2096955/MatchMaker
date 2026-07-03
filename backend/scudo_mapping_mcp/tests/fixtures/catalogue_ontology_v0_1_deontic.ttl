@@ -1,0 +1,468 @@
+# CatalogueOntology v0.1 Deontic — transcript-derived POC fixture (UNVERIFIED).
+# Source: visual transcript in catalogue_ontology_stitched.md (JPMC Citrix session).
+# NOT a byte-for-byte copy of an authoritative .ttl; prefixes normalized to canonical vocab IRIs.
+# cat: placeholder namespace (trailing slash intentional): https://example.org/catalogue/ontology/v0.1/deontic/
+
+@prefix dcat:      <http://www.w3.org/ns/dcat#> .
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos:      <http://www.w3.org/2004/02/skos/core#> .
+@prefix dcterms:   <http://purl.org/dc/terms/> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix csvw:      <http://www.w3.org/ns/csvw#> .
+@prefix cat:       <https://example.org/catalogue/ontology/v0.1/deontic/> .
+
+
+# =========================================
+# PROPERTY DEFINITIONS
+# =========================================
+
+dcterms:title
+  a rdf:Property ;
+  rdfs:label "Title"@en ;
+  rdfs:comment "A name given to the resource."@en ;
+  rdfs:isDefinedBy <http://purl.org/dc/terms/> .
+
+dcterms:description
+  a rdf:Property ;
+  rdfs:label "Description"@en ;
+  rdfs:comment "An account of the resource."@en ;
+  dcterms:description "Description may include but is not limited to: an abstract, a table of contents, a graphical representation, or a free-text account of the resource."@en ;
+  rdfs:isDefinedBy <http://purl.org/dc/terms/> .
+
+dcat:accessURL
+  a rdf:Property ;
+  rdfs:label "access address"@en ;
+  skos:definition "A URL of a resource that gives access to a distribution of the dataset. E.g. landing page, feed, SPARQL endpoint. Use for all cases except a simple download link, in which case downloadURL is preferred."@en ;
+  rdfs:isDefinedBy <http://www.w3.org/TR/vocab-dcat/> ;
+  csvw:name "Uri" ;
+  rdfs:comment "A URL of a resource that gives access to a distribution of the dataset. E.g. landing page, feed, SPARQL endpoint. Use for all cases except a simple download link, in which case downloadURL is preferred."@en ;
+  skos:scopeNote "If the distribution(s) are accessible only through a landing page (i.e. direct download URLs are not known), then the landing page link should be duplicated as accessURL on a distribution."@en .
+
+dcat:landingPage
+  a rdf:Property ;
+  rdfs:label "landing page"@en ;
+  skos:definition "A Web page that can be navigated to in a Web browser to gain access to the catalog, a dataset, its distributions and/or additional information."@en ;
+  rdfs:isDefinedBy <http://www.w3.org/TR/vocab-dcat/> ;
+  csvw:name "CatalogueUrl", "LandingPageUrl" ;
+  rdfs:comment "A Web page that can be navigated to in a Web browser to gain access to the catalog, a dataset, its distributions and/or additional information."@en ;
+  skos:scopeNote "If the distribution(s) are accessible only through a landing page (i.e. direct download URLs are not known), then the landing page link should be duplicated as accessURL on a distribution."@en .
+
+dcterms:identifier       # -> adms:Identifier
+  a rdf:Property ;
+  rdfs:label "Identifier"@en ;
+  rdfs:comment "An unambiguous reference to the resource within a given context."@en ;
+  dcterms:description "Recommended practice is to identify the resource by means of a string conforming to an identification system. Examples include International Standard Book Number (ISBN), Digital Object Identifier (DOI), and Uniform Resource Name (URN). Persistent identifiers should be provided as HTTP URIs."@en ;
+  rdfs:isDefinedBy <http://purl.org/dc/terms/> ;
+  csvw:name "PermID", "Code" .
+
+# =========================================
+# DATASET CLASS DEFINITIONS
+# =========================================
+
+dcat:Dataset
+  a rdfs:Class ;
+  rdfs:label "Dataset"@en ;
+  rdfs:comment "A collection of data, published or curated by a single source, and available for access or download in one or more representations."@en ;
+  rdfs:isDefinedBy <http://www.w3.org/TR/vocab-dcat/> ;
+  skos:definition "A collection of data, published or curated by a single source, and available for access or download in one or more representations."@en ;
+  skos:scopeNote "This class describes the conceptual dataset. One or more representations might be available, with differing schematic layouts and formats or serializations."@en ;
+  skos:scopeNote "This class represents the actual dataset as published by the dataset provider. In cases where a distinction between the actual dataset and its entry in the catalog is necessary (because metadata such as modification date and maintainer might differ), the catalog record class can be used for the latter."@en ;
+  skos:scopeNote "The notion of dataset in DCAT is broad and inclusive, with the intention of accommodating resource types arising from all communities. Data comes in many forms including numbers, text, pixels, imagery, sound and other multi-media, and potentially other types, any of which might be collected into a dataset."@en .
+
+cat:DistributedDataset
+  a rdfs:Class ;
+  rdfs:subClassOf dcat:Dataset ;
+  rdfs:label "Distributed Dataset"@en ;
+  skos:definition "A specialized category of dataset representing a specific, bounded commercial data package provisioned by a market data vendor or originator to a downstream customer or subscriber under a defined licensing scheme."@en ;
+  skos:scopeNote "CRITICAL COMPLIANCE BOUNDARY: A distributed dataset is routinely commercialized and provisioned under a license granted by the distributing vendor. However, depending on the underlying content type (such as indices or real-time exchange feeds), the customer or subscriber may be contractually required to execute an independent, direct license agreement with the data owner or originator. This creates a multi-party legal obligation where technical feed activation is contingent upon verifying both the vendor's distribution rights and the customer's direct exchange entitlements."@en ;
+  skos:example "The Xetra® Order by Order real-time low-latency stream provisioned to an algorithmic trading firm under an external non-display master schedule agreement."@en ;
+  skos:example "The Connexor® Structured Products reference file payload delivered daily to an institutional wealth management system inventory."@en ;
+  skos:example "An exchange reference service publishing master instrument configurations and end-of-day settlement values."@en ;
+  skos:example "A consolidated global index feed containing calculated benchmark weights and constituent elements."@en ;
+  skos:example "An institutional trading firm receiving a real-time Level 3 feed from a consolidated market data vendor, where the firm must simultaneously execute a direct 'Created Product License' or 'Non-Display Agreement' with the underlying exchange to authorize algorithmic execution processing."@en .
+
+cat:featuresAndBenefitsDescription
+  a rdf:Property ;
+  rdfs:label "Features and Benefits Description"@en ;
+  rdfs:comment "A presentational text block mapping commercial value propositions, unique product properties, and operational utility for subscribers."@en ;
+  skos:example "A narrative block tracking items like raw microsecond execution stamps and full unaggregated order-queue transparency."@en .
+
+dcat:keyword
+  a rdf:Property ;
+  rdfs:label "keyword"@en ;
+  skos:definition "A keyword or tag describing a resource."@en ;
+  rdfs:isDefinedBy <http://www.w3.org/TR/vocab-dcat/> ;
+  csvw:name "SearchKeywordText" ;
+  rdfs:comment "A keyword or tag describing a resource."@en .
+
+dcat:theme
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:subject ;
+  rdfs:label "theme"@en ;
+  skos:definition "A main category of the resource. A resource can have multiple themes."@en ;
+  rdfs:isDefinedBy <http://www.w3.org/TR/vocab-dcat/> ;
+  csvw:name "SubDomainName", "BusinessDataElementObjectGuid" ;
+  rdfs:comment "A main category of the resource. A resource can have multiple themes."@en ;
+  skos:scopeNote "The set of themes used to categorize the resources are organized in a skos:ConceptScheme, skos:Collection, owl:Ontology or similar, describing all the categories and their relations in the catalog."@en .
+
+cat:superTheme
+  a rdf:Property ;
+  rdfs:subPropertyOf dcat:theme ;
+  rdfs:label "Super theme"@en ;
+  rdfs:comment "The macro-level functional business, market sector, or enterprise domain classification the dataset belongs to."@en ;
+  csvw:name "DomainName" ;
+  skos:example "A broad sector category string value such as 'Financial Markets' or 'Macro Economics'."@en .
+
+cat:businessConcept
+  a rdf:Property ;
+  rdfs:subPropertyOf dcat:theme ;
+  rdfs:label "Business Concept"@en ;
+  rdfs:comment "The macro-level functional business, market sector, or enterprise domain classification the dataset belongs to."@en ;
+  csvw:name "DomainName" ;
+  skos:example "A broad sector category string value such as 'Financial Markets' or 'Macro Economics'."@en .
+
+dcterms:extent
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:format ;
+  rdfs:label "Extent"@en ;
+  rdfs:isDefinedBy <http://purl.org/dc/terms/> ;
+  csvw:name "CoverageCountDescription" ;
+  rdfs:comment "The size or duration of the resource."@en .
+
+dcat:startDate       # dcterms:temporal/dcat:startDate
+  a rdf:Property ;
+  rdfs:label "start date"@en ;
+  skos:definition "The start of the period"@en ;
+  rdfs:isDefinedBy <https://www.w3.org/TR/vocab-dcat-2/> ;
+  csvw:name "TimePeriodFromYear", "KeyDetailsHistoryText", "TemporalCoverageFromYear" ;
+  skos:scopeNote "The range of this property is intentionally generic, with the purpose of allowing different level of temporal precision for specifying the start of a period. E.g., it can be expressed with a date (xsd:date), a date and time (xsd:dateTime), or a year (xsd:gYear)."@en .
+
+dcat:endDate       # dcterms:temporal/dcat:endDate
+  a rdf:Property ;
+  rdfs:label "end date"@en ;
+  skos:definition "The end of the period"@en ;
+  rdfs:isDefinedBy <https://www.w3.org/TR/vocab-dcat-2/> ;
+  csvw:name "TemporalCoverageToYear" ;
+  skos:scopeNote "The range of this property is intentionally generic, with the purpose of allowing different level of temporal precision for specifying the start of a period. E.g., it can be expressed with a date (xsd:date), a date and time (xsd:dateTime), or a year (xsd:gYear)."@en .
+
+cat:assetClass
+  a rdf:Property ;
+  rdfs:label "Asset Class Permanent Identifier"@en ;
+  rdfs:comment "The immutable permanent unique entity key identifying the specific financial instrument class (e.g., Exchange-Traded Funds) inside core master tables."@en ;
+  csvw:name "AssetClassPermId" ;
+  skos:example "A standardized permanent identity alphanumeric token string like 'AC-10294'."@en .
+
+cat:superAssetClass
+  a rdf:Property ;
+  rdfs:label "Parent Asset Class Permanent Identifier"@en ;
+  rdfs:comment "The immutable permanent unique entity key identifying the overarching macro asset category (e.g., Securities) inside core master tables."@en ;
+  csvw:name "ParentAssetClassPermId" ;
+  skos:example "A standardized permanent identity alphanumeric token string like 'PAC-88371'."@en .
+
+dcterms:accrualPeriodicity
+  a rdf:Property ;
+  rdfs:label "Accrual Periodicity"@en ;
+  dcterms:description "Recommended practice is to use a value from the Collection Description Frequency Vocabulary [[DCMI-COLLFREQ]] (https://dublincore.org/groups/collections/frequency/)."@en ;
+  rdfs:isDefinedBy <http://purl.org/dc/terms/> ;
+  rdfs:comment "The frequency with which items are added to a collection."@en ;
+  csvw:name "MinimumDatasetFrequencyValue", "KeyDetailsUpdateFrequencyText", "minimumDataFrequencyValue", "MinimumDatasetServiceFrequencyValue", "ServiceFrequencyDescription" .
+
+dcterms:spatial
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:coverage ;
+  rdfs:label "Spatial Coverage"@en ;
+  rdfs:isDefinedBy <http://purl.org/dc/terms/> ;
+  rdfs:comment "Spatial characteristics of the resource."@en ;
+  csvw:name "CoversGeographyPermId" ;
+  skos:scopeNote "Provides geographic entities that specify the spatial coverage."@en .
+
+cat:geographicCoverage
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:coverage ;
+  rdfs:label "Geographic Coverage"@en ;
+  dcterms:description "Spatial topic and spatial applicability may be a named place or a location specified by its geographic coordinates. Temporal topic may be a named period, date, or date range. A jurisdiction may be a named administrative entity or a geographic place to which the resource applies. Recommended practice is to use a controlled vocabulary such as the Getty Thesaurus of Geographic Names [[TGN]] (https://www.getty.edu/research/tools/vocabulary/tgn/index.html). Where appropriate, named places or time periods may be used in preference to numeric identifiers such as sets of coordinates or date ranges. Because coverage is so broadly defined, it is preferable to use the more specific subproperties Temporal Coverage and Spatial Coverage."@en ;
+  rdfs:comment "The spatial or temporal topic of the resource, spatial applicability of the resource, or jurisdiction under which the resource is relevant."@en ;
+  csvw:name "CoverageGeographyDescription", "KeyDetailsRegion" ;
+  skos:scopeNote "Provides a textual description of geographic coverage."@en .
+
+cat:temporalCoverage
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:coverage ;
+  rdfs:label "Temporal Coverage"@en ;
+  dcterms:description "Temporal topic may be a named period, date, or date range."@en ;
+  rdfs:comment "The temporal topic of the resource."@en ;
+  csvw:name "CoverageHistoryDescription" ;
+  skos:scopeNote "Provides a textual description of temporal coverage."@en .
+
+cat:industryCoverage
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:coverage ;
+  rdfs:label "Industry Coverage"@en ;
+  dcterms:description "Sectoral topic may be a named industry or industrial sector."@en ;
+  rdfs:comment "The sectoral focus of the resource."@en ;
+  csvw:name "CoverageIndustryDescription" ;
+  skos:scopeNote "Provides a textual description of industry coverage."@en .
+
+cat:contentTypeCoverage
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:coverage ;
+  rdfs:label "Content Type Coverage"@en ;
+  dcterms:description "The type of content provided by the resource."@en ;
+  csvw:name "CoverageDataTypeDescription" ;
+  skos:scopeNote "Provides a textual description of content type provided by the resource."@en .
+
+# =========================================
+# DISTRIBUTION CLASS DEFINITIONS
+# =========================================
+
+dcat:distribution
+  a rdf:Property ;
+  rdfs:label "Distribution"@en ;
+  rdfs:comment "Connects a conceptual dataset to one of its physical or technical distribution formats (Distribution)."@en ;
+  skos:example "Specifying that the realtime 'Xetra® Order by Order' dataset is available in the FIX protocol."@en ;
+  skos:example "Providing a historical index constituent dataset in CSV format."@en .
+
+dcat:Distribution
+  a rdfs:Class ;
+  rdfs:label "Distribution"@en ;
+  rdfs:comment "A specific representation of a dataset. A dataset might be available in multiple serializations that may differ in various ways, including natural language, media-type or format, schematic organization, temporal and spatial resolution, level of detail or profiles (which might specify any or all of the above)."@en ;
+  skos:scopeNote "This represents a general availability of a dataset it implies no information about the actual access method of the data, i.e. whether by direct download, API, or through a Web page."@en ;
+  skos:definition "A specific, concrete format, payload structure, or technical interface through which a dataset is made available for transmission or download."@en ;
+  skos:scopeNote "A Distribution represents the actual physical manifestation of a feed. While the Dataset defines the content, the Distribution handles the protocol layer and data formats."@en ;
+  skos:example "An encrypted daily end-of-day reference file package compressed as a ZIP archive and hosted on a secure SFTP server."@en ;
+  skos:example "A structured JSON payload representing real-time currency fixing arrays."@en .
+
+dcat:mediaType
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:format ;
+  rdfs:label "media type"@en ;
+  rdfs:comment "The media type of the distribution as defined by IANA"@en ;
+  rdfs:isDefinedBy <http://www.w3.org/TR/vocab-dcat/> ;
+  skos:definition "The media type of the distribution as defined by IANA."@en ;
+  csvw:name "MediaTypeCode" ;
+  skos:scopeNote "This property SHOULD be used when the media type of the distribution is defined in the IANA media types registry https://www.iana.org/assignments/media-types/, otherwise dcterms:format MAY be used with different values."@en .
+
+dcterms:conformsTo
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:relation ;
+  rdfs:label "Conforms To"@en ;
+  rdfs:comment "An established standard to which the described resource conforms."@en ;
+  rdfs:isDefinedBy <http://purl.org/dc/terms/> ;
+  csvw:name "DataDictionaryObjectGuid" .
+
+# =========================================
+# DATA SERVICE CLASS DEFINITIONS
+# =========================================
+
+dcat:DataService
+  a rdfs:Class ;
+  rdfs:label "Data service"@en ;
+  rdfs:comment "A site or end-point providing operations related to the discovery of, access to, or processing functions on, data or related resources."@en ;
+  rdfs:isDefinedBy <http://www.w3.org/TR/vocab-dcat/> ;
+  skos:definition "A site or end-point providing operations related to the discovery of, access to, or processing functions on, data or related resources."@en ;
+  skos:scopeNote "If a dcat:DataService is bound to one or more specified Datasets, they are indicated by the dcat:servesDataset property."@en ;
+  skos:scopeNote "The kind of service can be indicated using the dcterms:type property. Its value may be taken from a controlled vocabulary such as the INSPIRE spatial data service type vocabulary."@en .
+
+# Data Service properties
+dcterms:type       # Database Data Service, API Data Service
+  a rdf:Property ;
+  rdfs:label "Type"@en ;
+  dcterms:description "Recommended practice is to use a controlled vocabulary such as the DCMI Type Vocabulary [[DCMI-TYPE]] (http://dublincore.org/documents/dcmi-type-vocabulary/)]. To describe the file format, physical medium, or dimensions of the resource, use the property Format."@en ;
+  rdfs:comment "The nature or genre of the resource."@en ;
+  csvw:name "DataServiceTypeValue", "FieldGroupTypeValue", "datatypeValue" ;
+  rdfs:isDefinedBy <http://purl.org/dc/terms/> .
+
+# =========================================
+# DELIVERY CHANNEL CLASS DEFINITIONS
+# =========================================
+
+cat:deliveryChannel
+  a rdf:Property ;
+  rdfs:label "Delivery channel"@en ;
+  rdfs:comment "Connects a commercial product offering or subscription bundle (ProductPackage) to one or more of its authorized delivery infrastructure channels (DeliveryChannel)."@en .
+
+cat:DeliveryChannel
+  a rdfs:Class ;
+  rdfs:label "Delivery Channel"@en ;
+  skos:definition "The commercially contracted pathway, delivery model, or logical infrastructure channel through which market data is provisioned to a subscriber, dictating service billing structures and technical transmission constraints."@en .
+
+# =========================================
+# PRODUCT PACKAGE CLASS DEFINITIONS
+# =========================================
+
+cat:ProductPackage
+  a rdfs:Class ;
+  rdfs:label "Product Package"@en ;
+  skos:definition "The commercial offering or marketing bundle encompassing one or more market data delivery channels, specifying licensing terms, content scopes, and region configurations for subscriber selection."@en .
+
+# Product Package properties
+dcterms:abstract
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:description ;
+  rdfs:label "Abstract"@en ;
+  rdfs:comment "A summary of the resource."@en ;
+  rdfs:isDefinedBy <http://purl.org/dc/terms/> ;
+  csvw:name "SummaryText" .
+
+dcterms:tableOfContents
+  a rdf:Property ;
+  rdfs:subPropertyOf dcterms:description ;
+  rdfs:label "Table Of Contents"@en ;
+  rdfs:comment "A list of subunits of the resource."@en ;
+  rdfs:isDefinedBy <http://purl.org/dc/terms/> ;
+  csvw:name "DetailText" .
+
+# =========================================
+# DATASET SERIES DEFINITIONS
+# =========================================
+
+dcat:inSeries
+  a rdf:Property ; rdfs:subPropertyOf dcterms:isPartOf ;
+  rdfs:label "in series"@en ;
+  rdfs:comment "A dataset series of which the dataset is part."@en ;
+  rdfs:isDefinedBy <https://www.w3.org/TR/vocab-dcat-3/> ;
+  skos:definition "A dataset series of which the dataset is part."@en ;
+  csvw:name "DetailText" .
+
+dcat:DatasetSeries
+  a rdfs:Class ;
+  rdfs:label "Dataset series"@en ;
+  rdfs:comment "A collection of datasets that are published separately, but share some characteristics that group them."@en ;
+  rdfs:subClassOf dcat:Dataset ;
+  skos:definition "A collection of datasets that are published separately, but share some common characteristics that groups them."@en ;
+  skos:scopeNote "Common scenarios for dataset series include: time series composed of periodically released subsets; map-series composed of items of the same type or theme but with differing spatial footprints."@en ;
+  skos:scopeNote "Dataset series can be also soft-typed via property dcterms:type as in the approach used in [GeoDCAT-AP], and adopted in [DCAT-AP-IT] and [GeoDCAT-AP-IT])."@en .
+
+cat:MarketingDataset
+  a rdfs:Class ;
+  rdfs:subClassOf dcat:DatasetSeries ;
+  rdfs:label "Marketing Dataset" .
+
+# =========================================
+# DATA DICTIONARY CLASS DEFINITION
+# =========================================
+
+cat:DataDictionary
+  a rdfs:Class ;
+  rdfs:label "Data Dictionary" .
+
+skos:notation
+  a rdf:Property ;
+  rdfs:label "notation" ;
+  rdfs:comment "A notation is a string of characters such as \"T58.5\" or \"303.4833\" used to uniquely identify a concept within the scope of a given concept scheme." ;
+  skos:definition "The structural identifier representing the exact database table title, CSV file header, or column key used by low-level code blocks to execute queries or parse strings."^^xsd:string ;
+  skos:scopeNote "Applies to entities within a data dictionary to store technical database strings separately from human-readable labels, supporting clean code serialization layers."^^xsd:string ;
+  csvw:name "PhysicalName" , "LexicalValue" .
+
+# =========================================
+# FIELD GROUP CLASS DEFINITION
+# =========================================
+
+cat:FieldGroup
+  a rdfs:Class ;
+  rdfs:label "Field Group" ;
+  rdfs:comment "A structural aggregation class used to group related logical or physical columns, fields, or attributes into a unified technical definition layer." ;
+  skos:definition "An architectural classification container that organizes distinct data dictionary items into coherent structural blocks mapping to explicit persistence layers, databases, or schemas."^^xsd:string ;
+  skos:scopeNote "This class functions inside the metadata repository to group columns that share a common storage container, technical categorization, or schema alignment within target database setups."^^xsd:string ;
+  skos:example "Grouping all exchange provider identifiers (LEI, PermID, and MIC) into a specialized supplier metadata field group."^^xsd:string .
+
+cat:databaseNotation
+  a rdf:Property ;
+  rdfs:subPropertyOf skos:notation ;
+  rdfs:label "database notation" ;
+  rdfs:comment "The explicit, low-level string representation identifying the target database." ;
+  skos:definition "The technical identifier pointing directly to the specific database where the field group resides."^^xsd:string ;
+  csvw:name "DatabaseName" .
+
+cat:schemaNotation
+  a rdf:Property ;
+  rdfs:subPropertyOf skos:notation ;
+  rdfs:label "schema notation" ;
+  rdfs:comment "The explicit, low-level string representation identifying the target physical schema." ;
+  skos:definition "The technical identifier pointing directly to the specific schema that defines the field group."^^xsd:string ;
+  csvw:name "SchemaName" .
+
+# =========================================
+# FIELD CLASS DEFINITION
+# =========================================
+
+cat:Field
+  a rdfs:Class ;
+  rdfs:label "Field" ;
+  rdfs:comment "A core technical atom representing a single discrete column, element, or data attribute within a structural layout or data store schema." ;
+  skos:definition "A localized data definition structure representing a distinct property or information cell mapped within a specific file template, database configuration, or schema layout."^^xsd:string .
+
+cat:primaryKeyFlag
+  a rdf:Property ;
+  rdfs:label "primary key flag" ;
+  rdfs:comment "A boolean logical indicator used to flag whether a specific field functions as a unique structural key row identifier." ;
+  skos:definition "A logical property determining whether a database engine or ingestion parser should treat the value of this field as part of a row's primary identity constraint." .
+
+cat:nullableFlag
+  a rdf:Property ;
+  rdfs:label "nullable flag" ;
+  rdfs:comment "A boolean logical indicator determining whether a specific column or data field is allowed to accept null or blank missing values." ;
+  skos:definition "A structural rule parameter enforcing whether an empty cell or missing data token triggers a structural schema error or passes parsing gates safely." .
+
+# =========================================
+# DATA TAXONOMY CLASS
+# =========================================
+
+cat:DataTaxonomy
+  a rdfs:Class ;
+  rdfs:label "Data Taxonomy" ;
+  rdfs:comment "The foundational root class defining the overarching structural, functional, or asset classification categories for market data packages." ;
+  skos:definition "A formalized classification scheme used to partition financial market data information feeds based on their underlying semantic, functional, and structural content types."^^xsd:string ;
+  skos:scopeNote "This class serves as the root entity for all data content classifications inside the ODRL compliance and data inventory graph. It applies directly to commercial data packages or underlying streams to determine data-use criteria, rather than tracking technical asset lifecycle classes (like CFI patterns)."^^xsd:string ;
+  skos:example "Trading data (pre-trade order books), Analytics (indices and iNAVs), and Fixings (benchmark daily interest rates)."^^xsd:string .
+
+cat:permId          # dcterms:identifier
+  a rdf:Property ;
+  rdfs:label "Permanent Identifier"@en ;
+  rdfs:comment "The immutable, master key sequence acting as the system-of-record global identification anchor for a data object, maintaining continuity across system refactors."@en ;
+  skos:example "An un-changing database identity token string tracking a specific exchange jurisdiction cluster entity."@en .
+
+cat:code            # dcterms:identifier
+  a rdf:Property ;
+  rdfs:label "Code"@en ;
+  rdfs:comment "A localized alphanumeric abbreviation, system tag, or short symbolic encoding sequence applied to index an entity node."@en ;
+  skos:example "A short technical interface lookup token sequence or trading venue identifier string."@en .
+
+cat:uniqueName      # skos:notation
+  a rdf:Property ;
+  rdfs:label "Unique Name"@en ;
+  rdfs:comment "The strictly unique, system-enforced alphanumeric text identifier string assigned to a single graph node to eliminate matching overlap."@en ;
+  skos:example "A distinct, non-overlapping label key utilized by data ingestion pipelines to partition record updates."@en .
+
+cat:longName        # dcterms:title
+  a rdf:Property ;
+  rdfs:label "Long Name"@en ;
+  rdfs:comment "The comprehensive, un-truncated official commercial name or formal presentation text title representing an enterprise asset."@en ;
+  skos:example "The complete legally registered corporate catalog name string assigned to a bundled vendor market data tracking offering."@en .
+
+cat:sequenceNumber
+  a rdf:Property ;
+  rdfs:label "Sequence Number"@en ;
+  rdfs:comment "An ordering integer value, step marker, or position index digit applied to establish a deterministic sorting layer over a group of objects."@en ;
+  skos:example "An integer index value denoting field priority positioning configurations inside metadata schema transformation matrices."@en .
+
+# =========================================
+# BUSINESS CONCEPT ELEMENT CLASS DEFINITION
+# =========================================
+
+cat:businessConceptElement
+  a rdf:Property ;
+  rdfs:label "has business concept element" ;
+  rdfs:comment "Links a specific structural database schema, table row, or data dictionary entity to its corresponding abstract business taxonomy concept or term." ;
+  skos:definition "A directional property that maps low-level technical infrastructure nodes to their standardized semantic definitions and corporate terminology anchors within the knowledge graph."^^xsd:string ;
+  skos:scopeNote "Used by automated mapping pipelines to establish traceability between physical data elements (such as a database column or Field) and their logical business definitions."^^xsd:string ;
+  skos:example "Linking the physical database column 'seg_mic' to the logical business concept element node representing 'Segment MIC Code'."^^xsd:string .
+
+cat:BusinessConceptElement
+  a rdfs:Class ;
+  rdfs:label "Business Concept Element" ;
+  rdfs:comment "A foundational semantic component used to bind functional business terminology to standardized resource locations and explicit data literals within the enterprise data inventory." ;
+  skos:definition "An abstract organizational classification class designed to capture and hold baseline metadata attributes for financial market concepts, data packages, or reference data providers."^^xsd:string ;
+  skos:scopeNote "This class functions as a generic data container property within the metadata repository, allowing ingestion and parsing scripts to resolve literal representations and endpoint access criteria on a single focus node."^^xsd:string ;
+  skos:example "Assigning a raw tracking name and an API download address to an incoming exchange product feed."^^xsd:string .
