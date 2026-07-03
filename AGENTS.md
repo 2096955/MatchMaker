@@ -5,16 +5,22 @@
 - Synthetic or mock demo data is acceptable when unmistakably labelled ILLUSTRATIVE and the narrative is coherent end-to-end.
 - Matching UI must tell an expositional story (vendor → ETL → matcher → confidence gate → persist); every stage should explain itself in context.
 - Incoherent mock taxonomy presented as real bank data is unacceptable — e.g. Marketing domain for LSEG/ICE/S&P financial-data vendors.
+- MatchMaker only — no Defra, no project switches, no commits unless explicitly asked.
+- Ontology-matching work is phased P0→P4 per the DCAT design spec; stop after each phase for review before continuing.
+- Keep matcher diffs narrow and bounded; preserve flag-gated compatible defaults and dense-score-only / BM25-nominator-only invariants.
+- Verify the design spec's residual evidence gaps in code (matching bands, enrichment shapes, Neptune precedent) before editing affected files.
 
 ## Learned Workspace Facts
 
-- SCUDO matching comprehension UI lives in `Understand-Anything/understand-anything-plugin/packages/dashboard` (local dev typically `:5177`).
-- `MatchMaker/frontend/` is the Data Ingestion Framework console only — matching routes were reverted.
+- SCUDO matching UI lives in `Understand-Anything/understand-anything-plugin/packages/dashboard` (`:5177`); `MatchMaker/frontend/` is the Data Ingestion Framework console only.
 - Two graph schemas: **KnowledgeGraph** (`kind: "codebase"`, `layers`, `tour`) for the dashboard; **MatchPayload** for `GET /api/mapping/graph`.
-- `backend/scudo/build_matching_graph.py` emits KnowledgeGraph for the dashboard; `build_match_payload()` serves the API MatchPayload shape.
+- `backend/scudo/build_matching_graph.py` emits KnowledgeGraph; `build_match_payload()` serves the API MatchPayload shape.
 - Canonical CDAO IRIs: `jpmorgan:data:cdao:*`; forbidden in shipped artifacts: `urn:cdao:*`, bare `cdao:*`, and Marketing domain nodes.
 - Matcher confidence bands (canonical): PASS ≥0.85, BORDERLINE 0.75–0.85, FAIL <0.75 per `backend/scudo_mapping_mcp/config.py`.
-- Taxonomy source of truth: `backend/scudo/fixtures/cdao_catalogue.json`; sync to dashboard via `backend/scudo/scripts/sync_matching_graph_to_dashboard.sh`.
-- Do not edit Codex-owned files: `backend/scudo/data-platform.yaml`, `build-pipeline.yaml`, `template.yaml`.
-- Console AWS deploy uses `infra/scudo-poc-*.yaml`, separate from Codex Lambda stacks in `backend/scudo/`.
+- Taxonomy JSON source of truth: `backend/scudo/fixtures/cdao_catalogue.json`; sync to dashboard via `backend/scudo/scripts/sync_matching_graph_to_dashboard.sh`.
+- Do not edit Codex-owned files: `backend/scudo/data-platform.yaml`, `build-pipeline.yaml`, `template.yaml`; console AWS deploy uses `infra/scudo-poc-*.yaml`.
 - Binding SCUDO matching spec: `docs/superpowers/specs/2026-06-24-scudo-matching-frontend-spec.md`; AWS deploy gated on owner `:5177` screenshot approval.
+- DCAT ontology matching spec: `docs/superpowers/specs/2026-07-03-dcat-ontology-matching-design.md`; P0 = DCAT/SKOS loader + extended `TaxonomyNode` + `taxonomy_text` threading; P1 = subsumption + enrichment projection + calibration; P2/P3 = real RDF/SHACL + ODRL; P4 = CSVW/`TurtleIngester` upload seam.
+- Backend verification cwd: `MatchMaker/backend/` with `PYTHONPATH=.` for pytest, import smoke (`scudo_mapping_mcp.retrieval`, `store.memory_store`, `scudo.tools`).
+- P0 ontology fixtures: `backend/scudo_mapping_mcp/tests/fixtures/` (e.g. `dcat_taxonomy.ttl`); catalogue POC `catalogue_ontology_v0_1_deontic.ttl` is transcript-derived and unverified.
+- P0 matcher scope excludes `backend/scudo/tools.py`, `frames.py`, enrichment, ODRL, SHACL, and Neptune precedent schema unless a P0 test proves required.
