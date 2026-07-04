@@ -50,6 +50,9 @@ def _init_aurora() -> None:
 
     _ensure_aurora_schema()
     if os.environ.get("SCUDO_AURORA_CLUSTER_ARN"):
+        from .aurora_store import ensure_schema as _ensure_aurora_store_schema
+
+        _ensure_aurora_store_schema()
         print("[init_data_platform] Aurora schema ready")
     else:
         print("[init_data_platform] Aurora not configured; skipped")
@@ -67,7 +70,9 @@ def _seed_neptune(nodes: list[dict[str, Any]]) -> None:
     from scudo_mapping_mcp.models import TaxonomyNode
     from scudo_mapping_mcp.store.neptune_store import NeptuneStore
 
-    store = NeptuneStore(endpoint=endpoint, graph_name=os.environ.get("GRAPH_NAME", "scudo_mapping"))
+    store = NeptuneStore(
+        endpoint=endpoint, graph_name=os.environ.get("GRAPH_NAME", "scudo_mapping")
+    )
     if not store.health():
         raise RuntimeError(f"Neptune endpoint {endpoint!r} is not healthy")
     count = 0
