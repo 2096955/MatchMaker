@@ -44,7 +44,7 @@ IRI_NAMESPACE = "mds"
 
 # Confidence floor. At or above -> auto-mapped. Below -> escalate to a human.
 # This is an invariant, enforced in code, not a model preference.
-CONFIDENCE_FLOOR: float = 0.80
+CONFIDENCE_FLOOR: float = 0.75
 
 # Cost-ladder band half-width around the floor. Cases within ±this distance
 # of the floor are the "borderline" band — the only band that consults the

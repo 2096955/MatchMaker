@@ -16,7 +16,7 @@
 - Two graph schemas: **KnowledgeGraph** (`kind: "codebase"`, `layers`, `tour`) for the dashboard; **MatchPayload** for `GET /api/mapping/graph`.
 - `backend/scudo/build_matching_graph.py` emits KnowledgeGraph; `build_match_payload()` serves the API MatchPayload shape.
 - Canonical CDAO IRIs: `jpmorgan:data:cdao:*`; forbidden in shipped artifacts: `urn:cdao:*`, bare `cdao:*`, and Marketing domain nodes.
-- Matcher confidence bands (canonical): PASS ≥0.85, BORDERLINE 0.75–0.85, FAIL <0.75 per `backend/scudo_mapping_mcp/config.py`.
+- Matcher confidence bands (canonical): PASS ≥0.80, BORDERLINE 0.70–0.80, FAIL <0.70 per `backend/scudo_mapping_mcp/config.py`.
 - Taxonomy JSON source of truth: `backend/scudo/fixtures/cdao_catalogue.json`; sync to dashboard via `backend/scudo/scripts/sync_matching_graph_to_dashboard.sh`.
 - Do not edit Codex-owned files: `backend/scudo/data-platform.yaml`, `build-pipeline.yaml`, `template.yaml`; console AWS deploy uses `infra/scudo-poc-*.yaml`.
 - Binding SCUDO matching spec: `docs/superpowers/specs/2026-06-24-scudo-matching-frontend-spec.md`; AWS deploy gated on owner `:5177` screenshot approval.

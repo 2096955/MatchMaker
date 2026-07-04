@@ -134,9 +134,9 @@ flowchart TD
     r2 -->|hit| seal([Seal verdict - PASS])
     r2 -->|miss| r3[Rung 3: FalkorDB hybrid<br/>Jaro-Winkler dense + BM25 lexical<br/>+ RRF + structural + rank-signal tilt]
     r3 --> band{{3-band gate<br/>PASS / BORDERLINE / FAIL}}
-    band -->|PASS >= 0.85| seal
-    band -->|FAIL < 0.75| fail_low([REJECT - below floor])
-    band -->|BORDERLINE 0.75-0.85| r4[Rung 4: Opus 4.8 specialist<br/>one-shot, concur-cap MIN not MAX]
+    band -->|PASS >= 0.80| seal
+    band -->|FAIL < 0.70| fail_low([REJECT - below floor])
+    band -->|BORDERLINE 0.70-0.80| r4[Rung 4: Opus 4.8 specialist<br/>one-shot, concur-cap MIN not MAX]
     r4 --> r5{{Rung 5: re-gate<br/>verifier concurs?}}
     r5 -->|concur PASS| seal
     r5 -->|dissent → NEEDS_REVIEW| queue[(HITL reviewer queue)]

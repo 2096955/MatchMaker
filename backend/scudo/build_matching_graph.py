@@ -30,8 +30,8 @@ from scudo_mapping_mcp.config import (  # noqa: E402
     pass_threshold,
 )
 
-PASS_THRESHOLD = pass_threshold()  # 0.85 (rounded — avoids 0.8500000000000001)
-BORDERLINE_THRESHOLD = borderline_threshold()  # 0.75
+PASS_THRESHOLD = pass_threshold()  # 0.80 (rounded — avoids 0.8000000000000001)
+BORDERLINE_THRESHOLD = borderline_threshold()  # 0.70
 _PASS = f"{PASS_THRESHOLD:.2f}"
 _BORDER = f"{BORDERLINE_THRESHOLD:.2f}"
 
@@ -961,7 +961,7 @@ def build_knowledge_graph() -> dict[str, Any]:
     """Build the KnowledgeGraph dict (understand-anything dashboard contract).
 
     Emits version 1.0.0 / kind "codebase" with jpmorgan:data:cdao:* IRIs,
-    no Marketing domain, and confidence bands from config (0.85/0.75).
+    no Marketing domain, and confidence bands from config (0.80/0.70).
     """
     from scudo.seed_falkordb import _load_fixture, _to_taxonomy_node
     from scudo_mapping_mcp.models import VendorProductRef

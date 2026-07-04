@@ -3,7 +3,7 @@
   "kind": "codebase",
   "project": {
     "name": "SCUDO Matching Comprehension",
-    "description": "End-to-end SCUDO architecture graph: ETL ingestion (EventBridge \u2192 SQS \u2192 Lambda \u2192 S3/DynamoDB), three-stage matching engine (parse, semantic, rank), confidence gate with three routing bands (PASS \u22650.85 / BORDERLINE 0.75\u20130.85 / FAIL <0.75), agentic orchestration (Strands + Bedrock Specialist + Verifier), HITL adjudication, and JAPI persist (Aurora \u2192 Neptune \u2192 OpenSearch). Vendor product nodes carry real matcher confidence scores; CDAO taxonomy is loaded from the fixtures/cdao_catalogue.json fixture. ILLUSTRATIVE \u2014 synthetic data, not authoritative.",
+    "description": "End-to-end SCUDO architecture graph: ETL ingestion (EventBridge \u2192 SQS \u2192 Lambda \u2192 S3/DynamoDB), three-stage matching engine (parse, semantic, rank), confidence gate with three routing bands (PASS \u22650.80 / BORDERLINE 0.70\u20130.80 / FAIL <0.70), agentic orchestration (Strands + Bedrock Specialist + Verifier), HITL adjudication, and JAPI persist (Aurora \u2192 Neptune \u2192 OpenSearch). Vendor product nodes carry real matcher confidence scores; CDAO taxonomy is loaded from the fixtures/cdao_catalogue.json fixture. ILLUSTRATIVE \u2014 synthetic data, not authoritative.",
     "languages": [
       "Python"
     ],
@@ -21,7 +21,7 @@
       "AWS AppSync",
       "scudo-cost-ladder"
     ],
-    "analyzedAt": "2026-07-02T13:12:58.060209+00:00",
+    "analyzedAt": "2026-07-04T20:16:05.891558+00:00",
     "gitCommitHash": "offline-fixture"
   },
   "nodes": [
@@ -161,7 +161,7 @@
       "id": "match-confidence-gate",
       "type": "flow",
       "name": "Confidence Gate",
-      "summary": "Confidence Gate \u2014 0.85 pass threshold. Three routing bands: >=0.85 PASS \u2192 Aurora Audit Log + JAPI Persist; 0.75\u20130.85 BORDERLINE \u2192 Orchestration Layer (Strands); <0.75 FAIL \u2192 Human Review (Scudo UI).",
+      "summary": "Confidence Gate \u2014 0.80 pass threshold. Three routing bands: >=0.80 PASS \u2192 Aurora Audit Log + JAPI Persist; 0.70\u20130.80 BORDERLINE \u2192 Orchestration Layer (Strands); <0.70 FAIL \u2192 Human Review (Scudo UI).",
       "tags": [
         "matching",
         "gate",
@@ -174,7 +174,7 @@
       "id": "orch-strands",
       "type": "service",
       "name": "Strands Orchestrator",
-      "summary": "Strands Orchestrator \u2014 deterministic routing with Claude Opus 4.8. Activated only for BORDERLINE confidence (0.75\u20130.85). Coordinates the Specialist, Verifier and AgentCore Memory agents.",
+      "summary": "Strands Orchestrator \u2014 deterministic routing with Claude Opus 4.8. Activated only for BORDERLINE confidence (0.70\u20130.80). Coordinates the Specialist, Verifier and AgentCore Memory agents.",
       "tags": [
         "orchestration",
         "strands",
@@ -240,7 +240,7 @@
       "id": "hitl-review",
       "type": "entity",
       "name": "Human Review \u2014 Scudo UI",
-      "summary": "Human Review \u2014 Data Steward adjudication via Scudo UI. Receives FAIL (<0.75) and uncertain Verifier outcomes. Decision feeds back into Aurora + Neptune.",
+      "summary": "Human Review \u2014 Data Steward adjudication via Scudo UI. Receives FAIL (<0.70) and uncertain Verifier outcomes. Decision feeds back into Aurora + Neptune.",
       "tags": [
         "hitl",
         "human-review",
@@ -914,7 +914,7 @@
       "type": "writes_to",
       "direction": "forward",
       "weight": 1.0,
-      "description": "PASS >=0.85",
+      "description": "PASS >=0.80",
       "data": {
         "band": "pass"
       }
@@ -925,7 +925,7 @@
       "type": "triggers",
       "direction": "forward",
       "weight": 0.5,
-      "description": "BORDERLINE 0.75\u20130.85",
+      "description": "BORDERLINE 0.70\u20130.80",
       "data": {
         "band": "borderline"
       }
@@ -936,7 +936,7 @@
       "type": "triggers",
       "direction": "forward",
       "weight": 0.3,
-      "description": "FAIL <0.75",
+      "description": "FAIL <0.70",
       "data": {
         "band": "fail"
       }
@@ -1237,7 +1237,7 @@
       "weight": 0.7371,
       "description": "product=mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f; similarity=0.7371; candidate",
       "data": {
-        "band": "fail",
+        "band": "borderline",
         "weight": 0.7371
       }
     },
@@ -1317,7 +1317,7 @@
       "weight": 0.8447,
       "description": "product=mds.ice:17320f3d-2679-5765-9359-646a2908c9f0; similarity=0.8447; candidate",
       "data": {
-        "band": "borderline",
+        "band": "pass",
         "weight": 0.8447
       }
     },
@@ -1400,7 +1400,7 @@
     {
       "id": "layer:matching-engine",
       "name": "Matching Engine (AIA)",
-      "description": "Three-stage matching pipeline: (A) parse+normalize, (B) semantic matching with Titan Embeddings, (C) rank+score \u2192 confidence gate (bands 0.75/0.85).",
+      "description": "Three-stage matching pipeline: (A) parse+normalize, (B) semantic matching with Titan Embeddings, (C) rank+score \u2192 confidence gate (bands 0.70/0.80).",
       "nodeIds": [
         "match-a-parse",
         "match-b-semantic",
@@ -1412,7 +1412,7 @@
     {
       "id": "layer:orchestration",
       "name": "Orchestration Layer (Borderline only)",
-      "description": "Strands Orchestrator with Claude Opus 4.8; activated only for the 0.75\u20130.85 BORDERLINE band. Specialist + Verifier + Evaluations.",
+      "description": "Strands Orchestrator with Claude Opus 4.8; activated only for the 0.70\u20130.80 BORDERLINE band. Specialist + Verifier + Evaluations.",
       "nodeIds": [
         "orch-strands",
         "orch-agent-memory",
@@ -1562,7 +1562,7 @@
     {
       "order": 5,
       "title": "Borderline Orchestration (Strands + Bedrock)",
-      "description": "When the confidence gate lands in the 0.75\u20130.85 BORDERLINE band, the Strands Orchestrator (Claude Opus 4.8) is invoked. It reads from AgentCore Memory, dispatches a Specialist (Bedrock) to propose the target CDAO node and triples, and runs a Verifier (Bedrock) against a 10-dimension rubric. Score >=10 promotes to AUTO_MAPPED; <10 escalates to Human Review. Bedrock Evaluations captures all traces.",
+      "description": "When the confidence gate lands in the 0.70\u20130.80 BORDERLINE band, the Strands Orchestrator (Claude Opus 4.8) is invoked. It reads from AgentCore Memory, dispatches a Specialist (Bedrock) to propose the target CDAO node and triples, and runs a Verifier (Bedrock) against a 10-dimension rubric. Score >=10 promotes to AUTO_MAPPED; <10 escalates to Human Review. Bedrock Evaluations captures all traces.",
       "nodeIds": [
         "match-confidence-gate",
         "orch-strands",

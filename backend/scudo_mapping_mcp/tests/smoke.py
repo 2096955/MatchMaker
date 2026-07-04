@@ -1997,8 +1997,8 @@ def _():
 def _():
     """In the ±0.05 window around the floor: specialist IS consulted."""
     fake = _fresh_store()
-    # 0.82: above floor (0.80), below pass threshold (0.85)
-    fake.set_score(EQ_PRICES_IRI, 0.82)
+    # 0.77: above floor (0.75), below pass threshold (0.80)
+    fake.set_score(EQ_PRICES_IRI, 0.77)
     fake.set_score(EQUITIES_IRI, 0.30)
 
     calls: list[VendorProductRef] = []
@@ -2027,7 +2027,7 @@ def _():
     """Clearly below floor: status NEEDS_REVIEW, band 'fail', specialist
     NOT consulted (ladder discipline — LLM only runs on resolvable cases)."""
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.40)  # well below floor-0.05 == 0.75
+    fake.set_score(EQ_PRICES_IRI, 0.40)  # well below borderline edge == 0.70
     fake.set_score(EQUITIES_IRI, 0.30)
 
     calls: list[VendorProductRef] = []
@@ -2061,8 +2061,8 @@ def _():
     and the specialist's alternative is preserved on the result so the
     reviewer sees BOTH picks (no information loss)."""
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.82)  # sparse ranker would pick this
-    fake.set_score(EQUITIES_IRI, 0.81)  # specialist will pick this instead
+    fake.set_score(EQ_PRICES_IRI, 0.77)  # sparse ranker would pick this
+    fake.set_score(EQUITIES_IRI, 0.76)  # specialist will pick this instead
     fake.set_score(FX_IRI, 0.10)
 
     def disagreeing_specialist(ref, candidates):  # noqa: ANN001
@@ -2106,7 +2106,7 @@ def _():
     silently surfaced as an alternative the reviewer might select.
     """
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.82)  # borderline: above floor, below pass
+    fake.set_score(EQ_PRICES_IRI, 0.77)  # borderline: above floor, below pass
     fake.set_score(EQUITIES_IRI, 0.30)
     fake.set_score(FX_IRI, 0.10)
 
@@ -2161,10 +2161,10 @@ def _():
     """Borderline + specialist concurs at HIGHER confidence — the matcher
     must NOT trust the specialist's claim past the deterministic anchor
     (I5). Confidence = min(dense, specialist), not specialist alone.
-    A hallucinating LLM returning 0.99 cannot push a 0.78 dense above the
+    A hallucinating LLM returning 0.99 cannot push a 0.77 dense above the
     floor."""
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.82)  # borderline, above floor
+    fake.set_score(EQ_PRICES_IRI, 0.77)  # borderline, above floor
     fake.set_score(EQUITIES_IRI, 0.30)
 
     def concurring_specialist(ref, candidates):  # noqa: ANN001
@@ -2188,8 +2188,8 @@ def _():
     assert r.status == MappingStatus.AUTO_MAPPED, r.status
     # Concurrence + dense above floor still auto-maps, but confidence is
     # the DETERMINISTIC dense score, not the LLM's claim.
-    assert abs(r.confidence - 0.82) < 1e-6, (
-        f"confidence must be capped at min(0.82, 0.99) = 0.82; got {r.confidence}"
+    assert abs(r.confidence - 0.77) < 1e-6, (
+        f"confidence must be capped at min(0.77, 0.99) = 0.77; got {r.confidence}"
     )
 
 
@@ -2199,7 +2199,7 @@ def _():
     confidence -> matcher must NOT auto-map. The specialist cannot inflate
     a sub-floor dense score (I5)."""
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.78)  # borderline, BELOW floor
+    fake.set_score(EQ_PRICES_IRI, 0.73)  # borderline, BELOW floor
     fake.set_score(EQUITIES_IRI, 0.30)
 
     def lying_specialist(ref, candidates):  # noqa: ANN001
@@ -2429,7 +2429,7 @@ def _():
     omits the specialist kwarg. The seam is per-call DI — no module
     state — so concurrent requests can't poison each other."""
     fake = _fresh_store()
-    fake.set_score(EQ_PRICES_IRI, 0.82)
+    fake.set_score(EQ_PRICES_IRI, 0.77)
     fake.set_score(EQUITIES_IRI, 0.30)
 
     calls_a: list[VendorProductRef] = []
