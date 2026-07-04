@@ -30,7 +30,7 @@ SCUDO MatchMaker proposes mappings between **untrusted vendor product references
 
 The codebase is built around two non-negotiable ideas. First, a **first-match-wins cost ladder** — scope gate, precedent reuse, FalkorDB hybrid retrieval, Opus 4.8 specialist, then a deterministic 3-band gate — so the expensive arms only run when the cheap ones cannot decide. Second, a **three-MCP trust gradient** enforced by separate ECS task roles: Ingestion (port 8001) sees vendor data but is explicitly denied the signing key; Match-Verify (port 8002) reads Neptune and calls Bedrock but writes nothing canonical; Persistence (port 8003) is the only writer and holds the publish gate.
 
-What this repo is **not**: a complete SCUDO. There is no production Neptune retrieval (the `find_similar_products` SPARQL implementation is a placeholder returning `similarity=0.0`), the dense-arm similarity is a string metric pretending to be a vector, and the 0.80 floor + ±0.05 borderline bands are unvalidated against any golden set. See [What is NOT done](#what-is-not-done).
+What this repo is **not**: a complete SCUDO. There is no production Neptune retrieval (the `find_similar_products` SPARQL implementation is a placeholder returning `similarity=0.0`), the dense-arm similarity is a string metric pretending to be a vector, and the PASS ≥0.80 / BORDERLINE ≥0.70 bands are unvalidated against any golden set. See [What is NOT done](#what-is-not-done).
 
 ---
 
@@ -124,7 +124,7 @@ gate), and the dashboard HITL surface in
 
 ## The matching cost ladder
 
-Five rungs. First match wins. Anything reaching the gate must clear the 0.80 floor.
+Five rungs. First match wins. Anything reaching the gate must clear the 0.80 pass edge.
 
 ```mermaid
 flowchart TD
@@ -150,7 +150,7 @@ flowchart TD
 
 Implementation lives in `backend/scudo_mapping_mcp/matching.py`. Validations and field normalisation in `validations.py`. The HMAC verdict seal contract is in `verdict.py` — `v=2` carries the band, Persistence refuses any agent-passed verdict dict.
 
-The PASS / BORDERLINE / FAIL cuts above are the **defaults** (floor `0.80` ± `0.05` from `config.py`). A reviewer can override the window **per request**: the dashboard sends `confidence_floor` + `borderline_half_width` to `/api/mapping/map` (and `/agent/run`), which re-band the same dense score live — see [Matching dashboard](#matching-dashboard-upload--test-interactive-pipeline).
+The PASS / BORDERLINE / FAIL cuts above are the **defaults** (`confidence_floor = 0.75`, `borderline_half_width = 0.05` from `config.py`, yielding PASS ≥0.80 and BORDERLINE ≥0.70). A reviewer can override the window **per request**: the dashboard sends `confidence_floor` + `borderline_half_width` to `/api/mapping/map` (and `/agent/run`), which re-band the same dense score live — see [Matching dashboard](#matching-dashboard-upload--test-interactive-pipeline).
 
 ---
 
@@ -388,7 +388,7 @@ alternative candidate, and out-of-scope / no-candidate results disable the actio
 pipeline so the panels populate without hunting for a file.
 
 The reviewer can also **move the confidence bands**. A "Review thresholds" control
-changes the borderline window (e.g. `0.75–0.85 → 0.70–0.85`); graph edges + node
+changes the borderline window (e.g. `0.70–0.80 → 0.65–0.80`); graph edges + node
 info **re-colour live** (advisory display — it never mutates the recorded human
 decision), and **"Re-run with these thresholds"** re-invokes the matcher with the
 chosen window so the actual AUTO_MAPPED vs NEEDS_REVIEW escalation changes. The FE
@@ -429,7 +429,7 @@ a hardening follow-up — see TODO(aws) below.
 | I1 | Deterministic routing — same input, same rung, same band | `matching.py` |
 | I2 | No raw-query passthrough — MCP tools take operations, not Cypher / SPARQL strings | `store/base.py` |
 | I3 | Scope gate is fail-closed — exception ⇒ deny, never allow | `frames.check_scope` |
-| I4 | 0.80 floor in code from `settings.confidence_floor` — single source | `matching.py`, `config.py` |
+| I4 | Band edges derive from `settings.confidence_floor` + `settings.borderline_half_width` — single source | `matching.py`, `config.py` |
 | I5 | Publish gate — Persistence MCP verifies HMAC seal before any write | `persistence_mcp.py`, `verdict.py` |
 | I6 | Invariants live outside the model — never in the prompt | `validations.py` |
 | I7 | Store seam is retrieval operations, not query strings (Cypher in `falkordb_store`, SPARQL in `neptune_store`) | `store/base.py` |
@@ -444,7 +444,7 @@ a hardening follow-up — see TODO(aws) below.
 Be honest. Engineering, not marketing.
 
 - **`NeptuneStore.find_similar_products` is a placeholder.** It returns every taxonomy node with `similarity=0.0`. The production cutover requires Neptune Analytics or a Bedrock-backed vector search; both are M9 work. Until then, do not run rung 3 against Neptune in any meaningful test.
-- **The dense arm is not dense.** `falkordb_store.py` uses Jaro-Winkler as a stand-in for vector similarity. The 0.80 floor and the ±0.05 borderline bands were chosen for the Jaro-Winkler distribution. When real embeddings arrive, the floor and bands must be **re-derived against a golden set** as a coupled swap — do not assume the numbers carry over.
+- **The dense arm is not dense.** `falkordb_store.py` uses Jaro-Winkler as a stand-in for vector similarity. The PASS ≥0.80 / BORDERLINE ≥0.70 defaults were chosen for the Jaro-Winkler distribution. When real embeddings arrive, the floor and bands must be **re-derived against a golden set** as a coupled swap — do not assume the numbers carry over.
 - **No golden-set evaluation harness.** Smoke tests cover wiring; they do not measure precision / recall.
 - **CloudFront frontend — deployed.** The dashboard is served via CloudFront on both the formal `scudo-poc-frontend` stack (`d1n9fcdyynpn9j.cloudfront.net`) and the dev distribution (`dp4ji14se0pct.cloudfront.net`), at `/demo/` + `/cogJPMdemo/`.
 - **Aurora, Neptune, and OpenSearch are not created by the SAM stack default.** The stack exposes endpoint/ARN seams and provisions the event backbone. Create or import the managed stores explicitly before switching those parameters away from empty strings.

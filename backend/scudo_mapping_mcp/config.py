@@ -42,8 +42,8 @@ PRIORITY_VENDORS: tuple[str, ...] = (
 # IRI namespace convention: mds.<vendor>:<uuid5>
 IRI_NAMESPACE = "mds"
 
-# Confidence floor. At or above -> auto-mapped. Below -> escalate to a human.
-# This is an invariant, enforced in code, not a model preference.
+# Confidence band centre. pass_threshold() is the auto-map edge; scores between
+# borderline_threshold() and pass_threshold() consult the specialist/reviewer path.
 CONFIDENCE_FLOOR: float = 0.75
 
 # Cost-ladder band half-width around the floor. Cases within ±this distance
@@ -57,8 +57,8 @@ def pass_threshold(
 ) -> float:
     """Upper band edge (>= this -> PASS).
 
-    Rounded to 2 dp: a naive ``floor + half`` yields 0.8500000000000001 for the
-    canonical 0.80/0.05 config, which silently pushes a score of exactly 0.85
+    Rounded to 2 dp: a naive ``floor + half`` yields 0.8000000000000001 for the
+    canonical 0.75/0.05 config, which silently pushes a score of exactly 0.80
     into BORDERLINE. Banding is the product's headline behaviour, so the edge
     must be exact.
     """
