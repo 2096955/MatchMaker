@@ -44,23 +44,23 @@ TOOLS
 All four are ``readOnlyHint=true``. Run locally with:
     python -m scudo_mapping_mcp.match_verify_mcp
 """
+
 from __future__ import annotations
 
 import json
 import os
 from contextlib import asynccontextmanager
-from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import verdict as verdict_seal
-from .config import PRIORITY_VENDORS
 from .frames import _read_vendor_frame
 from .hydrate import HydrationError, hydrate
 from .ingest import seed_taxonomy
 from .matching import map_vendor_product
 from .models import VendorProductRef
+from .specialist import specialist_from_env
 from .store import get_store
 
 _RO = {
@@ -78,8 +78,7 @@ async def _lifespan(server: "FastMCP"):
         print(f"[scudo_match_verify_mcp] seeded {n} CDAO taxonomy nodes")
     except Exception as e:  # noqa: BLE001
         print(
-            f"[scudo_match_verify_mcp] taxonomy seed skipped: "
-            f"{type(e).__name__}: {e}"
+            f"[scudo_match_verify_mcp] taxonomy seed skipped: {type(e).__name__}: {e}"
         )
     else:
         # Replay the M6 canonical bundle so Falkor's working graph is hydrated
@@ -135,22 +134,26 @@ class SimilarInput(_Base):
 class VerifyInput(_Base):
     vendor: str = Field(...)
     product_id: str = Field(..., min_length=1)
-    name: str = Field(
-        "", description="Inline name — avoids a frame lookup."
-    )
+    name: str = Field("", description="Inline name — avoids a frame lookup.")
     description: str = Field("")
 
 
-def _frame(vendor: str, product_id: str, name: str, description: str) -> VendorProductRef:
+def _frame(
+    vendor: str, product_id: str, name: str, description: str
+) -> VendorProductRef:
     if name or description:
         return VendorProductRef(
-            vendor=vendor, product_id=product_id,
-            name=name, description=description,
+            vendor=vendor,
+            product_id=product_id,
+            name=name,
+            description=description,
         )
     ref = _read_vendor_frame(vendor, product_id)
     if ref is None:
         return VendorProductRef(
-            vendor=vendor, product_id=product_id, name=product_id,
+            vendor=vendor,
+            product_id=product_id,
+            name=product_id,
         )
     return ref
 
@@ -172,10 +175,12 @@ async def find_candidates(params: SimilarInput) -> str:
         max_results=params.max_results,
         min_similarity=params.min_similarity,
     )
-    return json.dumps({
-        "count": len(cands),
-        "candidates": [c.model_dump(mode="json") for c in cands],
-    })
+    return json.dumps(
+        {
+            "count": len(cands),
+            "candidates": [c.model_dump(mode="json") for c in cands],
+        }
+    )
 
 
 @mcp.tool(
@@ -223,7 +228,7 @@ async def verify_mapping(params: VerifyInput) -> str:
       }
     """
     ref = _frame(params.vendor, params.product_id, params.name, params.description)
-    result = map_vendor_product(ref)
+    result = map_vendor_product(ref, specialist=specialist_from_env())
     seal = verdict_seal.sign(
         vendor=result.vendor,
         product_id=result.product_id,
@@ -232,10 +237,12 @@ async def verify_mapping(params: VerifyInput) -> str:
         confidence=result.confidence,
         band=result.band,
     )
-    return json.dumps({
-        "verdict": result.model_dump(mode="json"),
-        "seal": seal,
-    })
+    return json.dumps(
+        {
+            "verdict": result.model_dump(mode="json"),
+            "seal": seal,
+        }
+    )
 
 
 if __name__ == "__main__":

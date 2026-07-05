@@ -71,6 +71,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
 from .matching import map_vendor_product
+from .specialist import specialist_from_env
 from .mcp_host import McpHost, get_host
 from .models import (
     Candidate,
@@ -358,6 +359,7 @@ class ScriptedMappingAgent:
                 pass
         result = map_vendor_product(
             ref,
+            specialist=specialist_from_env(),
             floor=confidence_floor,
             half=borderline_half_width,
         )
@@ -544,6 +546,7 @@ class BedrockMappingAgent:
         # per-run threshold override is threaded explicitly (no global).
         result = map_vendor_product(
             ref,
+            specialist=specialist_from_env(),
             floor=confidence_floor,
             half=borderline_half_width,
         )
@@ -636,7 +639,9 @@ def _strands_tools_for_mapping(
         # matcher falls back to settings — identical to the legacy path.
         return json.dumps(
             _mapping_result_dict(
-                map_vendor_product(ref, floor=floor, half=half),
+                map_vendor_product(
+                    ref, specialist=specialist_from_env(), floor=floor, half=half
+                ),
             )
         )
 

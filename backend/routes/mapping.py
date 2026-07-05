@@ -46,8 +46,13 @@ from scudo_mapping_mcp.frames import FrameDataError, _read_vendor_frame, all_fra
 from scudo_mapping_mcp.hydrate import HydrationError, hydrate
 from scudo_mapping_mcp.ingest import ingest_bytes, seed_conceptual_layer, seed_taxonomy
 from scudo_mapping_mcp.matching import map_vendor_product
-from scudo_mapping_mcp.models import ConceptualGraph, MappingBundle, MappingStatus, VendorProductRef
-from scudo_mapping_mcp.specialist import make_rest_specialist
+from scudo_mapping_mcp.models import (
+    ConceptualGraph,
+    MappingBundle,
+    MappingStatus,
+    VendorProductRef,
+)
+from scudo_mapping_mcp.specialist import resolve_specialist
 from scudo_mapping_mcp.store import get_store
 
 mapping_bp = Blueprint("mapping", __name__)
@@ -516,7 +521,10 @@ def map_product():
     try:
         result = map_vendor_product(
             ref,
-            specialist=make_rest_specialist(),
+            # Env-selectable borderline arm (SCUDO_SPECIALIST_BACKEND); the REST
+            # path keeps its opus_dense default via resolve_specialist()'s
+            # "local" backend (= make_rest_specialist), preserving behaviour.
+            specialist=resolve_specialist(),
             borderline_requires_specialist=True,
             floor=floor,
             half=half,

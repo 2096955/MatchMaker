@@ -15,12 +15,12 @@ the single point that resolves it (mock working set locally, S3 in prod).
 Run locally:   python -m app.mcp_server        (streamable HTTP on :8000)
 Inspect:       npx @modelcontextprotocol/inspector
 """
+
 from __future__ import annotations
 
 import json
 import os
 from contextlib import asynccontextmanager
-from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,9 +31,15 @@ from .hydrate import HydrationError, hydrate
 from .ingest import seed_taxonomy
 from .matching import map_vendor_product
 from .models import VendorProductRef
+from .specialist import specialist_from_env
 from .store import get_store
 
-_RO = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+_RO = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
 
 
 @asynccontextmanager
@@ -51,7 +57,9 @@ async def _lifespan(server: "FastMCP"):
         try:
             result = hydrate(strict=False)
             if result.skipped_no_bundle:
-                print("[scudo_mapping_mcp] hydration skipped (cold start: no canonical bundle yet)")
+                print(
+                    "[scudo_mapping_mcp] hydration skipped (cold start: no canonical bundle yet)"
+                )
             else:
                 print(
                     f"[scudo_mapping_mcp] hydration applied "
@@ -59,7 +67,9 @@ async def _lifespan(server: "FastMCP"):
                     f"(bundle version={result.bundle_version})"
                 )
         except HydrationError as e:
-            print(f"[scudo_mapping_mcp] hydration failed (proceeding empty): {type(e).__name__}: {e}")
+            print(
+                f"[scudo_mapping_mcp] hydration failed (proceeding empty): {type(e).__name__}: {e}"
+            )
     yield {}
 
 
@@ -72,36 +82,54 @@ class _Base(BaseModel):
 
 
 class NodeInput(_Base):
-    node_iri: str = Field(..., description="Taxonomy node IRI, e.g. 'cdao:equities'", min_length=1)
+    node_iri: str = Field(
+        ..., description="Taxonomy node IRI, e.g. 'cdao:equities'", min_length=1
+    )
 
 
 class NeighbourhoodInput(_Base):
     node_iri: str = Field(..., min_length=1, description="Root taxonomy node IRI")
-    max_depth: int = Field(2, ge=1, le=3, description="Hops from the root (clamped to 3)")
+    max_depth: int = Field(
+        2, ge=1, le=3, description="Hops from the root (clamped to 3)"
+    )
     max_nodes: int = Field(50, ge=1, le=100, description="Node cap (clamped to 100)")
 
 
 class SimilarInput(_Base):
     vendor: str = Field(..., description=f"One of: {', '.join(PRIORITY_VENDORS)}")
     product_id: str = Field(..., min_length=1, description="Vendor-native product id")
-    name: str = Field("", description="Product name (pass inline to avoid an S3/frame lookup)")
-    description: str = Field("", description="Product description (optional, improves matching)")
-    max_results: int = Field(10, ge=1, le=25, description="Top-N candidates (clamped to 25)")
+    name: str = Field(
+        "", description="Product name (pass inline to avoid an S3/frame lookup)"
+    )
+    description: str = Field(
+        "", description="Product description (optional, improves matching)"
+    )
+    max_results: int = Field(
+        10, ge=1, le=25, description="Top-N candidates (clamped to 25)"
+    )
     min_similarity: float = Field(0.0, ge=0.0, le=1.0, description="Minimum similarity")
 
 
 class MapInput(_Base):
     vendor: str = Field(..., description=f"One of: {', '.join(PRIORITY_VENDORS)}")
     product_id: str = Field(..., min_length=1, description="Vendor-native product id")
-    name: str = Field("", description="Product name (pass inline to avoid an S3/frame lookup)")
-    description: str = Field("", description="Product description (optional, improves matching)")
+    name: str = Field(
+        "", description="Product name (pass inline to avoid an S3/frame lookup)"
+    )
+    description: str = Field(
+        "", description="Product description (optional, improves matching)"
+    )
 
 
 # --- helpers -------------------------------------------------------------
-def _frame(vendor: str, product_id: str, name: str = "", description: str = "") -> VendorProductRef:
+def _frame(
+    vendor: str, product_id: str, name: str = "", description: str = ""
+) -> VendorProductRef:
     # Inline attributes win — makes the server testable with no ingestion wired.
     if name or description:
-        return VendorProductRef(vendor=vendor, product_id=product_id, name=name, description=description)
+        return VendorProductRef(
+            vendor=vendor, product_id=product_id, name=name, description=description
+        )
     ref = _read_vendor_frame(vendor, product_id)
     if ref is None:
         return VendorProductRef(vendor=vendor, product_id=product_id, name=product_id)
@@ -133,7 +161,10 @@ async def get_taxonomy_node(params: NodeInput) -> str:
     return node.model_dump_json()
 
 
-@mcp.tool(name="find_similar_products", annotations={"title": "Find candidate CDAO nodes", **_RO})
+@mcp.tool(
+    name="find_similar_products",
+    annotations={"title": "Find candidate CDAO nodes", **_RO},
+)
 async def find_similar_products(params: SimilarInput) -> str:
     """Return the top-N candidate CDAO nodes for a vendor product, by similarity.
 
@@ -148,10 +179,15 @@ async def find_similar_products(params: SimilarInput) -> str:
     cands = get_store().find_similar_products(
         ref, max_results=params.max_results, min_similarity=params.min_similarity
     )
-    return json.dumps({"count": len(cands), "candidates": [c.model_dump() for c in cands]})
+    return json.dumps(
+        {"count": len(cands), "candidates": [c.model_dump() for c in cands]}
+    )
 
 
-@mcp.tool(name="get_ontology_neighbourhood", annotations={"title": "Get bounded neighbourhood", **_RO})
+@mcp.tool(
+    name="get_ontology_neighbourhood",
+    annotations={"title": "Get bounded neighbourhood", **_RO},
+)
 async def get_ontology_neighbourhood(params: NeighbourhoodInput) -> str:
     """Return a bounded subgraph around a taxonomy node (depth and node count clamped).
 
@@ -163,7 +199,10 @@ async def get_ontology_neighbourhood(params: NeighbourhoodInput) -> str:
     return sg.model_dump_json()
 
 
-@mcp.tool(name="map_vendor_product", annotations={"title": "Map a vendor product to CDAO", **_RO})
+@mcp.tool(
+    name="map_vendor_product",
+    annotations={"title": "Map a vendor product to CDAO", **_RO},
+)
 async def map_vendor_product_tool(params: MapInput) -> str:
     """Map one vendor product to a CDAO node, applying the scope gate and confidence floor.
 
@@ -176,7 +215,7 @@ async def map_vendor_product_tool(params: MapInput) -> str:
         ref = _frame(params.vendor, params.product_id, params.name, params.description)
     except NotImplementedError as e:
         return _frame_error_envelope(e)
-    return map_vendor_product(ref).model_dump_json()
+    return map_vendor_product(ref, specialist=specialist_from_env()).model_dump_json()
 
 
 if __name__ == "__main__":
