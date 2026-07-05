@@ -70,3 +70,34 @@ def test_missing_aurora_env_raises(monkeypatch):
         aurora_store.put_outbox_record(
             event_id="e1", detail_type="MappingCompleted", detail={}
         )
+
+
+def test_aws_resources_delegates_to_aurora(monkeypatch):
+    """aws_resources.* writers are thin delegators to aurora_store.* with the
+    exact same keyword contract (so call sites needed no edits)."""
+    calls = {}
+    from scudo import aurora_store, aws_resources
+
+    monkeypatch.setattr(
+        aurora_store, "put_audit_record", lambda **kw: calls.setdefault("audit", kw)
+    )
+    monkeypatch.setattr(
+        aurora_store, "put_review_record", lambda **kw: calls.setdefault("review", kw)
+    )
+    monkeypatch.setattr(
+        aurora_store, "put_outbox_record", lambda **kw: calls.setdefault("outbox", kw)
+    )
+
+    aws_resources.put_audit_record(item_id="j", event_type="E", payload={"a": 1})
+    aws_resources.put_review_record(ticket="HITL-1", payload={"b": 2})
+    aws_resources.put_outbox_record(
+        event_id="e1", detail_type="MappingCompleted", detail={"c": 3}
+    )
+
+    assert calls["audit"] == {"item_id": "j", "event_type": "E", "payload": {"a": 1}}
+    assert calls["review"] == {"ticket": "HITL-1", "payload": {"b": 2}}
+    assert calls["outbox"] == {
+        "event_id": "e1",
+        "detail_type": "MappingCompleted",
+        "detail": {"c": 3},
+    }

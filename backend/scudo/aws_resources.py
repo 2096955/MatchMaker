@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 from decimal import Decimal
 from typing import Any, Mapping
 
@@ -43,10 +42,6 @@ def env_resource_summary() -> dict[str, str | None]:
         "SCUDO_VENDOR_CATALOG_BUCKET",
         "SCUDO_CDAO_CATALOG_BUCKET",
         "SCUDO_ETL_QUEUE_URL",
-        "SCUDO_REVIEW_TABLE",
-        "SCUDO_FACTS_TABLE",
-        "SCUDO_AUDIT_TABLE",
-        "SCUDO_OUTBOX_TABLE",
         "SCUDO_EVENT_BUS_NAME",
         "SCUDO_PERSISTENCE_QUEUE_URL",
         "SCUDO_NEPTUNE_SPARQL_ENDPOINT",
@@ -62,53 +57,34 @@ def env_resource_summary() -> dict[str, str | None]:
     return {key: os.environ.get(key) for key in keys}
 
 
-def put_audit_record(*, item_id: str, event_type: str, payload: Mapping[str, Any]) -> None:
-    table = os.environ.get("SCUDO_AUDIT_TABLE")
-    if not table:
-        return
-    item = {
-        "pk": f"EVENT#{event_type}",
-        "sk": f"{int(time.time() * 1000)}#{item_id}",
-        "event_type": event_type,
-        "payload": _jsonable(dict(payload)),
-    }
-    try:
-        _boto3().resource("dynamodb").Table(table).put_item(Item=item)
-    except Exception:
-        log.exception("failed to write audit record to %s", table)
+def put_audit_record(
+    *, item_id: str, event_type: str, payload: Mapping[str, Any]
+) -> None:
+    # Persistence consolidated onto the single Aurora PostgreSQL cluster.
+    # FAIL-LOUD: aurora_store raises on missing config / Data API error rather
+    # than silently dropping the audit trail (the DynamoDB fail-soft no-op that
+    # lived here is the behaviour the migration deliberately removes).
+    from . import aurora_store
+
+    aurora_store.put_audit_record(
+        item_id=item_id, event_type=event_type, payload=payload
+    )
 
 
 def put_review_record(*, ticket: str, payload: Mapping[str, Any]) -> None:
-    table = os.environ.get("SCUDO_REVIEW_TABLE")
-    if not table or not ticket:
-        return
-    item = {
-        "ticket": ticket,
-        "created_at_ms": int(time.time() * 1000),
-        "status": "OPEN",
-        "payload": _jsonable(dict(payload)),
-    }
-    try:
-        _boto3().resource("dynamodb").Table(table).put_item(Item=item)
-    except Exception:
-        log.exception("failed to write review record to %s", table)
+    from . import aurora_store
+
+    aurora_store.put_review_record(ticket=ticket, payload=payload)
 
 
-def put_outbox_record(*, event_id: str, detail_type: str, detail: Mapping[str, Any]) -> None:
-    table = os.environ.get("SCUDO_OUTBOX_TABLE")
-    if not table:
-        return
-    item = {
-        "event_id": event_id,
-        "created_at_ms": int(time.time() * 1000),
-        "detail_type": detail_type,
-        "status": "PENDING",
-        "detail": _jsonable(dict(detail)),
-    }
-    try:
-        _boto3().resource("dynamodb").Table(table).put_item(Item=item)
-    except Exception:
-        log.exception("failed to write outbox record to %s", table)
+def put_outbox_record(
+    *, event_id: str, detail_type: str, detail: Mapping[str, Any]
+) -> None:
+    from . import aurora_store
+
+    aurora_store.put_outbox_record(
+        event_id=event_id, detail_type=detail_type, detail=detail
+    )
 
 
 def put_eventbridge_event(*, detail_type: str, detail: Mapping[str, Any]) -> None:

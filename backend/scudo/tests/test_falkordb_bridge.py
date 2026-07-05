@@ -406,44 +406,61 @@ def test_run_match_accepts_vendor_product_ref_alias(monkeypatch):
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# 3. aws_resources put_audit_record / put_outbox_record are no-ops when their
-#    env table vars are unset. Early return, no boto3 import, no exception.
+# 3. aws_resources audit/outbox writers now delegate to the Aurora store and are
+#    FAIL-LOUD: with Aurora env unset they RAISE (naming the missing var) and
+#    never construct a Data API client. The DynamoDB fail-soft no-op that used
+#    to live here is exactly the behaviour the 5-zone migration removes.
 #    (This module already ships — runs unconditionally, no importorskip.)
 # ────────────────────────────────────────────────────────────────────────────
-def test_put_audit_record_noop_when_table_unset(monkeypatch):
-    from scudo import aws_resources
-
-    monkeypatch.delenv("SCUDO_AUDIT_TABLE", raising=False)
-
-    # If boto3 were touched, this would explode loudly instead of silently
-    # importing a real (or absent) boto3.
-    def _explode():  # pragma: no cover - asserts the early return is hit
-        raise AssertionError("boto3 must NOT be imported when the table is unset")
-
-    monkeypatch.setattr(aws_resources, "_boto3", _explode)
-
-    result = aws_resources.put_audit_record(
-        item_id="vp-1", event_type="MAPPING_AUTO_MAPPED", payload={"confidence": 0.91}
-    )
-    assert result is None  # early return, no write attempted
+_AURORA_ENV = (
+    "SCUDO_AURORA_CLUSTER_ARN",
+    "SCUDO_AURORA_SECRET_ARN",
+    "SCUDO_AURORA_DATABASE_NAME",
+)
 
 
-def test_put_outbox_record_noop_when_table_unset(monkeypatch):
-    from scudo import aws_resources
+def test_put_audit_record_fails_loud_when_aurora_unset(monkeypatch):
+    from scudo import aurora_store, aws_resources
 
-    monkeypatch.delenv("SCUDO_OUTBOX_TABLE", raising=False)
+    for var in _AURORA_ENV:
+        monkeypatch.delenv(var, raising=False)
 
-    def _explode():  # pragma: no cover - asserts the early return is hit
-        raise AssertionError("boto3 must NOT be imported when the table is unset")
+    # If the Data API client were built, this would explode — proving the
+    # config check short-circuits before any boto3 client construction.
+    def _explode():  # pragma: no cover - asserts the fail-loud path is hit
+        raise AssertionError(
+            "rds-data client must NOT be built when Aurora env is unset"
+        )
 
-    monkeypatch.setattr(aws_resources, "_boto3", _explode)
+    monkeypatch.setattr(aurora_store, "_rds_data", _explode)
 
-    result = aws_resources.put_outbox_record(
-        event_id="evt-1",
-        detail_type="MappingCompleted",
-        detail={"vendor": "LSEG", "product_id": "P1"},
-    )
-    assert result is None
+    with pytest.raises(RuntimeError, match="SCUDO_AURORA_CLUSTER_ARN"):
+        aws_resources.put_audit_record(
+            item_id="vp-1",
+            event_type="MAPPING_AUTO_MAPPED",
+            payload={"confidence": 0.91},
+        )
+
+
+def test_put_outbox_record_fails_loud_when_aurora_unset(monkeypatch):
+    from scudo import aurora_store, aws_resources
+
+    for var in _AURORA_ENV:
+        monkeypatch.delenv(var, raising=False)
+
+    def _explode():  # pragma: no cover - asserts the fail-loud path is hit
+        raise AssertionError(
+            "rds-data client must NOT be built when Aurora env is unset"
+        )
+
+    monkeypatch.setattr(aurora_store, "_rds_data", _explode)
+
+    with pytest.raises(RuntimeError, match="SCUDO_AURORA_CLUSTER_ARN"):
+        aws_resources.put_outbox_record(
+            event_id="evt-1",
+            detail_type="MappingCompleted",
+            detail={"vendor": "LSEG", "product_id": "P1"},
+        )
 
 
 def test_aws_resources_imports_without_boto3():
@@ -451,7 +468,9 @@ def test_aws_resources_imports_without_boto3():
 
     Simulate a boto3-less environment (offline smoke) by masking the module,
     then (re)import scudo.aws_resources and confirm it loads. boto3 is only
-    pulled in inside _boto3(), which the no-op paths never reach.
+    pulled inside _boto3() / aurora_store._rds_data(), which the fail-loud
+    config check never reaches when Aurora env is unset — so the write raises
+    RuntimeError, not ImportError.
     """
     real_boto3 = sys.modules.get("boto3")
     try:
@@ -459,19 +478,14 @@ def test_aws_resources_imports_without_boto3():
         importlib.reload(importlib.import_module("scudo.aws_resources"))
         from scudo import aws_resources
 
-        # Sanity: the no-op paths still work with boto3 masked + tables unset.
         import os
 
-        os.environ.pop("SCUDO_AUDIT_TABLE", None)
-        os.environ.pop("SCUDO_OUTBOX_TABLE", None)
-        assert (
+        for var in _AURORA_ENV:
+            os.environ.pop(var, None)
+        with pytest.raises(RuntimeError):
             aws_resources.put_audit_record(item_id="x", event_type="t", payload={})
-            is None
-        )
-        assert (
+        with pytest.raises(RuntimeError):
             aws_resources.put_outbox_record(event_id="e", detail_type="d", detail={})
-            is None
-        )
     finally:
         if real_boto3 is not None:
             sys.modules["boto3"] = real_boto3
