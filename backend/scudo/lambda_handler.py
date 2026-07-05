@@ -87,6 +87,24 @@ def _check_api_key(event: dict) -> bool:
     return hmac.compare_digest(expected, presented)
 
 
+def _serialise_record(rec: dict) -> dict:
+    """Serialise a catalogue record to canonical RDF (DCAT) + adapted-ODRL rights
+    via the rdf serialisers (never hand-rolled Turtle). Degrades to the raw
+    payload if a serialiser is unavailable, so a read never 500s."""
+    payload = rec.get("payload") or {}
+    try:
+        from .tools import rdf_serialise_mapping, rdf_serialise_rights
+
+        return {
+            "rdf": rdf_serialise_mapping(payload),
+            "rights": rdf_serialise_rights(payload),
+            "payload": payload,
+        }
+    except Exception:  # noqa: BLE001 — never fail a read on a serialiser hiccup
+        log.exception("catalogue serialise failed for %s", rec.get("iri"))
+        return {"payload": payload}
+
+
 def _candidate_dicts(payload: dict, vendor_product: dict, term: str) -> list[dict]:
     """Candidate source for the bundle. With SCUDO_USE_FALKORDB enabled, draw
     REAL candidates from the FalkorDB-backed cost-ladder store; otherwise (or on
@@ -256,6 +274,40 @@ def handler(event: dict, context: Any) -> dict:
         payload = json.loads(raw_body) if isinstance(raw_body, str) else raw_body
     except json.JSONDecodeError as e:
         return _resp(400, {"error": f"invalid JSON body: {e}"})
+
+    # ── SCUDO catalogue API: approved records as canonical RDF + adapted-ODRL,
+    #    and the HITL decision write. Consumers never touch Neptune directly. ──
+    if path.endswith("/catalogue") and method == "GET":
+        from . import catalogue
+
+        return _resp(200, {"records": catalogue.list_approved()})
+
+    if "/catalogue/" in path and method == "GET":
+        from . import catalogue
+
+        iri = path.split("/catalogue/", 1)[1]
+        rec = catalogue.get_record(iri)
+        if rec is None:
+            return _resp(404, {"error": f"no catalogue record for {iri}"})
+        return _resp(200, {"iri": iri, **_serialise_record(rec)})
+
+    if path.endswith("/api/mapping/decision") and method == "POST":
+        from . import catalogue
+
+        ticket = payload.get("ticket")
+        if not ticket:
+            return _resp(400, {"error": "decision requires a ticket"})
+        put_review_record(ticket=ticket, payload=payload)
+        # An approved decision feeds the same publish path as an auto-approve:
+        # the record lands in the catalogue and an outbox event drives projection.
+        if payload.get("decision") == "approve" and payload.get("iri"):
+            catalogue.upsert_record(payload["iri"], payload)
+            put_outbox_record(
+                event_id=f"{ticket}:approved",
+                detail_type="MappingCompleted",
+                detail=payload,
+            )
+        return _resp(200, {"ok": True, "ticket": ticket})
 
     try:
         IntakeRequest.model_validate(
