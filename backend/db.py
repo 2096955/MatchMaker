@@ -1,57 +1,57 @@
-"""Database connection helpers for the Data Ingestion Framework.
+"""Database connection helpers for the Data Ingestion Framework console.
 
-Provides two connection factories:
-- ``get_conn``: connects to the ``metadata`` database (providers, datasets, run logs).
-- ``get_ingestion_conn``: connects to the ``ingestion`` database (physical data tables).
+Aurora PostgreSQL access via psycopg (v3), consolidated onto the single Aurora
+cluster:
 
-Credentials are read from environment variables ``my_sql_user`` and
-``my_sql_password``, falling back to ``root`` / empty string for local dev.
-All connections use ``DictCursor`` so rows are returned as plain dicts and
-``autocommit=False`` so callers control transaction boundaries explicitly.
+- ``get_conn``            connects with ``search_path=console`` - the console's
+                          metadata (providers, datasets, run logs, users/roles).
+- ``get_ingestion_conn``  connects with ``search_path=ingestion`` - the
+                          dynamically-created physical data tables.
+
+Setting the schema via ``search_path`` at connect time means the routes' and
+ingestion engine's unqualified table names (``tp_provider``, ``etl_run_log``,
+per-dataset physical tables, ...) resolve without changing their SQL.
+Connections return rows as plain dicts (``row_factory=dict_row``) and use
+``autocommit=False`` so callers own transaction boundaries. Credentials come
+from the ``CONSOLE_DB_*`` env vars, defaulting to a local dev PostgreSQL.
 """
 
+from __future__ import annotations
+
 import os
-import pymysql
-from pymysql.cursors import DictCursor
 
-# Base connection config targeting the metadata schema.
-DB_CONFIG = {
-    # Host/port come from env so the same image runs locally (localhost) and on
-    # Fargate (Aurora endpoint via my_sql_host). connect_timeout avoids 30s
-    # request hangs when the DB is briefly unreachable.
-    "host": os.environ.get("my_sql_host", "localhost"),
-    "port": int(os.environ.get("my_sql_port", "3306")),
-    "user": os.environ.get("my_sql_user", "root"),
-    "password": os.environ.get("my_sql_password", ""),
-    "database": "metadata",
-    "charset": "utf8mb4",
-    "cursorclass": DictCursor,
-    "autocommit": False,
-    "connect_timeout": int(os.environ.get("my_sql_connect_timeout", "10")),
-}
+import psycopg
+from psycopg.rows import dict_row
 
 
-def get_conn():
-    """Return a new pymysql connection to the *metadata* database.
+def _connect(search_path: str) -> psycopg.Connection:
+    """Open a psycopg connection scoped to ``search_path`` (dict rows, manual
+    commit). ``connect_timeout`` avoids long request hangs when the DB is briefly
+    unreachable; ``public`` is kept on the path for extensions/shared objects."""
+    return psycopg.connect(
+        host=os.environ.get("CONSOLE_DB_HOST", "localhost"),
+        port=int(os.environ.get("CONSOLE_DB_PORT", "5432")),
+        user=os.environ.get("CONSOLE_DB_USER", "scudo"),
+        password=os.environ.get("CONSOLE_DB_PASSWORD", ""),
+        dbname=os.environ.get("CONSOLE_DB_NAME", "scudo_console"),
+        connect_timeout=int(os.environ.get("CONSOLE_DB_CONNECT_TIMEOUT", "10")),
+        options=f"-c search_path={search_path},public",
+        row_factory=dict_row,
+        autocommit=False,
+    )
 
-    Returns:
-        pymysql.connections.Connection: Open connection with DictCursor and
-            autocommit disabled.  The caller is responsible for committing or
-            rolling back and for closing the connection.
+
+def get_conn() -> psycopg.Connection:
+    """Return a new psycopg connection to the *console* metadata schema.
+
+    Rows come back as dicts and autocommit is disabled — the caller commits or
+    rolls back and closes the connection.
     """
-    return pymysql.connect(**DB_CONFIG)
+    return _connect("console")
 
 
-# Ingestion config re-uses all base settings but targets the ingestion schema.
-_INGESTION_CONFIG = {**DB_CONFIG, "database": "ingestion"}
-
-
-def get_ingestion_conn():
-    """Return a new pymysql connection to the *ingestion* database.
-
-    Returns:
-        pymysql.connections.Connection: Open connection with DictCursor and
-            autocommit disabled.  Used exclusively by the ingestion engine to
-            bulk-insert data rows into provider-specific tables.
+def get_ingestion_conn() -> psycopg.Connection:
+    """Return a new psycopg connection to the *ingestion* schema (physical data
+    tables). Used by the ingestion engine to bulk-insert data rows.
     """
-    return pymysql.connect(**_INGESTION_CONFIG)
+    return _connect("ingestion")

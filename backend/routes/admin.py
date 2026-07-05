@@ -18,15 +18,16 @@ from flask import Blueprint, request, jsonify
 from db import get_conn
 from logger import ui_logger
 
-admin_bp = Blueprint('admin', __name__)
+admin_bp = Blueprint("admin", __name__)
 
 # Minimum security policy: 8+ chars, one uppercase, one digit.
-PWD_RE = re.compile(r'^(?=.*[A-Z])(?=.*\d).{8,}$')
+PWD_RE = re.compile(r"^(?=.*[A-Z])(?=.*\d).{8,}$")
 
 
 # ─── ROLES ────────────────────────────────────────────────────────────────────
 
-@admin_bp.get('/roles')
+
+@admin_bp.get("/roles")
 def list_roles():
     """Return all roles with their associated privilege definitions.
 
@@ -43,15 +44,15 @@ def list_roles():
             for role in roles:
                 c.execute(
                     "SELECT * FROM role_privileges WHERE role_id=%s ORDER BY resource_type, resource_id",
-                    (role['role_id'],),
+                    (role["role_id"],),
                 )
-                role['privileges'] = c.fetchall()
+                role["privileges"] = c.fetchall()
             return jsonify(roles)
     finally:
         conn.close()
 
 
-@admin_bp.get('/roles/<int:rid>')
+@admin_bp.get("/roles/<int:rid>")
 def get_role(rid):
     """Return a single role by ID including its privileges.
 
@@ -67,18 +68,18 @@ def get_role(rid):
             c.execute("SELECT * FROM roles WHERE role_id=%s", (rid,))
             role = c.fetchone()
             if not role:
-                return jsonify({'error': 'Not found'}), 404
+                return jsonify({"error": "Not found"}), 404
             c.execute(
                 "SELECT * FROM role_privileges WHERE role_id=%s ORDER BY resource_type, resource_id",
                 (rid,),
             )
-            role['privileges'] = c.fetchall()
+            role["privileges"] = c.fetchall()
             return jsonify(role)
     finally:
         conn.close()
 
 
-@admin_bp.post('/roles')
+@admin_bp.post("/roles")
 def add_role():
     """Create a new role with optional privileges.
 
@@ -89,43 +90,46 @@ def add_role():
         flask.Response: JSON of the created role with HTTP 201, or 400/409.
     """
     data = request.json or {}
-    name = (data.get('role_name') or '').strip()
+    name = (data.get("role_name") or "").strip()
     if not name:
-        return jsonify({'error': 'role_name is required'}), 400
+        return jsonify({"error": "role_name is required"}), 400
 
     conn = get_conn()
     try:
         with conn.cursor() as c:
             # Reject duplicate role names (case-insensitive).
-            c.execute("SELECT role_id FROM roles WHERE LOWER(role_name)=LOWER(%s)", (name,))
+            c.execute(
+                "SELECT role_id FROM roles WHERE LOWER(role_name)=LOWER(%s)", (name,)
+            )
             if c.fetchone():
-                ui_logger.warning('Role creation rejected — duplicate name', name=name)
-                return jsonify({'error': f'Role "{name}" already exists'}), 409
+                ui_logger.warning("Role creation rejected — duplicate name", name=name)
+                return jsonify({"error": f'Role "{name}" already exists'}), 409
 
             c.execute(
-                "INSERT INTO roles (role_name, role_desc, is_active) VALUES (%s,%s,%s)",
-                (name, data.get('role_desc'), data.get('is_active', True)),
+                "INSERT INTO roles (role_name, role_desc, is_active) VALUES (%s,%s,%s) "
+                "RETURNING role_id",
+                (name, data.get("role_desc"), data.get("is_active", True)),
             )
-            rid = c.lastrowid
+            rid = c.fetchone()["role_id"]
             # Bulk-insert privilege rows for the new role.
-            _save_privileges(c, rid, data.get('privileges', []))
+            _save_privileges(c, rid, data.get("privileges", []))
             conn.commit()
             # Re-fetch to return the full persisted state.
             c.execute("SELECT * FROM roles WHERE role_id=%s", (rid,))
             role = c.fetchone()
             c.execute("SELECT * FROM role_privileges WHERE role_id=%s", (rid,))
-            role['privileges'] = c.fetchall()
-            ui_logger.info('Role created', role_id=rid, name=name)
+            role["privileges"] = c.fetchall()
+            ui_logger.info("Role created", role_id=rid, name=name)
             return jsonify(role), 201
     except Exception as e:
-        ui_logger.error('Role creation failed', name=name, error=str(e))
+        ui_logger.error("Role creation failed", name=name, error=str(e))
         conn.rollback()
         raise e
     finally:
         conn.close()
 
 
-@admin_bp.put('/roles/<int:rid>')
+@admin_bp.put("/roles/<int:rid>")
 def edit_role(rid):
     """Update a role's name, description, active flag, and privileges.
 
@@ -139,17 +143,17 @@ def edit_role(rid):
         flask.Response: JSON of the updated role, or 400/404/409.
     """
     data = request.json or {}
-    name = (data.get('role_name') or '').strip()
+    name = (data.get("role_name") or "").strip()
     if not name:
-        return jsonify({'error': 'role_name is required'}), 400
+        return jsonify({"error": "role_name is required"}), 400
 
     conn = get_conn()
     try:
         with conn.cursor() as c:
             c.execute("SELECT role_id FROM roles WHERE role_id=%s", (rid,))
             if not c.fetchone():
-                ui_logger.warning('Role update rejected — not found', role_id=rid)
-                return jsonify({'error': 'Not found'}), 404
+                ui_logger.warning("Role update rejected — not found", role_id=rid)
+                return jsonify({"error": "Not found"}), 404
 
             # Reject name collision with a different role.
             c.execute(
@@ -157,32 +161,34 @@ def edit_role(rid):
                 (name, rid),
             )
             if c.fetchone():
-                ui_logger.warning('Role update rejected — duplicate name', role_id=rid, name=name)
-                return jsonify({'error': f'Role "{name}" already exists'}), 409
+                ui_logger.warning(
+                    "Role update rejected — duplicate name", role_id=rid, name=name
+                )
+                return jsonify({"error": f'Role "{name}" already exists'}), 409
 
             c.execute(
                 "UPDATE roles SET role_name=%s, role_desc=%s, is_active=%s WHERE role_id=%s",
-                (name, data.get('role_desc'), data.get('is_active', True), rid),
+                (name, data.get("role_desc"), data.get("is_active", True), rid),
             )
             # Replace privileges: delete all then re-insert the submitted list.
             c.execute("DELETE FROM role_privileges WHERE role_id=%s", (rid,))
-            _save_privileges(c, rid, data.get('privileges', []))
+            _save_privileges(c, rid, data.get("privileges", []))
             conn.commit()
             c.execute("SELECT * FROM roles WHERE role_id=%s", (rid,))
             role = c.fetchone()
             c.execute("SELECT * FROM role_privileges WHERE role_id=%s", (rid,))
-            role['privileges'] = c.fetchall()
-            ui_logger.info('Role updated', role_id=rid, name=name)
+            role["privileges"] = c.fetchall()
+            ui_logger.info("Role updated", role_id=rid, name=name)
             return jsonify(role)
     except Exception as e:
-        ui_logger.error('Role update failed', role_id=rid, error=str(e))
+        ui_logger.error("Role update failed", role_id=rid, error=str(e))
         conn.rollback()
         raise e
     finally:
         conn.close()
 
 
-@admin_bp.delete('/roles/<int:rid>')
+@admin_bp.delete("/roles/<int:rid>")
 def delete_role(rid):
     """Delete a role and remove all associated privilege and user-role links.
 
@@ -198,17 +204,17 @@ def delete_role(rid):
             c.execute("SELECT role_id, role_name FROM roles WHERE role_id=%s", (rid,))
             role_row = c.fetchone()
             if not role_row:
-                ui_logger.warning('Role delete rejected — not found', role_id=rid)
-                return jsonify({'error': 'Not found'}), 404
+                ui_logger.warning("Role delete rejected — not found", role_id=rid)
+                return jsonify({"error": "Not found"}), 404
             # Clean up dependent rows before deleting the role itself.
             c.execute("DELETE FROM role_privileges WHERE role_id=%s", (rid,))
             c.execute("DELETE FROM user_roles WHERE role_id=%s", (rid,))
             c.execute("DELETE FROM roles WHERE role_id=%s", (rid,))
             conn.commit()
-            ui_logger.info('Role deleted', role_id=rid, name=role_row['role_name'])
-            return jsonify({'message': 'Deleted'})
+            ui_logger.info("Role deleted", role_id=rid, name=role_row["role_name"])
+            return jsonify({"message": "Deleted"})
     except Exception as e:
-        ui_logger.error('Role delete failed', role_id=rid, error=str(e))
+        ui_logger.error("Role delete failed", role_id=rid, error=str(e))
         conn.rollback()
         raise e
     finally:
@@ -222,7 +228,7 @@ def _save_privileges(c, rid, privileges):
     individual add/modify/delete permission flags.
 
     Args:
-        c: Open pymysql DictCursor.
+        c: Open psycopg cursor (dict rows).
         rid (int): ``role_id`` that owns the privileges.
         privileges (list[dict]): Privilege dicts with keys ``resource_type``,
             ``resource_id``, ``can_add``, ``can_modify``, ``can_delete``.
@@ -233,18 +239,20 @@ def _save_privileges(c, rid, privileges):
             "VALUES (%s,%s,%s,%s,%s,%s)",
             (
                 rid,
-                priv.get('resource_type'),
-                priv.get('resource_id') or None,   # NULL when resource_id is not applicable
-                bool(priv.get('can_add')),
-                bool(priv.get('can_modify')),
-                bool(priv.get('can_delete')),
+                priv.get("resource_type"),
+                priv.get("resource_id")
+                or None,  # NULL when resource_id is not applicable
+                bool(priv.get("can_add")),
+                bool(priv.get("can_modify")),
+                bool(priv.get("can_delete")),
             ),
         )
 
 
 # ─── USERS ────────────────────────────────────────────────────────────────────
 
-@admin_bp.get('/users')
+
+@admin_bp.get("/users")
 def list_users():
     """Return all users with their assigned roles.
 
@@ -257,22 +265,24 @@ def list_users():
     try:
         with conn.cursor() as c:
             # Select only safe, non-sensitive columns.
-            c.execute("SELECT user_id, username, email, full_name, is_active, created_at FROM users ORDER BY username")
+            c.execute(
+                "SELECT user_id, username, email, full_name, is_active, created_at FROM users ORDER BY username"
+            )
             users = c.fetchall()
             # Attach role assignments to each user.
             for user in users:
                 c.execute(
                     "SELECT r.role_id, r.role_name FROM user_roles ur "
                     "JOIN roles r ON r.role_id=ur.role_id WHERE ur.user_id=%s",
-                    (user['user_id'],),
+                    (user["user_id"],),
                 )
-                user['roles'] = c.fetchall()
+                user["roles"] = c.fetchall()
             return jsonify(users)
     finally:
         conn.close()
 
 
-@admin_bp.get('/users/<int:uid>')
+@admin_bp.get("/users/<int:uid>")
 def get_user(uid):
     """Return a single user with their role assignments by user ID.
 
@@ -291,19 +301,19 @@ def get_user(uid):
             )
             user = c.fetchone()
             if not user:
-                return jsonify({'error': 'Not found'}), 404
+                return jsonify({"error": "Not found"}), 404
             c.execute(
                 "SELECT r.role_id, r.role_name FROM user_roles ur "
                 "JOIN roles r ON r.role_id=ur.role_id WHERE ur.user_id=%s",
                 (uid,),
             )
-            user['roles'] = c.fetchall()
+            user["roles"] = c.fetchall()
             return jsonify(user)
     finally:
         conn.close()
 
 
-@admin_bp.post('/users')
+@admin_bp.post("/users")
 def add_user():
     """Create a new application user with an initial role assignment.
 
@@ -316,18 +326,22 @@ def add_user():
             or 400/409 on validation errors.
     """
     data = request.json or {}
-    username = (data.get('username') or '').strip()
-    email    = (data.get('email') or '').strip()
-    password = data.get('password', '')
+    username = (data.get("username") or "").strip()
+    email = (data.get("email") or "").strip()
+    password = data.get("password", "")
 
     if not username or not email or not password:
-        ui_logger.warning('User creation rejected — missing fields', username=username, email=email)
-        return jsonify({'error': 'username, email and password are required'}), 400
+        ui_logger.warning(
+            "User creation rejected — missing fields", username=username, email=email
+        )
+        return jsonify({"error": "username, email and password are required"}), 400
     if not PWD_RE.match(password):
-        ui_logger.warning('User creation rejected — password policy', username=username)
-        return jsonify({
-            'error': 'Password must be at least 8 characters with one uppercase letter and one digit'
-        }), 400
+        ui_logger.warning("User creation rejected — password policy", username=username)
+        return jsonify(
+            {
+                "error": "Password must be at least 8 characters with one uppercase letter and one digit"
+            }
+        ), 400
 
     conn = get_conn()
     try:
@@ -338,30 +352,40 @@ def add_user():
                 (username, email),
             )
             if c.fetchone():
-                ui_logger.warning('User creation rejected — duplicate username or email',
-                                  username=username, email=email)
-                return jsonify({'error': 'Username or email already exists'}), 409
+                ui_logger.warning(
+                    "User creation rejected — duplicate username or email",
+                    username=username,
+                    email=email,
+                )
+                return jsonify({"error": "Username or email already exists"}), 409
 
             c.execute(
-                "INSERT INTO users (username, email, full_name, password, is_active) VALUES (%s,%s,%s,%s,%s)",
-                (username, email, data.get('full_name'), password, data.get('is_active', True)),
+                "INSERT INTO users (username, email, full_name, password, is_active) "
+                "VALUES (%s,%s,%s,%s,%s) RETURNING user_id",
+                (
+                    username,
+                    email,
+                    data.get("full_name"),
+                    password,
+                    data.get("is_active", True),
+                ),
             )
-            uid = c.lastrowid
+            uid = c.fetchone()["user_id"]
             # Assign the submitted roles to the new user.
-            _save_user_roles(c, uid, data.get('role_ids', []))
+            _save_user_roles(c, uid, data.get("role_ids", []))
             conn.commit()
-            ui_logger.info('User created', user_id=uid, username=username)
+            ui_logger.info("User created", user_id=uid, username=username)
             # Re-use the GET handler to return the full user object.
             return get_user(uid)
     except Exception as e:
-        ui_logger.error('User creation failed', username=username, error=str(e))
+        ui_logger.error("User creation failed", username=username, error=str(e))
         conn.rollback()
         raise e
     finally:
         conn.close()
 
 
-@admin_bp.put('/users/<int:uid>')
+@admin_bp.put("/users/<int:uid>")
 def edit_user(uid):
     """Update a user's profile and role assignments.
 
@@ -379,27 +403,31 @@ def edit_user(uid):
         flask.Response: Delegates to ``get_user``, or 400/404/409.
     """
     data = request.json or {}
-    username = (data.get('username') or '').strip()
-    email    = (data.get('email') or '').strip()
+    username = (data.get("username") or "").strip()
+    email = (data.get("email") or "").strip()
 
     if not username or not email:
-        ui_logger.warning('User update rejected — missing fields', user_id=uid)
-        return jsonify({'error': 'username and email are required'}), 400
+        ui_logger.warning("User update rejected — missing fields", user_id=uid)
+        return jsonify({"error": "username and email are required"}), 400
 
-    password = data.get('password', '')
+    password = data.get("password", "")
     if password and not PWD_RE.match(password):
-        ui_logger.warning('User update rejected — password policy', user_id=uid, username=username)
-        return jsonify({
-            'error': 'Password must be at least 8 characters with one uppercase letter and one digit'
-        }), 400
+        ui_logger.warning(
+            "User update rejected — password policy", user_id=uid, username=username
+        )
+        return jsonify(
+            {
+                "error": "Password must be at least 8 characters with one uppercase letter and one digit"
+            }
+        ), 400
 
     conn = get_conn()
     try:
         with conn.cursor() as c:
             c.execute("SELECT user_id FROM users WHERE user_id=%s", (uid,))
             if not c.fetchone():
-                ui_logger.warning('User update rejected — not found', user_id=uid)
-                return jsonify({'error': 'Not found'}), 404
+                ui_logger.warning("User update rejected — not found", user_id=uid)
+                return jsonify({"error": "Not found"}), 404
 
             # Reject collision with a different user sharing the same username or email.
             c.execute(
@@ -407,38 +435,55 @@ def edit_user(uid):
                 (username, email, uid),
             )
             if c.fetchone():
-                ui_logger.warning('User update rejected — duplicate username or email',
-                                  user_id=uid, username=username, email=email)
-                return jsonify({'error': 'Username or email already exists'}), 409
+                ui_logger.warning(
+                    "User update rejected — duplicate username or email",
+                    user_id=uid,
+                    username=username,
+                    email=email,
+                )
+                return jsonify({"error": "Username or email already exists"}), 409
 
             if password:
                 # Update password only when a new value was explicitly provided.
                 c.execute(
                     "UPDATE users SET username=%s, email=%s, full_name=%s, password=%s, is_active=%s WHERE user_id=%s",
-                    (username, email, data.get('full_name'), password, data.get('is_active', True), uid),
+                    (
+                        username,
+                        email,
+                        data.get("full_name"),
+                        password,
+                        data.get("is_active", True),
+                        uid,
+                    ),
                 )
             else:
                 # Leave the existing password unchanged.
                 c.execute(
                     "UPDATE users SET username=%s, email=%s, full_name=%s, is_active=%s WHERE user_id=%s",
-                    (username, email, data.get('full_name'), data.get('is_active', True), uid),
+                    (
+                        username,
+                        email,
+                        data.get("full_name"),
+                        data.get("is_active", True),
+                        uid,
+                    ),
                 )
 
             # Replace role assignments: delete all then re-insert the submitted list.
             c.execute("DELETE FROM user_roles WHERE user_id=%s", (uid,))
-            _save_user_roles(c, uid, data.get('role_ids', []))
+            _save_user_roles(c, uid, data.get("role_ids", []))
             conn.commit()
-            ui_logger.info('User updated', user_id=uid, username=username)
+            ui_logger.info("User updated", user_id=uid, username=username)
             return get_user(uid)
     except Exception as e:
-        ui_logger.error('User update failed', user_id=uid, error=str(e))
+        ui_logger.error("User update failed", user_id=uid, error=str(e))
         conn.rollback()
         raise e
     finally:
         conn.close()
 
 
-@admin_bp.delete('/users/<int:uid>')
+@admin_bp.delete("/users/<int:uid>")
 def delete_user(uid):
     """Delete a user and remove all their role assignments.
 
@@ -454,16 +499,16 @@ def delete_user(uid):
             c.execute("SELECT user_id, username FROM users WHERE user_id=%s", (uid,))
             user_row = c.fetchone()
             if not user_row:
-                ui_logger.warning('User delete rejected — not found', user_id=uid)
-                return jsonify({'error': 'Not found'}), 404
+                ui_logger.warning("User delete rejected — not found", user_id=uid)
+                return jsonify({"error": "Not found"}), 404
             # Remove role links before deleting the user row.
             c.execute("DELETE FROM user_roles WHERE user_id=%s", (uid,))
             c.execute("DELETE FROM users WHERE user_id=%s", (uid,))
             conn.commit()
-            ui_logger.info('User deleted', user_id=uid, username=user_row['username'])
-            return jsonify({'message': 'Deleted'})
+            ui_logger.info("User deleted", user_id=uid, username=user_row["username"])
+            return jsonify({"message": "Deleted"})
     except Exception as e:
-        ui_logger.error('User delete failed', user_id=uid, error=str(e))
+        ui_logger.error("User delete failed", user_id=uid, error=str(e))
         conn.rollback()
         raise e
     finally:
@@ -473,16 +518,17 @@ def delete_user(uid):
 def _save_user_roles(c, uid, role_ids):
     """Bulk-insert user-role mappings, silently ignoring duplicates.
 
-    Uses ``INSERT IGNORE`` so calling this after a fresh DELETE is safe and
-    idempotent even if the caller accidentally passes duplicate role IDs.
+    Uses ``ON CONFLICT DO NOTHING`` so calling this after a fresh DELETE is safe
+    and idempotent even if the caller accidentally passes duplicate role IDs.
 
     Args:
-        c: Open pymysql DictCursor.
+        c: Open psycopg cursor (dict rows).
         uid (int): ``user_id`` that receives the role assignments.
         role_ids (list[int]): Role IDs to assign to the user.
     """
     for rid in role_ids:
         c.execute(
-            "INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (%s,%s)",
+            "INSERT INTO user_roles (user_id, role_id) VALUES (%s,%s) "
+            "ON CONFLICT DO NOTHING",
             (uid, rid),
         )
