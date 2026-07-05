@@ -51,6 +51,16 @@ Parameters:
   AuroraDatabaseName:
     Type: String
     Default: scudo
+  PollerConfigUri:
+    Type: String
+    Default: ''
+    Description: >-
+      Optional s3://bucket/key of the per-vendor poller config JSON. It must
+      point to an object in the stack-owned VendorCatalogBucket — the only
+      bucket the poller is granted s3:GetObject on. Empty -> the scheduled
+      vendor-API poller is a no-op (ship the schedule before onboarding a vendor
+      API). Vendor API keys are read from Secrets Manager (scudo/poller/<vendor>)
+      at runtime, never from this config.
   NeptuneEndpoint:
     Type: String
     Default: ''
@@ -414,6 +424,50 @@ Resources:
       DockerContext: ..
       Dockerfile: scudo/Dockerfile
 
+  # Third Zone-1 ingress route: poll vendor APIs and push into the raw bucket.
+  # Runs OUTSIDE the VPC (like EtlFn) so it can reach vendor endpoints. One
+  # Lambda for all vendors — onboarding is a PollerConfigUri change, not a new
+  # function. Twice-a-month schedule (SAM manages the EventBridge rule).
+  PollerFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-vendor-poller'
+      PackageType: Image
+      Architectures: [x86_64]
+      Timeout: 300
+      ImageConfig:
+        Command:
+          - scudo.poller_handler.handler
+      Environment:
+        Variables:
+          SCUDO_POLLER_CONFIG: !Ref PollerConfigUri
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: !Sub '${RawFeedBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              # The poller config object lives in the stack-owned vendor
+              # catalogue bucket, pinned at runtime by PollerConfigUri.
+              Resource: !Sub '${VendorCatalogBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:scudo/poller/*'
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 6 1,15 * ? *)
+            Description: Poll vendor APIs into the raw bucket twice a month.
+    Metadata:
+      DockerTag: latest
+      DockerContext: ..
+      Dockerfile: scudo/Dockerfile
+
   ProjectionFn:
     Type: AWS::Serverless::Function
     Properties:
@@ -501,6 +555,12 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-projection-worker'
       RetentionInDays: 14
 
+  PollerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-vendor-poller'
+      RetentionInDays: 14
+
 Outputs:
   ApiUrl:
     Description: Base URL of the SCUDO API.
@@ -517,6 +577,8 @@ Outputs:
     Value: !Ref EtlFn
   ProjectionFunctionName:
     Value: !Ref ProjectionFn
+  PollerFunctionName:
+    Value: !Ref PollerFn
   LogGroup:
     Value: !Ref ScudoLogGroup
   RawFeedBucketName:
