@@ -279,7 +279,10 @@ Resources:
         detail-type:
           - MappingCompleted
           - CanonicalMetadataReady
-      State: ENABLED
+      # DISABLED: the Aurora publish_outbox sweep (ProjectionFn OutboxSweepSchedule)
+      # replaced this EventBridge->SQS projection feed. Left in place (disabled)
+      # for rollback; its queue + DLQ are now orphaned but harmless.
+      State: DISABLED
       Targets:
         - Id: persistence-projection-sqs
           Arn: !GetAtt PersistenceProjectionQueue.Arn
@@ -515,11 +518,11 @@ Resources:
                 - bedrock:InvokeModel
               Resource: '*'
       Events:
-        ProjectionQueueSource:
-          Type: SQS
+        OutboxSweepSchedule:
+          Type: Schedule
           Properties:
-            Queue: !GetAtt PersistenceProjectionQueue.Arn
-            BatchSize: 5
+            Schedule: rate(5 minutes)
+            Description: Drain the Aurora publish_outbox into the projection sinks.
     Metadata:
       DockerTag: latest
       DockerContext: ..

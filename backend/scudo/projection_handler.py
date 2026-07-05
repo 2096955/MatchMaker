@@ -150,7 +150,9 @@ def _write_aurora(detail: dict, mapping_object: dict) -> None:
     mapping_result = mapping_object.get("mapping_result") or {}
     request = detail.get("request") or {}
     event_id = _event_id(detail, mapping_object)
-    detail_type = detail.get("detail-type") or detail.get("detail_type") or "MappingCompleted"
+    detail_type = (
+        detail.get("detail-type") or detail.get("detail_type") or "MappingCompleted"
+    )
     payload = {"detail": detail, "mapping_object": mapping_object}
     _execute_statement(
         """
@@ -169,8 +171,14 @@ def _write_aurora(detail: dict, mapping_object: dict) -> None:
         [
             {"name": "event_id", "value": {"stringValue": event_id}},
             {"name": "detail_type", "value": {"stringValue": str(detail_type)}},
-            {"name": "outcome", "value": {"stringValue": str(mapping_object.get("outcome", ""))}},
-            {"name": "vendor", "value": {"stringValue": str(request.get("vendor", ""))}},
+            {
+                "name": "outcome",
+                "value": {"stringValue": str(mapping_object.get("outcome", ""))},
+            },
+            {
+                "name": "vendor",
+                "value": {"stringValue": str(request.get("vendor", ""))},
+            },
             {
                 "name": "vendor_product_ref",
                 "value": {"stringValue": str(request.get("vendor_product_ref", ""))},
@@ -197,17 +205,28 @@ def _write_aurora(detail: dict, mapping_object: dict) -> None:
                 {"name": "vendor_product_iri", "value": {"stringValue": vendor_iri}},
                 {
                     "name": "target_iri",
-                    "value": {"stringValue": str(mapping_result.get("proposed_target_iri", ""))},
+                    "value": {
+                        "stringValue": str(
+                            mapping_result.get("proposed_target_iri", "")
+                        )
+                    },
                 },
                 {
                     "name": "graph_iri",
-                    "value": {"stringValue": str(mapping_object.get("published_graph", ""))},
+                    "value": {
+                        "stringValue": str(mapping_object.get("published_graph", ""))
+                    },
                 },
                 {
                     "name": "confidence",
-                    "value": {"doubleValue": float(mapping_result.get("confidence") or 0.0)},
+                    "value": {
+                        "doubleValue": float(mapping_result.get("confidence") or 0.0)
+                    },
                 },
-                {"name": "payload", "value": {"stringValue": _json_dumps(mapping_object)}},
+                {
+                    "name": "payload",
+                    "value": {"stringValue": _json_dumps(mapping_object)},
+                },
             ],
         )
 
@@ -246,7 +265,11 @@ def _signed_post(url: str, body: bytes, *, service: str, content_type: str) -> b
     from botocore.auth import SigV4Auth
     from botocore.awsrequest import AWSRequest
 
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+    region = (
+        os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or "us-east-1"
+    )
     session = _boto3().Session(region_name=region)
     creds = session.get_credentials()
     if creds is None:
@@ -255,21 +278,35 @@ def _signed_post(url: str, body: bytes, *, service: str, content_type: str) -> b
         method="POST",
         url=url,
         data=body,
-        headers={"Content-Type": content_type, "Host": url.split("://", 1)[1].split("/", 1)[0]},
+        headers={
+            "Content-Type": content_type,
+            "Host": url.split("://", 1)[1].split("/", 1)[0],
+        },
     )
     SigV4Auth(creds, service, region).add_auth(aws_req)
-    resp = urllib3.PoolManager().request("POST", url, body=body, headers=dict(aws_req.headers.items()))
+    resp = urllib3.PoolManager().request(
+        "POST", url, body=body, headers=dict(aws_req.headers.items())
+    )
     if resp.status < 200 or resp.status >= 300:
-        raise RuntimeError(f"{service} POST failed: HTTP {resp.status} {resp.data[:512]!r}")
+        raise RuntimeError(
+            f"{service} POST failed: HTTP {resp.status} {resp.data[:512]!r}"
+        )
     return bytes(resp.data)
 
 
 def _publish_neptune(mapping_object: dict) -> None:
-    endpoint = os.environ.get("SCUDO_NEPTUNE_ENDPOINT") or os.environ.get("NEPTUNE_ENDPOINT", "")
+    endpoint = os.environ.get("SCUDO_NEPTUNE_ENDPOINT") or os.environ.get(
+        "NEPTUNE_ENDPOINT", ""
+    )
     endpoint = endpoint.strip()
     if not endpoint:
         return
-    host = endpoint.replace("https://", "").replace("http://", "").split("/", 1)[0].split(":", 1)[0]
+    host = (
+        endpoint.replace("https://", "")
+        .replace("http://", "")
+        .split("/", 1)[0]
+        .split(":", 1)[0]
+    )
     url = f"https://{host}:8182/sparql"
     mapping_result = mapping_object.get("mapping_result") or {}
     triples = mapping_result.get("proposed_triples") or []
@@ -282,9 +319,19 @@ def _publish_neptune(mapping_object: dict) -> None:
         obj = _sparql_object(str(triple["predicate"]), str(triple["object"]))
         lines.append(f"  {subject} {predicate} {obj} .")
     graph = str(mapping_object.get("published_graph") or triples[0].get("graph") or "")
-    update = _PREFIXES + f"\nINSERT DATA {{ GRAPH <{_sparql_iri(graph)}> {{\n" + "\n".join(lines) + "\n} }"
+    update = (
+        _PREFIXES
+        + f"\nINSERT DATA {{ GRAPH <{_sparql_iri(graph)}> {{\n"
+        + "\n".join(lines)
+        + "\n} }"
+    )
     body = ("update=" + quote(update, safe="")).encode("utf-8")
-    _signed_post(url, body, service="neptune-db", content_type="application/x-www-form-urlencoded")
+    _signed_post(
+        url,
+        body,
+        service="neptune-db",
+        content_type="application/x-www-form-urlencoded",
+    )
 
 
 def _titan_embedding(text: str) -> list[float] | None:
@@ -325,7 +372,11 @@ def _opensearch_request(method: str, path: str, body: dict | None = None) -> byt
     url = _opensearch_url(path)
     if url is None:
         return b""
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+    region = (
+        os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or "us-east-1"
+    )
     session = _boto3().Session(region_name=region)
     creds = session.get_credentials()
     if creds is None:
@@ -335,12 +386,19 @@ def _opensearch_request(method: str, path: str, body: dict | None = None) -> byt
         method=method,
         url=url,
         data=raw,
-        headers={"Content-Type": "application/json", "Host": url.split("://", 1)[1].split("/", 1)[0]},
+        headers={
+            "Content-Type": "application/json",
+            "Host": url.split("://", 1)[1].split("/", 1)[0],
+        },
     )
     SigV4Auth(creds, "es", region).add_auth(aws_req)
-    resp = urllib3.PoolManager().request(method, url, body=raw, headers=dict(aws_req.headers.items()))
+    resp = urllib3.PoolManager().request(
+        method, url, body=raw, headers=dict(aws_req.headers.items())
+    )
     if resp.status < 200 or resp.status >= 300:
-        raise RuntimeError(f"OpenSearch {method} {path} failed: HTTP {resp.status} {resp.data[:512]!r}")
+        raise RuntimeError(
+            f"OpenSearch {method} {path} failed: HTTP {resp.status} {resp.data[:512]!r}"
+        )
     return bytes(resp.data)
 
 
@@ -371,7 +429,11 @@ def _ensure_opensearch_index() -> None:
                 "embedding": {
                     "type": "knn_vector",
                     "dimension": 1024,
-                    "method": {"name": "hnsw", "engine": "nmslib", "space_type": "cosinesimil"},
+                    "method": {
+                        "name": "hnsw",
+                        "engine": "nmslib",
+                        "space_type": "cosinesimil",
+                    },
                 },
             }
         },
@@ -445,20 +507,104 @@ def _publish_appsync(detail: dict, mapping_object: dict) -> None:
         headers={"Content-Type": "application/json", "x-api-key": api_key},
     )
     if resp.status < 200 or resp.status >= 300:
-        raise RuntimeError(f"AppSync publish failed: HTTP {resp.status} {resp.data[:512]!r}")
+        raise RuntimeError(
+            f"AppSync publish failed: HTTP {resp.status} {resp.data[:512]!r}"
+        )
+
+
+def _project_one(row: dict) -> bool:
+    """Project ONE outbox row into every target sink. Returns True if it was a
+    published mapping (projected), False if there was nothing to project. Raises
+    if a sink fails — the caller then leaves the row undispatched for an
+    at-least-once retry. Idempotent: every sink upserts / uses a deterministic
+    doc id, so re-running a row is safe."""
+    detail = row.get("detail") or {}
+    mapping_object = detail.get("mapping_object") or {}
+    if mapping_object.get("outcome") != "published":
+        log.info(
+            "skipping non-published outbox row %s: outcome=%s",
+            row.get("event_id"),
+            mapping_object.get("outcome"),
+        )
+        return False
+    _write_aurora(detail, mapping_object)
+    _publish_neptune(mapping_object)
+    _index_opensearch(detail, mapping_object)
+    _publish_appsync(detail, mapping_object)
+    return True
+
+
+def _run(sql: str, params: list[dict], execute=None) -> dict:
+    """Run one Data API statement and return the raw result dict. ``execute``
+    optionally injects a runner (``execute(sql, params) -> dict``) for tests or a
+    shared transaction; otherwise the single Aurora store (aurora_store._execute,
+    fail-loud) runs it, so the outbox sweep shares one Data API path."""
+    if execute is None:
+        from . import aurora_store
+
+        execute = aurora_store._execute
+    return execute(sql, params) or {}
+
+
+def _fetch_undispatched(limit: int = 100, *, execute=None) -> list[dict]:
+    """Read undispatched rows from scudo.publish_outbox — the Aurora outbox that
+    replaced the DynamoDB-stream / per-publish SQS projection feed."""
+    result = _run(
+        "SELECT event_id, detail_type, detail FROM scudo.publish_outbox "
+        "WHERE dispatched = false ORDER BY created_at_ms LIMIT :limit",
+        [{"name": "limit", "value": {"longValue": int(limit)}}],
+        execute=execute,
+    )
+    rows: list[dict] = []
+    for rec in result.get("records", []):
+        raw = (rec[2] or {}).get("stringValue") if len(rec) > 2 else None
+        try:
+            detail = json.loads(raw) if raw else {}
+        except (ValueError, TypeError):
+            detail = {}
+        rows.append(
+            {
+                "event_id": (rec[0] or {}).get("stringValue", ""),
+                "detail_type": (rec[1] or {}).get("stringValue", ""),
+                "detail": detail,
+            }
+        )
+    return rows
+
+
+def _mark_dispatched(event_id: str, *, execute=None) -> None:
+    """Flip dispatched=true for one outbox row — only AFTER its sinks acked."""
+    _run(
+        "UPDATE scudo.publish_outbox SET dispatched = true WHERE event_id = :event_id",
+        [{"name": "event_id", "value": {"stringValue": event_id}}],
+        execute=execute,
+    )
+
+
+def sweep_outbox(*, execute=None, batch_limit: int = 100) -> list[dict]:
+    """At-least-once sweep: project each undispatched outbox row, marking it
+    dispatched only after its sinks succeed. A row whose projection RAISES is
+    left undispatched (retried next sweep); a row with nothing to project is
+    still marked dispatched so it can never become a poison row. ``execute``
+    injects a Data API runner for the fetch/mark statements (tests or a shared
+    transaction)."""
+    swept: list[dict] = []
+    for row in _fetch_undispatched(batch_limit, execute=execute):
+        try:
+            _project_one(row)
+        except Exception:  # noqa: BLE001 — leave undispatched, retry next sweep
+            log.exception(
+                "projection failed for %s; leaving undispatched", row.get("event_id")
+            )
+            continue
+        _mark_dispatched(row["event_id"], execute=execute)
+        swept.append(row)
+    return swept
 
 
 def handler(event: dict, context: Any) -> dict:
-    projected = 0
-    for payload in _records(event):
-        detail = _event_detail(payload)
-        mapping_object = detail.get("mapping_object") or {}
-        if mapping_object.get("outcome") != "published":
-            log.info("skipping non-published projection event: %s", mapping_object.get("outcome"))
-            continue
-        _write_aurora(detail, mapping_object)
-        _publish_neptune(mapping_object)
-        _index_opensearch(detail, mapping_object)
-        _publish_appsync(detail, mapping_object)
-        projected += 1
-    return {"projected": projected}
+    """EventBridge-scheduled entry: drain the Aurora publish_outbox into the
+    projection sinks. This is the target-state feed that replaced the
+    DynamoDB-stream / per-publish SQS trigger; the template schedule invokes it."""
+    swept = sweep_outbox()
+    return {"projected": len(swept)}
