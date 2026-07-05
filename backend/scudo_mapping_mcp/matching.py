@@ -98,8 +98,6 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
-logger = logging.getLogger(__name__)
-
 from .config import borderline_threshold as _borderline_threshold
 from .config import pass_threshold as _pass_threshold
 from .config import settings
@@ -117,6 +115,8 @@ from .validations import (
     required_failures,
     run_validations,
 )
+
+logger = logging.getLogger(__name__)
 
 # Specialist seam type (Rung 4 of the cost ladder).
 #
@@ -138,6 +138,19 @@ def _gate_thresholds(floor: float, half: float) -> tuple[float, float]:
     BORDERLINE. Single source of truth shared with ``build_matching_graph``.
     """
     return _pass_threshold(floor, half), _borderline_threshold(floor, half)
+
+
+def _emit_band_metric(band: str) -> None:
+    """Best-effort CloudWatch EMF counter for the gate's band decision (no-op
+    outside Lambda). Metrics are never load-bearing — never let one break a
+    mapping. The scope-deny / off-list early-return paths are intentionally NOT
+    counted here so that logic stays untouched."""
+    try:
+        from scudo import metrics
+
+        metrics.emit(f"Band{band.capitalize()}")
+    except Exception:  # noqa: BLE001 — metrics must never break the matcher
+        pass
 
 
 def map_vendor_product(
@@ -497,6 +510,7 @@ def map_vendor_product(
             "(below the resolvable window)."
         )
 
+    _emit_band_metric(band)
     return MappingResult(
         vendor_product_iri=ref.iri,
         vendor=ref.vendor,

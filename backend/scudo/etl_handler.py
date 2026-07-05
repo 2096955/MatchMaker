@@ -18,6 +18,7 @@ from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import unquote_plus
 
+from . import metrics
 from .aurora_store import put_facts_record, update_job_status
 from .aws_resources import _boto3, put_audit_record, put_eventbridge_event
 
@@ -145,6 +146,7 @@ def _process_object(bucket: str, key: str) -> dict:
     )
     put_audit_record(item_id=job_id, event_type="ETL_PASSED", payload=canonical)
     put_eventbridge_event(detail_type="CanonicalMetadataReady", detail=canonical)
+    metrics.emit("EtlPassed")
     return {"job_id": job_id, "status": "PASSED", "canonical_key": canonical_key}
 
 
@@ -180,6 +182,7 @@ def _quarantine(
     )
     put_audit_record(item_id=job_id, event_type="ETL_FAILED", payload=error_doc)
     log.exception("ETL quarantined s3://%s/%s: %s", bucket, key, exc)
+    metrics.emit("EtlFailed")
     return {"job_id": job_id, "status": "FAILED", "quarantine_key": quarantine_key}
 
 

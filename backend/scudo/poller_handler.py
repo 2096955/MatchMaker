@@ -16,6 +16,8 @@ import logging
 import os
 from typing import Any
 
+from . import metrics
+
 log = logging.getLogger("scudo.poller")
 log.setLevel(logging.INFO)
 
@@ -106,6 +108,7 @@ def poll_vendor(vendor_cfg: dict, *, s3, secrets, http) -> dict:
         # re-polls the same endpoint (simple stub pagination).
         url = nxt if isinstance(nxt, str) else (vendor_cfg["endpoint"] if nxt else None)
 
+    metrics.emit("PollerPages", page_n, dims={"vendor": vendor})
     return {
         "vendor": vendor,
         "pages": page_n,
