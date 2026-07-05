@@ -94,10 +94,17 @@ def test_none_window_matches_explicit_default_window():
     """Omitting floor/half must be byte-identical to passing the settings
     default window explicitly — defaults preserved exactly (HARD constraint).
     """
+    from scudo_mapping_mcp import config as config_mod
+
     store_a = _FakeStore(0.82)
     store_b = _FakeStore(0.82)
     default = map_vendor_product(_ref(), store=store_a)
-    explicit = map_vendor_product(_ref(), store=store_b, floor=0.80, half=0.05)
+    explicit = map_vendor_product(
+        _ref(),
+        store=store_b,
+        floor=config_mod.settings.confidence_floor,
+        half=config_mod.settings.borderline_half_width,
+    )
     assert default.status == explicit.status
     assert default.band == explicit.band
     assert default.confidence == explicit.confidence
@@ -127,14 +134,15 @@ def _final_status(events):
 
 def test_scripted_agent_run_honours_overridden_window(monkeypatch):
     """The scripted agent threads confidence_floor/borderline_half_width into
-    its authoritative map_vendor_product call. A fixed 0.78 score is
-    NEEDS_REVIEW under the default window but AUTO_MAPPED once the window is
-    lowered — proving the override reaches the matcher through the agent.
+    its authoritative map_vendor_product call. A fixed 0.72 score is
+    NEEDS_REVIEW under the default 0.75/0.05 window (borderline, below floor)
+    but AUTO_MAPPED once the window is lowered — proving the override reaches
+    the matcher through the agent.
     """
     from scudo_mapping_mcp import agent as agent_mod
     from scudo_mapping_mcp import matching as matching_mod
 
-    store = _AgentFakeStore(0.78)
+    store = _AgentFakeStore(0.72)
     # The scripted agent calls get_store() for narration AND the matcher
     # resolves get_store() internally (store= left None on the agent path).
     monkeypatch.setattr(agent_mod, "get_store", lambda: store)
@@ -144,14 +152,14 @@ def test_scripted_agent_run_honours_overridden_window(monkeypatch):
 
     default_events = list(a.run(_ref()))
     assert _final_status(default_events) == MappingStatus.NEEDS_REVIEW.value, (
-        "0.78 should be needs_review under the default 0.80/0.05 window"
+        "0.72 should be needs_review under the default 0.75/0.05 window"
     )
 
     lowered_events = list(
-        a.run(_ref(), confidence_floor=0.75, borderline_half_width=0.05)
+        a.run(_ref(), confidence_floor=0.70, borderline_half_width=0.05)
     )
     assert _final_status(lowered_events) == MappingStatus.AUTO_MAPPED.value, (
-        "0.78 should auto-map once the floor drops to 0.75"
+        "0.72 should auto-map once the floor drops to 0.70"
     )
 
 

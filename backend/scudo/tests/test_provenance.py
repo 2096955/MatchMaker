@@ -131,9 +131,9 @@ def test_every_node_is_labelled_and_expositional():
     assert meta.get("dataProvenance") == "synthetic", (
         "meta.json dataProvenance must be synthetic"
     )
-    assert meta.get("bands", {}).get("pass") == 0.85, (
-        "meta.json bands.pass must be 0.85"
+    assert meta.get("bands", {}).get("pass") == 0.80, (
+        "meta.json bands.pass must be 0.80"
     )
-    assert meta.get("bands", {}).get("borderline") == 0.75, (
-        "meta.json bands.borderline must be 0.75"
+    assert meta.get("bands", {}).get("borderline") == 0.70, (
+        "meta.json bands.borderline must be 0.70"
     )

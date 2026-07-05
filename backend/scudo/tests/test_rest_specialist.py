@@ -23,7 +23,7 @@ def _ref():
 
 
 class _FakeStore:
-    """Minimal store returning one borderline candidate (sim in [0.75,0.85))."""
+    """Minimal store returning one borderline candidate (sim in [0.70,0.80))."""
 
     def __init__(self, sim: float):
         self._node = TaxonomyNode(iri="jpmorgan:data:cdao:concept:x", label="X Concept")
@@ -40,8 +40,8 @@ class _FakeStore:
 
 
 def test_borderline_abstain_requires_specialist_goes_needs_review():
-    # sim 0.82 is borderline AND >= floor 0.80 → legacy path would AUTO_MAP.
-    store = _FakeStore(0.82)
+    # sim 0.77 is borderline AND >= floor 0.75 → legacy path would AUTO_MAP.
+    store = _FakeStore(0.77)
     result = map_vendor_product(
         _ref(),
         store=store,
@@ -53,7 +53,7 @@ def test_borderline_abstain_requires_specialist_goes_needs_review():
 
 
 def test_borderline_specialist_concurs_can_automap():
-    store = _FakeStore(0.82)
+    store = _FakeStore(0.77)
     node = store._node
 
     def concur(ref, cands):
@@ -69,7 +69,7 @@ def test_borderline_specialist_concurs_can_automap():
 def test_legacy_path_still_automaps_on_abstain():
     # Without borderline_requires_specialist, the agent/legacy path keeps its
     # floor-fallback behavior (no regression).
-    store = _FakeStore(0.82)
+    store = _FakeStore(0.77)
     result = map_vendor_product(_ref(), store=store, specialist=lambda r, c: None)
     assert result.status == MappingStatus.AUTO_MAPPED
 
