@@ -68,7 +68,7 @@ import json
 import os
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 from .matching import map_vendor_product
 from .specialist import specialist_from_env
@@ -657,14 +657,13 @@ def _iter_strands_events(agent: Any, prompt: str) -> Iterator[AgentEvent]:
     """Run the Strands agent and translate its stream into AgentEvent.
 
     This is the wire bridge between Strands' native event surface and our
-    SSE contract. The structure below maps Strands' tool_use / reasoning /
-    final_response events onto our five AgentEvent types. Tuned when the
-    SDK pin is finalised in the sandbox.
+    SSE contract. Coalescing (one agent_message per assistant turn, one
+    tool_call per toolUseId) lives in _coalesce_strands_events so the SSE
+    consumers see semantic steps, not per-token deltas.
     """
     try:
         stream = _strands_stream(agent, prompt)
-        for event in stream:
-            yield from _strands_event_to_agent_events(event)
+        yield from _coalesce_strands_events(stream)
     except Exception as e:  # noqa: BLE001
         yield AgentEvent(
             type="error",
@@ -703,52 +702,218 @@ def _strands_stream(agent: Any, prompt: str) -> list[Any]:
     return [{"message": getattr(result, "message", result)}] if result else []
 
 
-def _strands_event_to_agent_events(event: Any) -> Iterator[AgentEvent]:
-    """Translate a Strands event dict/object into our SSE contract."""
-    if not isinstance(event, dict):
-        event = (
-            event.__dict__ if hasattr(event, "__dict__") else {"message": str(event)}
-        )
+def _coalesce_strands_events(stream: Iterable[Any]) -> Iterator[AgentEvent]:
+    """Coalesce Strands' raw stream into semantic AgentEvents.
 
-    kind = event.get("kind") or event.get("type")
-    if kind == "tool_use":
-        yield AgentEvent(
-            type="tool_call",
-            payload={
-                "tool": event.get("name") or event.get("tool_name") or "tool",
-                "args": event.get("input", {}),
-            },
-        )
-        return
+    Strands emits one event per token delta, one current_tool_use snapshot
+    per input chunk while a tool call assembles, and re-emits the assembled
+    message at each cycle stop. Forwarded 1:1 that flooded the SSE consumers
+    (every delta rendered as its own transcript turn; each tool call ~30x).
+    This generator emits instead:
 
-    if kind == "tool_result":
+      agent_message — once per assistant turn: deltas are buffered and
+          flushed at a tool_call / tool_result / stop-message boundary or
+          at end of stream
+      tool_call     — once per toolUseId. The SDK accumulates ``input`` in
+          place on ONE snapshot dict per tool use, and _strands_stream
+          collects the whole stream into a list before translation, so by
+          the time the first snapshot is read it already carries the final
+          accumulated args.
+      tool_result   — passthrough; tool name resolved via toolUseId
+
+    Boundary handling, in the order the SDK produces events:
+
+    - tool_call is DEFERRED: snapshots only record the latest (id, name,
+      input) per toolUseId; the event is emitted at the next boundary — the
+      assembled message carrying the toolUse block (whose ``input`` is the
+      complete parsed args, preferred over any partial snapshot input), a
+      tool_result for that id, or end of stream. Emitting on the first
+      snapshot would lock in partial JSON args.
+    - The assembled message SUPERSEDES its own streamed deltas: at a
+      message boundary any buffered delta text is discarded and the
+      assembled text is emitted instead. Same output when they match, and
+      when they differ (guardrail redaction rewrites the final message) the
+      authoritative text wins rather than leaking the raw deltas. A message
+      with NO preceding deltas (the non-streaming ``agent(prompt)``
+      fallback) emits directly; only a no-delta re-emit of the immediately
+      preceding turn text is dropped (the SDK's message double-emit).
+    - Tool results arrive either as typed events ({"type": "tool_result"})
+      or as user-role messages carrying toolResult blocks; both emit ONE
+      tool_result with the tool name resolved via toolUseId.
+    """
+    text_buf: list[str] = []
+    last_turn_text: Optional[str] = None
+    pending_tools: dict[str, dict] = {}  # toolUseId -> {name, input}; ordered
+    emitted_tool_ids: set[str] = set()
+    tool_names: dict[str, str] = {}
+
+    def _flush_text() -> Iterator[AgentEvent]:
+        nonlocal last_turn_text
+        content = "".join(text_buf).strip()
+        text_buf.clear()
+        if content:
+            last_turn_text = content
+            yield AgentEvent(type="agent_message", payload={"content": content})
+
+    def _note_tool_use(tool_use: dict) -> None:
+        tool_id = str(tool_use.get("toolUseId") or tool_use.get("name"))
+        if tool_id in emitted_tool_ids:
+            return
+        prev = pending_tools.get(tool_id)
+        new_input = tool_use.get("input")
+        if prev is not None and not new_input:
+            new_input = prev["input"]  # never downgrade recorded args to empty
+        pending_tools[tool_id] = {
+            "name": str(tool_use.get("name")),
+            "input": new_input,
+        }
+
+    def _emit_pending_tools() -> Iterator[AgentEvent]:
+        for tool_id, tool in pending_tools.items():
+            emitted_tool_ids.add(tool_id)
+            tool_names[tool_id] = tool["name"]
+            yield AgentEvent(
+                type="tool_call",
+                payload={"tool": tool["name"], "args": _tool_args(tool["input"])},
+            )
+        pending_tools.clear()
+
+    def _emit_tool_result(tool_id: str, result: Any) -> Iterator[AgentEvent]:
+        nonlocal last_turn_text
+        last_turn_text = None  # identical turns are legit across a tool call
         yield AgentEvent(
             type="tool_result",
-            payload={
-                "tool": event.get("name") or event.get("tool_name") or "tool",
-                "result": event.get("output") or event.get("result"),
-            },
-        )
-        return
-
-    current_tool = event.get("current_tool_use")
-    if isinstance(current_tool, dict) and current_tool.get("name"):
-        yield AgentEvent(
-            type="tool_call",
-            payload={
-                "tool": current_tool.get("name"),
-                "args": current_tool.get("input", {}),
-            },
+            payload={"tool": tool_names.get(tool_id, "tool"), "result": result},
         )
 
-    content = (
-        event.get("data")
-        or event.get("text")
-        or event.get("content")
-        or _message_text(event.get("message"))
-    )
-    if content:
-        yield AgentEvent(type="agent_message", payload={"content": str(content)})
+    for event in stream:
+        if not isinstance(event, dict):
+            event = (
+                event.__dict__
+                if hasattr(event, "__dict__")
+                else {"message": str(event)}
+            )
+
+        if event.get("reasoning"):
+            continue  # internal chain-of-thought — never surfaced over SSE
+
+        kind = event.get("kind") or event.get("type")
+
+        if kind == "tool_use":  # legacy shape — already one event per call
+            yield from _flush_text()
+            yield from _emit_pending_tools()
+            yield AgentEvent(
+                type="tool_call",
+                payload={
+                    "tool": event.get("name") or event.get("tool_name") or "tool",
+                    "args": event.get("input", {}),
+                },
+            )
+            continue
+
+        if kind == "tool_result":
+            yield from _flush_text()
+            yield from _emit_pending_tools()  # the call must precede its result
+            tool_result = event.get("tool_result")
+            if isinstance(tool_result, dict):  # strands ToolResultEvent
+                yield from _emit_tool_result(
+                    str(tool_result.get("toolUseId") or ""),
+                    _tool_result_text(tool_result),
+                )
+            else:  # legacy shape carries the tool name directly
+                yield AgentEvent(
+                    type="tool_result",
+                    payload={
+                        "tool": event.get("name") or event.get("tool_name") or "tool",
+                        "result": event.get("output") or event.get("result"),
+                    },
+                )
+                last_turn_text = None
+            continue
+
+        current_tool = event.get("current_tool_use")
+        if isinstance(current_tool, dict) and current_tool.get("name"):
+            _note_tool_use(current_tool)
+            continue  # snapshots must never fall through to the text branch
+
+        message = event.get("message")
+        if message is not None:
+            blocks = message.get("content") if isinstance(message, dict) else None
+            tool_results = [
+                b["toolResult"]
+                for b in blocks or []
+                if isinstance(b, dict) and isinstance(b.get("toolResult"), dict)
+            ]
+            if tool_results:  # user-role message ferrying tool results
+                yield from _flush_text()
+                yield from _emit_pending_tools()
+                for tr in tool_results:
+                    yield from _emit_tool_result(
+                        str(tr.get("toolUseId") or ""), _tool_result_text(tr)
+                    )
+                continue
+
+            assembled = _message_text(message)
+            if assembled:
+                # The assembled message supersedes its own streamed deltas —
+                # discard the buffer and emit the authoritative text (they
+                # normally match; under guardrail redaction they don't and
+                # the deltas must not leak). Text equal to the previous
+                # turn's emission is the SDK's double-emit of the same
+                # message (ModelStopReason then ModelMessageEvent) — drop.
+                text_buf.clear()
+                if assembled != last_turn_text:
+                    last_turn_text = assembled
+                    yield AgentEvent(
+                        type="agent_message", payload={"content": assembled}
+                    )
+            else:
+                yield from _flush_text()
+            for block in blocks or []:
+                tool_use = block.get("toolUse") if isinstance(block, dict) else None
+                if isinstance(tool_use, dict) and tool_use.get("name"):
+                    _note_tool_use(tool_use)  # complete parsed input wins
+            yield from _emit_pending_tools()
+            continue
+
+        content = event.get("data") or event.get("text") or event.get("content")
+        if content:
+            text_buf.append(str(content))
+
+    yield from _flush_text()
+    yield from _emit_pending_tools()
+
+
+def _tool_args(raw: Any) -> dict[str, Any]:
+    """Parse a tool-use ``input`` into an args dict.
+
+    Strands accumulates ``input`` as a JSON string; by translation time it
+    is complete JSON (see _coalesce_strands_events). A non-dict or
+    unparseable value degrades to a labelled wrapper rather than raising —
+    a malformed tool input must never kill the SSE stream.
+    """
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            return {"raw": raw}
+        return parsed if isinstance(parsed, dict) else {"value": parsed}
+    return {}
+
+
+def _tool_result_text(tool_result: dict) -> str:
+    """Extract display text from a strands ToolResult content block list."""
+    parts: list[str] = []
+    for block in tool_result.get("content") or []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("text"):
+            parts.append(str(block["text"]))
+        elif "json" in block:
+            parts.append(json.dumps(block["json"], default=str))
+    return "\n".join(parts)
 
 
 def _message_text(message: Any) -> str:
