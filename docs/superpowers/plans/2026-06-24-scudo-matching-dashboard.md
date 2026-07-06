@@ -20,7 +20,7 @@
 
 | Task | Status | Delivered |
 |------|--------|-----------|
-| **0** KnowledgeGraph builder | ✅ Done | `build_matching_graph.py` emits `kind: "codebase"` graph (42 nodes, 7 layers, 6 tour steps); `build_match_payload()` retained for API; `meta.json` sidecar; band text uses 0.85/0.75 |
+| **0** KnowledgeGraph builder | ✅ Done | `build_matching_graph.py` emits `kind: "codebase"` graph (42 nodes, 7 layers, 6 tour steps at Phase 0; 57 nodes / 8 layers since the 2026-07 M10 conceptual-enrichment layer); `build_match_payload()` retained for API; `meta.json` sidecar; band text uses 0.85/0.75 |
 | **1** Sync script | ✅ Done | `backend/scudo/scripts/sync_matching_graph_to_dashboard.sh` (default path `../../Understand-Anything/...`; override with `DASHBOARD_DIR`) |
 | **2** ILLUSTRATIVE banner | ✅ Done | New `IllustrativeDataBanner.tsx`; provenance from `meta.json` + graph project name fallback |
 | **3** Matching-mode chrome | ✅ Done | Hides PathFinder, file explorer, persona/domain toggles, detail-level toggles (desktop + mobile) |

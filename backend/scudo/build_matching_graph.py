@@ -282,6 +282,38 @@ def _fold_conceptual_match_payload(store, concept_iri, add_node, edges) -> list[
     return node_ids
 
 
+# The dashboard validates node/edge `type` against a strict closed z.enum
+# (@understand-anything/core) and silently DROPS anything outside it — the
+# "30 dropped items" regression. Conceptual kinds therefore map onto the
+# nearest dashboard type; the true kind is preserved in `tags` (nodes) and
+# `description` (edges). Gated by tests/test_dashboard_enum_vocabulary.py.
+_CONCEPTUAL_NODE_TYPE: dict[str, str] = {
+    "product_package": "entity",
+    "delivery_product": "entity",
+    "data_service": "service",
+    "delivery_channel": "endpoint",
+    "distribution": "resource",
+    "distributed_dataset": "table",
+    "marketing_dataset": "table",
+    "business_concept_element": "concept",
+    "data_taxonomy": "topic",
+    "data_dictionary": "document",
+    "field_group": "schema",
+    "field": "entity",
+    "business_data_element": "concept",
+}
+
+_CONCEPTUAL_EDGE_TYPE: dict[str, str] = {
+    "made_available_through": "serves",
+    "delivered_by": "serves",
+    "accessed_through": "routes",
+    "formatted_as": "transforms",
+    "in_series": "related",
+    "contains": "contains",
+    "classified_as": "categorized_under",
+}
+
+
 def _fold_conceptual_knowledge_graph(store, concept_iri, add_node, edges) -> list[str]:
     try:
         graph = store.get_conceptual_graph(concept_iri)
@@ -295,7 +327,7 @@ def _fold_conceptual_knowledge_graph(store, concept_iri, add_node, edges) -> lis
         add_node(
             {
                 "id": node.iri,
-                "type": "conceptual",
+                "type": _CONCEPTUAL_NODE_TYPE.get(node.kind.value, "entity"),
                 "name": node.label,
                 "summary": f"{node.kind.value.replace('_', ' ')} attached to {concept_iri}",
                 "tags": ["conceptual", node.kind.value],
@@ -308,9 +340,10 @@ def _fold_conceptual_knowledge_graph(store, concept_iri, add_node, edges) -> lis
             {
                 "source": concept_iri,
                 "target": root_iri,
-                "type": "conceptual",
+                "type": "related",
                 "direction": "forward",
                 "weight": 1.0,
+                "description": "conceptual enrichment attaches here",
             }
         )
     for edge in graph.edges:
@@ -318,10 +351,10 @@ def _fold_conceptual_knowledge_graph(store, concept_iri, add_node, edges) -> lis
             {
                 "source": edge.from_iri,
                 "target": edge.to_iri,
-                "type": edge.kind.value,
+                "type": _CONCEPTUAL_EDGE_TYPE.get(edge.kind.value, "related"),
                 "direction": "forward",
                 "weight": 1.0,
-                "description": edge.label or edge.kind.value,
+                "description": edge.label or edge.kind.value.replace("_", " "),
             }
         )
     return node_ids

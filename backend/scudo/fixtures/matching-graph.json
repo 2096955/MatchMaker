@@ -21,7 +21,7 @@
       "AWS AppSync",
       "scudo-cost-ladder"
     ],
-    "analyzedAt": "2026-07-04T20:16:05.891558+00:00",
+    "analyzedAt": "2026-07-06T19:15:24.686132+00:00",
     "gitCommitHash": "offline-fixture"
   },
   "nodes": [
@@ -529,7 +529,7 @@
     },
     {
       "id": "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
-      "type": "conceptual",
+      "type": "resource",
       "name": "Equity Prices EOD CSV Distribution",
       "summary": "distribution attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -540,7 +540,7 @@
     },
     {
       "id": "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
-      "type": "conceptual",
+      "type": "service",
       "name": "Market Data Distribution Service",
       "summary": "data service attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -551,7 +551,7 @@
     },
     {
       "id": "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
-      "type": "conceptual",
+      "type": "table",
       "name": "Equity Prices Historical Series",
       "summary": "marketing dataset attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -562,7 +562,7 @@
     },
     {
       "id": "mds.enrich:2b480e49-3ce8-5392-b634-de2e670b081e",
-      "type": "conceptual",
+      "type": "entity",
       "name": "Equity Prices Real-Time Feed",
       "summary": "delivery product attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -573,7 +573,7 @@
     },
     {
       "id": "mds.enrich:2d17c28c-69c3-5b3a-9e1e-86e81cfbb1f2",
-      "type": "conceptual",
+      "type": "entity",
       "name": "Closing Price",
       "summary": "field attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -584,7 +584,7 @@
     },
     {
       "id": "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
-      "type": "conceptual",
+      "type": "endpoint",
       "name": "Secure FTP Delivery Channel",
       "summary": "delivery channel attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -595,7 +595,7 @@
     },
     {
       "id": "mds.enrich:3cbaf61e-e5ba-59b1-b822-9cf5fcf09e27",
-      "type": "conceptual",
+      "type": "entity",
       "name": "Trade Date",
       "summary": "field attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -606,7 +606,7 @@
     },
     {
       "id": "mds.enrich:408e3be4-d76b-539b-927d-44c55eca0182",
-      "type": "conceptual",
+      "type": "entity",
       "name": "Equity Prices Market Data Package",
       "summary": "product package attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -617,7 +617,7 @@
     },
     {
       "id": "mds.enrich:42ad4075-4381-501c-903c-c01fd5790be8",
-      "type": "conceptual",
+      "type": "entity",
       "name": "Ticker Symbol",
       "summary": "field attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -628,7 +628,7 @@
     },
     {
       "id": "mds.enrich:46d541b6-ecf4-5c8d-b007-e22c57237613",
-      "type": "conceptual",
+      "type": "concept",
       "name": "Closing Price",
       "summary": "business data element attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -639,7 +639,7 @@
     },
     {
       "id": "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
-      "type": "conceptual",
+      "type": "concept",
       "name": "Equity Price Observation",
       "summary": "business concept element attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -650,7 +650,7 @@
     },
     {
       "id": "mds.enrich:7e8b0772-604a-5c85-87a4-91c9a644a92e",
-      "type": "conceptual",
+      "type": "topic",
       "name": "Market Data Taxonomy",
       "summary": "data taxonomy attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -661,7 +661,7 @@
     },
     {
       "id": "mds.enrich:b678b990-526e-561d-89f8-439b7f6495db",
-      "type": "conceptual",
+      "type": "document",
       "name": "Equity Prices Data Dictionary",
       "summary": "data dictionary attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -672,7 +672,7 @@
     },
     {
       "id": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
-      "type": "conceptual",
+      "type": "schema",
       "name": "Equity Price Record",
       "summary": "field group attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -683,7 +683,7 @@
     },
     {
       "id": "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394",
-      "type": "conceptual",
+      "type": "table",
       "name": "Equity Prices EOD Dataset",
       "summary": "distributed dataset attached to jpmorgan:data:cdao:concept:equity-prices",
       "tags": [
@@ -1048,35 +1048,39 @@
     {
       "source": "jpmorgan:data:cdao:concept:equity-prices",
       "target": "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
-      "type": "conceptual",
+      "type": "related",
       "direction": "forward",
-      "weight": 1.0
+      "weight": 1.0,
+      "description": "conceptual enrichment attaches here"
     },
     {
       "source": "jpmorgan:data:cdao:concept:equity-prices",
       "target": "mds.enrich:408e3be4-d76b-539b-927d-44c55eca0182",
-      "type": "conceptual",
+      "type": "related",
       "direction": "forward",
-      "weight": 1.0
+      "weight": 1.0,
+      "description": "conceptual enrichment attaches here"
     },
     {
       "source": "jpmorgan:data:cdao:concept:equity-prices",
       "target": "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
-      "type": "conceptual",
+      "type": "related",
       "direction": "forward",
-      "weight": 1.0
+      "weight": 1.0,
+      "description": "conceptual enrichment attaches here"
     },
     {
       "source": "jpmorgan:data:cdao:concept:equity-prices",
       "target": "mds.enrich:b678b990-526e-561d-89f8-439b7f6495db",
-      "type": "conceptual",
+      "type": "related",
       "direction": "forward",
-      "weight": 1.0
+      "weight": 1.0,
+      "description": "conceptual enrichment attaches here"
     },
     {
       "source": "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
       "target": "mds.enrich:2b480e49-3ce8-5392-b634-de2e670b081e",
-      "type": "made_available_through",
+      "type": "serves",
       "direction": "forward",
       "weight": 1.0,
       "description": "delivered over"
@@ -1084,7 +1088,7 @@
     {
       "source": "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
       "target": "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
-      "type": "delivered_by",
+      "type": "serves",
       "direction": "forward",
       "weight": 1.0,
       "description": "serves via"
@@ -1092,7 +1096,7 @@
     {
       "source": "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
       "target": "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
-      "type": "accessed_through",
+      "type": "routes",
       "direction": "forward",
       "weight": 1.0,
       "description": "accessed via"
@@ -1100,7 +1104,7 @@
     {
       "source": "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394",
       "target": "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
-      "type": "formatted_as",
+      "type": "transforms",
       "direction": "forward",
       "weight": 1.0,
       "description": "formatted as"
@@ -1108,7 +1112,7 @@
     {
       "source": "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
       "target": "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394",
-      "type": "in_series",
+      "type": "related",
       "direction": "forward",
       "weight": 1.0,
       "description": "in series"
@@ -1148,7 +1152,7 @@
     {
       "source": "mds.enrich:2d17c28c-69c3-5b3a-9e1e-86e81cfbb1f2",
       "target": "mds.enrich:46d541b6-ecf4-5c8d-b007-e22c57237613",
-      "type": "classified_as",
+      "type": "categorized_under",
       "direction": "forward",
       "weight": 1.0,
       "description": "classified as"
@@ -1156,7 +1160,7 @@
     {
       "source": "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
       "target": "mds.enrich:7e8b0772-604a-5c85-87a4-91c9a644a92e",
-      "type": "classified_as",
+      "type": "categorized_under",
       "direction": "forward",
       "weight": 1.0,
       "description": "classified under"
