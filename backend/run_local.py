@@ -13,6 +13,7 @@ http://localhost:3000 — it proxies /api here.
 DEV ONLY. Memory store, dev-auth principal, mock frames, env-var verdict
 key. Nothing here is deployable posture.
 """
+
 import os
 
 # Must land BEFORE scudo_mapping_mcp.config is imported — Settings reads
@@ -22,6 +23,10 @@ import os
 os.environ["STORE_BACKEND"] = "memory"
 os.environ["SCUDO_AUTH_ALLOW_DEV"] = "1"
 os.environ["SCUDO_AUTH_DEV_PRINCIPAL"] = "demo@local"
+# Local only: let the dev-env principal write HITL decisions so the feedback
+# loop closes on a developer machine. Deployments MUST leave this unset —
+# see auth.can_write_decision (finding-1 fail-closed guard).
+os.environ["SCUDO_AUTH_ALLOW_DEV_WRITES"] = "1"
 os.environ["SCUDO_VERDICT_ALLOW_DEV"] = "1"
 os.environ["FRAME_SOURCE"] = "mock"
 

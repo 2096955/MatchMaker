@@ -32,6 +32,7 @@ import os
 from flask import Blueprint, Response, g, jsonify, request, stream_with_context
 from pydantic import ValidationError
 
+from auth import can_write_decision  # noqa: E402 — used by record_decision guard
 from logger import ui_logger
 from scudo.build_matching_graph import build_match_payload
 from scudo_mapping_mcp.agent import get_agent
@@ -604,6 +605,31 @@ def record_decision():
         decided_by=decided_by,
         node_iri=node_iri,
     )
+
+    # Finding-1 defense-in-depth: a HITL decision is a durable, self-reinforcing
+    # precedent, so the shared/unauthenticated dev-env principal must not be
+    # able to write one on a reachable endpoint (even if SCUDO_AUTH_DEV_PRINCIPAL
+    # was left set on a deploy). Fail closed — local dev opts in via
+    # SCUDO_AUTH_ALLOW_DEV_WRITES. Reads/maps are unaffected; only this write is.
+    if not can_write_decision(g.principal):
+        ui_logger.warning(
+            "HITL mapping decision blocked — dev-env principal cannot write",
+            vendor=vendor,
+            product_id=product_id,
+            decided_by=decided_by,
+            principal_source=g.principal.source,
+        )
+        return (
+            jsonify(
+                {
+                    "error": (
+                        "HITL decision writes are disabled for the development "
+                        "principal on this deployment"
+                    )
+                }
+            ),
+            403,
+        )
 
     if not vendor:
         return jsonify({"error": "vendor is required"}), 400
