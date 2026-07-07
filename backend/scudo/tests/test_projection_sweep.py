@@ -98,6 +98,81 @@ def test_project_one_skips_non_published(monkeypatch):
     assert called == []
 
 
+def test_project_one_projects_hitl_decision_shaped_rows(monkeypatch):
+    """Cross-module contract: the outbox detail the HITL decision route emits
+    (via lambda_handler._decision_publish_payload) must take _project_one's
+    published path — not the skip path that permanently marks it dispatched.
+    Regression for the gap where raw decision payloads (no mapping_object)
+    were silently swallowed."""
+    from scudo import projection_handler as ph
+    from scudo.lambda_handler import _decision_publish_payload
+
+    decision_body = {
+        "ticket": "HITL-9",
+        "decision": "approve",
+        "iri": "mds.lseg:9",
+        "mapping_result": {
+            "vendor_product_iri": "mds.lseg:9",
+            "proposed_target_iri": "jpmorgan:data:cdao:EquityResearch",
+            "confidence": 0.78,
+            "proposed_triples": [
+                {
+                    "subject": "mds.lseg:9",
+                    "predicate": "rdf:type",
+                    "object": "jpmorgan:data:cdao:EquityResearch",
+                    "graph": "urn:graph:hitl",
+                }
+            ],
+        },
+    }
+    detail = _decision_publish_payload(decision_body, "HITL-9")
+
+    calls = []
+    monkeypatch.setattr(ph, "_write_aurora", lambda d, m: calls.append("aurora"))
+    monkeypatch.setattr(ph, "_publish_neptune", lambda m: calls.append("neptune"))
+    monkeypatch.setattr(
+        ph, "_index_opensearch", lambda d, m: calls.append("opensearch")
+    )
+    monkeypatch.setattr(ph, "_publish_appsync", lambda d, m: calls.append("appsync"))
+
+    row = {"event_id": "HITL-9:approved", "detail": detail}
+    assert ph._project_one(row) is True
+    assert calls == ["aurora", "neptune", "opensearch", "appsync"]
+    assert detail["mapping_object"]["published_graph"] == "urn:graph:hitl"
+
+
+def test_sparql_iri_percent_encodes_iriref_illegal_chars():
+    """SPARQL 1.1 IRIREF grammar excludes <>"{}|^`\\ and control chars/space
+    (#x00-#x20). Vendor-controlled ``graph``/subject values reach this
+    function via POST /api/mapping/decision -> catalogue.upsert_record ->
+    outbox -> sweep_outbox, so every illegal character must be neutralised
+    rather than just the two originally handled (backslash, angle brackets).
+    """
+    from scudo import projection_handler as ph
+
+    illegal_chars = ' "{}|^`\\\x00\x01\x1f'
+    encoded = ph._sparql_iri(f"mds.acme:widget{illegal_chars}end")
+
+    for ch in illegal_chars:
+        assert ch not in encoded, f"{ch!r} leaked into IRIREF unescaped"
+
+    # Backslash must be percent-encoded, not doubled (doubling still leaves
+    # illegal backslash characters in the IRIREF).
+    assert "%5C" in encoded
+    assert "%20" in encoded  # space
+    assert "%00" in encoded  # NUL
+
+
+def test_sparql_iri_still_escapes_angle_brackets():
+    from scudo import projection_handler as ph
+
+    encoded = ph._sparql_iri("mds.acme:<script>")
+    assert "<" not in encoded
+    assert ">" not in encoded
+    assert "%3C" in encoded
+    assert "%3E" in encoded
+
+
 def test_sweep_end_to_end_with_injected_execute(monkeypatch):
     """execute= threads the injected runner through fetch + mark (no rds-data),
     and a published row is marked dispatched once its (env-disabled) sinks no-op."""

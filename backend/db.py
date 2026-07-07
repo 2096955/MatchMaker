@@ -23,16 +23,31 @@ import os
 import psycopg
 from psycopg.rows import dict_row
 
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
 
 def _connect(search_path: str) -> psycopg.Connection:
     """Open a psycopg connection scoped to ``search_path`` (dict rows, manual
     commit). ``connect_timeout`` avoids long request hangs when the DB is briefly
-    unreachable; ``public`` is kept on the path for extensions/shared objects."""
+    unreachable; ``public`` is kept on the path for extensions/shared objects.
+
+    A missing ``CONSOLE_DB_PASSWORD`` is only tolerated for local hosts (the
+    dev default) - a non-local host without one is almost certainly a
+    misconfigured deploy about to attempt an unauthenticated connection to a
+    real Aurora endpoint, so fail before ever calling ``psycopg.connect``.
+    """
+    host = os.environ.get("CONSOLE_DB_HOST", "localhost")
+    password = os.environ.get("CONSOLE_DB_PASSWORD", "")
+    if host not in _LOCAL_HOSTS and not password:
+        raise RuntimeError(
+            f"CONSOLE_DB_PASSWORD is required when CONSOLE_DB_HOST is not local "
+            f"(got host={host!r})"
+        )
     return psycopg.connect(
-        host=os.environ.get("CONSOLE_DB_HOST", "localhost"),
+        host=host,
         port=int(os.environ.get("CONSOLE_DB_PORT", "5432")),
         user=os.environ.get("CONSOLE_DB_USER", "scudo"),
-        password=os.environ.get("CONSOLE_DB_PASSWORD", ""),
+        password=password,
         dbname=os.environ.get("CONSOLE_DB_NAME", "scudo_console"),
         connect_timeout=int(os.environ.get("CONSOLE_DB_CONNECT_TIMEOUT", "10")),
         options=f"-c search_path={search_path},public",

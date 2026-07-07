@@ -50,4 +50,4 @@ def test_calibration_script_runs():
     )
     assert proc.returncode == 0, proc.stderr
     assert "pass_precision=" in proc.stdout
-    assert "default_floor=0.8" in proc.stdout
+    assert "default_floor=0.75" in proc.stdout

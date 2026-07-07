@@ -238,8 +238,17 @@ def _sparql_name(value: str) -> str:
     return f"<{_sparql_iri(value)}>"
 
 
+_IRIREF_ILLEGAL = set('<>"{}|^`\\') | {chr(c) for c in range(0x00, 0x21)}
+
+
 def _sparql_iri(value: str) -> str:
-    return (value or "").replace("\\", "\\\\").replace(">", "%3E").replace("<", "%3C")
+    """Percent-encode every character SPARQL's IRIREF grammar forbids
+    (<>"{}|^`\\ and control chars/space, #x00-#x20) so vendor-controlled
+    values (graph names, subjects) flowing in from the mapping decision
+    route can never break out of the ``<...>`` IRI position."""
+    return "".join(
+        f"%{ord(ch):02X}" if ch in _IRIREF_ILLEGAL else ch for ch in (value or "")
+    )
 
 
 def _sparql_literal(value: Any) -> str:
