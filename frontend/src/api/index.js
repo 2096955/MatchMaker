@@ -114,7 +114,7 @@ export const listRecentIfusionPublishes = (limit = 20) =>
 // EventSource doesn't support POST, so we use fetch + ReadableStream.
 // onEvent is called with each parsed AgentEvent (type + payload fields).
 // Returns a function that aborts the stream when called.
-export const runAgentStream = ({ vendor, productId, name, description }, onEvent) => {
+export const runAgentStream = ({ vendor, productId, name, description, agentProvider }, onEvent) => {
   const controller = new AbortController()
   ;(async () => {
     try {
@@ -126,6 +126,7 @@ export const runAgentStream = ({ vendor, productId, name, description }, onEvent
           product_id: productId,
           name: name || '',
           description: description || '',
+          agent_provider: agentProvider || '',
         }),
         signal: controller.signal,
       })

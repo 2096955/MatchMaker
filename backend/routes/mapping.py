@@ -1230,11 +1230,39 @@ def list_working_set():
 
 @mapping_bp.get("/mapping/agent/describe")
 def describe_agent():
-    """Tell the frontend which agent backend is wired (scripted | bedrock)."""
+    """Tell the frontend which agent backend is wired and the available providers."""
     backend = (os.getenv("SCUDO_AGENT_BACKEND") or "scripted").strip().lower()
+    default_provider = (
+        (os.getenv("SCUDO_AGENT_PROVIDER_DEFAULT") or "bedrock").strip().lower()
+    )
+
+    # Azure is only genuinely usable once every field
+    # AzureMappingAgent._require_config (scudo_mapping_mcp/agent.py) checks is
+    # present — endpoint alone would offer a runtime that always fails at
+    # first run.
+    azure_enabled = bool(
+        os.getenv("AZURE_OPENAI_ENDPOINT")
+        and os.getenv("AZURE_OPENAI_API_KEY")
+        and os.getenv("AZURE_OPENAI_SPECIALIST_DEPLOYMENT")
+    )
+    providers = [
+        {
+            "id": "bedrock",
+            "label": "Amazon Bedrock (Claude)",
+            "enabled": True,
+        },
+        {
+            "id": "azure",
+            "label": "Azure OpenAI (ChatGPT 5.5 Med)",
+            "enabled": azure_enabled,
+        },
+    ]
+
     return jsonify(
         {
             "backend": backend,
+            "default_provider": default_provider,
+            "providers": providers,
             "model_id": (
                 os.getenv("SCUDO_BEDROCK_MODEL_ID") or "eu.anthropic.claude-opus-4-8"
                 if backend == "bedrock"
@@ -1259,6 +1287,7 @@ def run_agent():
                             the working set OR have ``name`` inline).
         name (str, optional):           Inline product name (avoids frame lookup).
         description (str, optional):    Inline product description.
+        agent_provider (str, optional): Requested provider (bedrock or azure).
 
     SSE event types streamed: start · tool_call · tool_result ·
         agent_message · final_result · error · done. The frontend's
@@ -1268,6 +1297,12 @@ def run_agent():
     body = request.get_json(silent=True) or {}
     vendor = (body.get("vendor") or "").strip()
     product_id = (body.get("product_id") or "").strip()
+    agent_provider = (body.get("agent_provider") or "").strip().lower() or None
+    if agent_provider is not None and agent_provider not in ("bedrock", "azure"):
+        # Matches scudo/lambda_handler.py's handler() validation — an unknown
+        # provider must 400, not silently fall through to whatever
+        # SCUDO_AGENT_BACKEND happens to resolve to.
+        return jsonify({"error": f"unknown agent provider: {agent_provider}"}), 400
     if not vendor:
         return jsonify({"error": "vendor is required"}), 400
     if not product_id:
@@ -1302,7 +1337,7 @@ def run_agent():
     except NotImplementedError as e:
         return jsonify({"error": f"frame source unavailable: {e}"}), 503
 
-    agent = get_agent()
+    agent = get_agent(provider=agent_provider)
     ui_logger.info(
         "Agent run started",
         principal=g.principal.user_id,

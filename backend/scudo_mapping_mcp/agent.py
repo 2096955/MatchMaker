@@ -930,12 +930,225 @@ def _message_text(message: Any) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Azure OpenAI agent — the other live-LLM path
+# ──────────────────────────────────────────────────────────────────────────
+def _build_azure_openai_client(cfg: dict) -> Any:
+    """Lazy-import + construct the Azure OpenAI client.
+
+    Split out from ``AzureMappingAgent`` so tests can monkeypatch the
+    construction step without needing the ``openai`` package importable.
+    """
+    from openai import AzureOpenAI  # type: ignore
+
+    return AzureOpenAI(
+        azure_endpoint=cfg["endpoint"],
+        api_key=cfg["api_key"],
+        api_version=cfg["api_version"],
+    )
+
+
+class AzureMappingAgent:
+    """Azure OpenAI-backed mapping agent — the other live-LLM path.
+
+    Same authoritative contract as ScriptedMappingAgent / BedrockMappingAgent
+    (module docstring): the deterministic matcher (matching.map_vendor_product)
+    ALWAYS produces the ``final_result``; Azure OpenAI only narrates a
+    recommendation, mirroring the AzureOpenAIShim pattern in
+    ``scudo/lambda_handler.py`` (same env vars, same missing-config error,
+    same reasoning_effort fallback) but adapted to this module's streaming
+    AgentEvent contract instead of a single structured-output call.
+
+    Config is read from AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY,
+    AZURE_OPENAI_API_VERSION, AZURE_OPENAI_SPECIALIST_DEPLOYMENT and
+    AZURE_OPENAI_REASONING_EFFORT (default "medium"), validated LAZILY inside
+    ``run()`` — before the first event is yielded, same place
+    BedrockMappingAgent's lazy strands import raises. A missing/misconfigured
+    deployment therefore surfaces as ONE clear SSE ``error`` event (via
+    routes/mapping.py's ``event_stream()`` generic except) instead of a raw
+    500 or a silent Bedrock/scripted fallback — it never falls back.
+
+    NO VERIFIER STEP (intentional, not a gap): AZURE_OPENAI_VERIFIER_DEPLOYMENT
+    is deliberately unused here. This class is the streaming
+    ``/mapping/agent/run`` path — like BedrockMappingAgent, it narrates a
+    single recommendation and the deterministic matcher gates the result;
+    neither streaming backend has ever had a verifier step. The specialist +
+    verifier split (``AZURE_OPENAI_VERIFIER_DEPLOYMENT``,
+    ``_build_azure_agents()`` returning a ``(mapping, verifier)`` pair) is a
+    SEPARATE concept belonging to ``scudo/lambda_handler.py``'s Orchestrator
+    pipeline, a different endpoint entirely. Adding a verifier here would be
+    scope creep onto a pipeline this class does not participate in.
+    """
+
+    NAME = "azure"
+
+    SYSTEM_PROMPT = (
+        "You are the SCUDO mapping agent (Azure OpenAI). Your job is to "
+        "recommend how to map a vendor product to one CDAO taxonomy node, "
+        "given the candidate nodes already retrieved for you.\n\n"
+        "RULES (load-bearing — never violate):\n"
+        "  1. You do NOT decide the final mapping status. The deterministic "
+        "     matcher (which runs after you) applies a 0.80 confidence floor "
+        "     and a set of validations. Your role is to EXPLORE and "
+        "     RECOMMEND, not to gate.\n"
+        "  2. If no candidates are supplied, recommend NEEDS_REVIEW and stop.\n"
+        "  3. End with a one-paragraph rationale citing the top candidate's "
+        "     IRI and similarity score, if any."
+    )
+
+    def __init__(self) -> None:
+        # Construction never touches the environment or network — matching
+        # every other backend's "cheap to construct" contract. Config is
+        # resolved and validated lazily inside run().
+        pass
+
+    def _resolve_config(self) -> dict:
+        return {
+            "endpoint": os.getenv("AZURE_OPENAI_ENDPOINT"),
+            "api_key": os.getenv("AZURE_OPENAI_API_KEY"),
+            "api_version": os.getenv("AZURE_OPENAI_API_VERSION"),
+            "specialist_deployment": os.getenv("AZURE_OPENAI_SPECIALIST_DEPLOYMENT"),
+            "reasoning_effort": os.getenv("AZURE_OPENAI_REASONING_EFFORT") or "medium",
+        }
+
+    def _require_config(self, cfg: dict) -> None:
+        if (
+            not cfg["endpoint"]
+            or not cfg["api_key"]
+            or not cfg["specialist_deployment"]
+        ):
+            raise RuntimeError(
+                "Missing Azure OpenAI configuration. Ensure AZURE_OPENAI_ENDPOINT, "
+                "AZURE_OPENAI_API_KEY, and AZURE_OPENAI_SPECIALIST_DEPLOYMENT are "
+                "set — the azure provider does not fall back to Bedrock."
+            )
+
+    def _recommend(self, client: Any, cfg: dict, prompt: str) -> str:
+        """Call Azure OpenAI for a narrative recommendation.
+
+        Mirrors AzureOpenAIShim.structured_output's defensive fallback: try
+        with reasoning_effort first, retry without it if the deployment/SDK
+        rejects the parameter.
+        """
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            response = client.chat.completions.create(
+                model=cfg["specialist_deployment"],
+                messages=messages,
+                reasoning_effort=cfg["reasoning_effort"],
+            )
+        except Exception:  # noqa: BLE001 — deployment/SDK may reject the param
+            response = client.chat.completions.create(
+                model=cfg["specialist_deployment"],
+                messages=messages,
+            )
+        return response.choices[0].message.content or ""
+
+    def run(
+        self,
+        ref: VendorProductRef,
+        *,
+        max_candidates: int = 5,
+        confidence_floor: Optional[float] = None,
+        borderline_half_width: Optional[float] = None,
+    ) -> Iterator[AgentEvent]:
+        # Validate + build BEFORE yielding "start" — same place Bedrock's
+        # lazy strands import raises, so a missing config surfaces on the
+        # generator's first next() and event_stream()'s try/except turns it
+        # into one clear SSE `error` event (routes/mapping.py).
+        cfg = self._resolve_config()
+        self._require_config(cfg)
+        client = _build_azure_openai_client(cfg)
+
+        yield AgentEvent(
+            type="start",
+            payload={
+                "vendor": ref.vendor,
+                "product_id": ref.product_id,
+                "product_name": ref.name,
+                "agent_backend": self.NAME,
+                "model_id": cfg["specialist_deployment"],
+            },
+        )
+
+        find_args = {
+            "vendor": ref.vendor,
+            "product_id": ref.product_id,
+            "name": ref.name,
+            "max_results": max_candidates,
+        }
+        yield AgentEvent(
+            type="tool_call",
+            payload={"tool": "find_similar_products", "args": find_args},
+        )
+        candidates = get_store().find_similar_products(ref, max_results=max_candidates)
+        yield AgentEvent(
+            type="tool_result",
+            payload={
+                "tool": "find_similar_products",
+                "result": {
+                    "count": len(candidates),
+                    "candidates": [_candidate_dict(c) for c in candidates],
+                },
+            },
+        )
+
+        candidate_lines = (
+            "\n".join(
+                f"  - {c.node.iri} ({c.node.label!r}) similarity={c.similarity:.2f}"
+                for c in candidates
+            )
+            or "  (none)"
+        )
+        prompt = (
+            f"Vendor product:\n"
+            f"  vendor       = {ref.vendor}\n"
+            f"  product_id   = {ref.product_id}\n"
+            f"  name         = {ref.name}\n"
+            f"  description  = {ref.description}\n\n"
+            f"Candidates (top {len(candidates)}):\n{candidate_lines}\n\n"
+            "Recommend a node and give a one-paragraph rationale."
+        )
+        rationale = self._recommend(client, cfg, prompt)
+        if rationale:
+            yield AgentEvent(type="agent_message", payload={"content": rationale})
+
+        # Authoritative final step — matcher runs regardless of what Azure
+        # recommended. Same contract as scripted/bedrock.
+        result = map_vendor_product(
+            ref,
+            specialist=specialist_from_env(),
+            floor=confidence_floor,
+            half=borderline_half_width,
+        )
+        yield AgentEvent(
+            type="final_result",
+            payload={"mapping": _mapping_result_dict(result)},
+        )
+        yield AgentEvent(type="done")
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Factory — the single swap point
 # ──────────────────────────────────────────────────────────────────────────
-def get_agent() -> Any:
-    """Return the configured mapping agent.
+def get_agent(provider: Optional[str] = None) -> Any:
+    """Return the configured mapping agent, taking provider into account.
 
-    SCUDO_AGENT_BACKEND selects between "scripted" (default) and "bedrock".
+    ``provider`` is an explicit UI override: "azure" ALWAYS returns
+    ``AzureMappingAgent`` and "bedrock" ALWAYS returns ``BedrockMappingAgent``
+    — each is unconditional on ``SCUDO_AGENT_BACKEND`` and never constructs
+    the other live backend or the scripted one. This matters for the demo's
+    "Inference Runtime" dropdown: selecting "Amazon Bedrock (Claude)" must
+    truly route to Bedrock, not silently run the scripted narrator when
+    ``SCUDO_AGENT_BACKEND`` happens to be unset/"scripted" — the same failure
+    mode the azure branch was fixed for.
+
+    Only when NO provider is given (``None``/empty — the legacy, non-UI call
+    shape) does ``SCUDO_AGENT_BACKEND`` decide scripted vs bedrock, exactly
+    as before.
+
     SCUDO_MCP_HOST_ENABLED (truthy: 1/true/yes) routes tool calls through
     the McpHost singleton instead of in-process Python. Off by default so
     the 86/86 smoke suite keeps using the deterministic in-process path.
@@ -943,8 +1156,13 @@ def get_agent() -> Any:
     The frontend / route layer is identical for all permutations — they
     consume the same AgentEvent stream regardless of backend or routing.
     """
-    backend = (os.getenv("SCUDO_AGENT_BACKEND") or "scripted").strip().lower()
     use_host = _env_truthy(os.getenv("SCUDO_MCP_HOST_ENABLED"))
+    normalized_provider = (provider or "").strip().lower()
+    if normalized_provider == "azure":
+        return AzureMappingAgent()
+    if normalized_provider == "bedrock":
+        return BedrockMappingAgent(use_mcp_host=use_host)
+    backend = (os.getenv("SCUDO_AGENT_BACKEND") or "scripted").strip().lower()
     if backend == "bedrock":
         return BedrockMappingAgent(use_mcp_host=use_host)
     return ScriptedMappingAgent(use_mcp_host=use_host)

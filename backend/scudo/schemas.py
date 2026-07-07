@@ -44,6 +44,7 @@ class IntakeRequest(BaseModel):
     has_precedent: bool = False
     has_conflict: bool = False
     ontology_gap: bool = False
+    agent_provider: Optional[str] = Field(default=None, description="Inference runtime provider (bedrock or azure).")
 
 
 # ────────────────────────────────────────────────────────────────────────────

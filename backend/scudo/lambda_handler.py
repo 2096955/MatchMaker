@@ -54,6 +54,7 @@ from .schemas import (
     IntakeRequest,
     PrecedentMapping,
     Route,
+    SCHEMA_VERSION,
 )
 from .shared.bedrock import aws_region, bedrock_llm_id
 from .sidecar import mock as sidecar_mock
@@ -76,6 +77,52 @@ def _resp(status: int, body: Any) -> dict:
         },
         "body": json.dumps(body, default=str),
     }
+
+
+def _decision_publish_payload(payload: dict, ticket: str) -> dict:
+    """Normalise a HITL approve body into the same outbox shape as auto-publish."""
+    mapping_object = payload.get("mapping_object")
+    if isinstance(mapping_object, dict):
+        mapping_object = dict(mapping_object)
+    else:
+        mapping_result = payload.get("mapping_result")
+        if not isinstance(mapping_result, dict):
+            raise ValueError(
+                "approve decision requires a mapping_object or mapping_result"
+            )
+        mapping_object = {
+            "schema_version": SCHEMA_VERSION,
+            "route": str(payload.get("route") or Route.NEW_MAPPING.value),
+            "bundle_ref": str(payload.get("bundle_ref") or ticket),
+            "mapping_result": mapping_result,
+            "verifier_report": payload.get("verifier_report"),
+            "outcome": "published",
+            "outcome_reason": payload.get("outcome_reason")
+            or "human approved decision",
+            "published_graph": payload.get("published_graph"),
+            "hitl_ticket": ticket,
+            "invocation_pins": payload.get("invocation_pins") or {},
+        }
+
+    mapping_result = mapping_object.get("mapping_result")
+    if not isinstance(mapping_result, dict):
+        raise ValueError("approve decision requires mapping_object.mapping_result")
+
+    mapping_object["outcome"] = "published"
+    mapping_object["hitl_ticket"] = mapping_object.get("hitl_ticket") or ticket
+    mapping_object["bundle_ref"] = mapping_object.get("bundle_ref") or str(
+        payload.get("bundle_ref") or ticket
+    )
+    mapping_object["schema_version"] = (
+        mapping_object.get("schema_version") or SCHEMA_VERSION
+    )
+    mapping_object["invocation_pins"] = mapping_object.get("invocation_pins") or {}
+    if not mapping_object.get("published_graph"):
+        triples = mapping_result.get("proposed_triples") or []
+        if triples and isinstance(triples[0], dict):
+            mapping_object["published_graph"] = triples[0].get("graph")
+
+    return {**payload, "mapping_object": mapping_object}
 
 
 def _check_api_key(event: dict) -> bool:
@@ -206,7 +253,69 @@ def _build_bundle_assembler(payload: dict):
     return _assemble
 
 
-def _build_agents() -> tuple[Agent, Agent]:
+class AzureOpenAIShim:
+    def __init__(self, system_prompt: str, deployment_env_var: str):
+        self.system_prompt = system_prompt
+        self.deployment_env_var = deployment_env_var
+
+    def __call__(self, prompt: str, structured_output_model: Any) -> Any:
+        parsed_result = self.structured_output(structured_output_model, prompt)
+
+        class ResultWrapper:
+            def __init__(self, val):
+                self.structured_output = val
+
+        return ResultWrapper(parsed_result)
+
+    def structured_output(self, output_model: Any, prompt: str) -> Any:
+        from openai import AzureOpenAI
+
+        endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
+        api_key = os.environ.get("AZURE_OPENAI_API_KEY")
+        api_version = os.environ.get("AZURE_OPENAI_API_VERSION")
+        deployment = os.environ.get(self.deployment_env_var)
+
+        if not endpoint or not api_key or not deployment:
+            raise ValueError(
+                "Missing Azure OpenAI configuration. "
+                "Ensure AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and "
+                f"{self.deployment_env_var} are set."
+            )
+
+        client = AzureOpenAI(
+            azure_endpoint=endpoint,
+            api_key=api_key,
+            api_version=api_version,
+        )
+
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+
+        reasoning_effort = os.environ.get("AZURE_OPENAI_REASONING_EFFORT", "medium")
+
+        try:
+            response = client.beta.chat.completions.parse(
+                model=deployment,
+                messages=messages,
+                response_format=output_model,
+                reasoning_effort=reasoning_effort,
+            )
+            return response.choices[0].message.parsed
+        except Exception:
+            response = client.beta.chat.completions.parse(
+                model=deployment,
+                messages=messages,
+                response_format=output_model,
+            )
+            return response.choices[0].message.parsed
+
+
+_AGENTS_CACHE: dict[str, tuple[Any, Any]] = {}
+
+
+def _build_bedrock_agents() -> tuple[Agent, Agent]:
     model_id = bedrock_llm_id()
     region = aws_region()
     log.info("Bedrock model=%s region=%s", model_id, region)
@@ -235,8 +344,45 @@ def _build_agents() -> tuple[Agent, Agent]:
     return mapping, verifier
 
 
-# Reused across warm invocations to dodge cold-start cost on every call.
-_AGENTS: tuple[Agent, Agent] | None = None
+def _build_azure_agents() -> tuple[AzureOpenAIShim, AzureOpenAIShim]:
+    log.info("Building Azure OpenAI shims")
+    # Named distinctly from the .prompts.mapping_prompt/verifier_prompt
+    # imports above (kept for parity) — same names would shadow those
+    # imports within this function (ruff F811).
+    mapping_system_prompt = (
+        "You are the SCUDO Mapping Specialist. Map ONE vendor product to "
+        "ONE CDAO node from bundle.candidates. Cite at least one Evidence "
+        "entry whose source_iris contain BOTH the chosen candidate IRI and "
+        "the ontology_snapshot value. Set confidence_band: high>=0.8, "
+        "medium>=0.5, low<0.5. Leave proposed_triples empty; the "
+        "orchestrator serialises deterministic DCAT triples."
+    )
+    verifier_system_prompt = (
+        "You are the SCUDO Verifier. Score MappingResult on the 10-"
+        "dimension rubric (0/1/2 each). Do not redo the mapping; assess "
+        "it. taxonomy_freshness=2 only if the ontology_snapshot appears "
+        "in any Evidence entry."
+    )
+
+    mapping = AzureOpenAIShim(
+        system_prompt=mapping_system_prompt,
+        deployment_env_var="AZURE_OPENAI_SPECIALIST_DEPLOYMENT",
+    )
+    verifier = AzureOpenAIShim(
+        system_prompt=verifier_system_prompt,
+        deployment_env_var="AZURE_OPENAI_VERIFIER_DEPLOYMENT",
+    )
+    return mapping, verifier
+
+
+def _get_agents_for_provider(provider: str) -> tuple[Any, Any]:
+    global _AGENTS_CACHE
+    if provider not in _AGENTS_CACHE:
+        if provider == "azure":
+            _AGENTS_CACHE[provider] = _build_azure_agents()
+        else:
+            _AGENTS_CACHE[provider] = _build_bedrock_agents()
+    return _AGENTS_CACHE[provider]
 
 
 def handler(event: dict, context: Any) -> dict:
@@ -300,14 +446,27 @@ def handler(event: dict, context: Any) -> dict:
         put_review_record(ticket=ticket, payload=payload)
         # An approved decision feeds the same publish path as an auto-approve:
         # the record lands in the catalogue and an outbox event drives projection.
-        if payload.get("decision") == "approve" and payload.get("iri"):
-            catalogue.upsert_record(payload["iri"], payload)
+        if payload.get("decision") == "approve":
+            if not payload.get("iri"):
+                return _resp(400, {"error": "approve decision requires an iri"})
+            try:
+                publish_payload = _decision_publish_payload(payload, ticket)
+            except ValueError as e:
+                return _resp(400, {"error": str(e)})
+            catalogue.upsert_record(payload["iri"], publish_payload)
             put_outbox_record(
                 event_id=f"{ticket}:approved",
                 detail_type="MappingCompleted",
-                detail=payload,
+                detail=publish_payload,
             )
         return _resp(200, {"ok": True, "ticket": ticket})
+
+    provider_default = (
+        os.environ.get("SCUDO_AGENT_PROVIDER_DEFAULT", "bedrock").strip().lower()
+    )
+    agent_provider = (payload.get("agent_provider") or provider_default).strip().lower()
+    if agent_provider not in ("bedrock", "azure"):
+        return _resp(400, {"error": f"unknown agent provider: {agent_provider}"})
 
     try:
         IntakeRequest.model_validate(
@@ -317,15 +476,13 @@ def handler(event: dict, context: Any) -> dict:
                 "has_precedent": bool(payload.get("has_precedent", False)),
                 "has_conflict": bool(payload.get("has_conflict", False)),
                 "ontology_gap": bool(payload.get("ontology_gap", False)),
+                "agent_provider": agent_provider,
             }
         )
     except Exception as e:
         return _resp(400, {"error": f"invalid intake: {e}"})
 
-    global _AGENTS
-    if _AGENTS is None:
-        _AGENTS = _build_agents()
-    mapping_agent, verifier_agent = _AGENTS
+    mapping_agent, verifier_agent = _get_agents_for_provider(agent_provider)
 
     # The mapping specialist emits only the semantic decision. The orchestrator
     # serialises + stamps the named graph before the publish gate runs.
@@ -350,6 +507,7 @@ def handler(event: dict, context: Any) -> dict:
                 "has_precedent": bool(payload.get("has_precedent", False)),
                 "has_conflict": bool(payload.get("has_conflict", False)),
                 "ontology_gap": bool(payload.get("ontology_gap", False)),
+                "agent_provider": agent_provider,
             }
         )
     except Exception as e:  # surface a clean error envelope to callers
