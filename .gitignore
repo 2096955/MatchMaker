@@ -1,3 +1,11 @@
+# ─── MarketData: externally-delivered FastAPI app — QUARANTINED ─────────
+# Untracked deliverable from a separate Cognizant build (author 2493688,
+# "MarketData_source_only"). Ignored wholesale pending the fold-into-host
+# vs. standalone-service decision (review P2). This stops `git add .` from
+# staging its bundled 159 MB venv / binaries. Un-quarantine (switch to
+# scoped rules) if/when the folder is formally onboarded.
+/MarketData/
+
 # ─── Python ─────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
