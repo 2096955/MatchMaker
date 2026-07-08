@@ -79,6 +79,51 @@ Parameters:
     Type: String
     Default: ''
     NoEcho: true
+  AgentProviderDefault:
+    Type: String
+    Default: bedrock
+    AllowedValues:
+      - bedrock
+      - azure
+    Description: >-
+      Default live-LLM backend for the specialist+verifier when a /run payload
+      does not set agent_provider. 'azure' selects the pre-built AzureOpenAIShim
+      pair (requires the AzureOpenAI* params below and openai in the image).
+  AzureOpenAIEndpoint:
+    Type: String
+    Default: ''
+    Description: Azure OpenAI resource endpoint, e.g. https://<resource>.openai.azure.com. Required when AgentProviderDefault=azure.
+  AzureOpenAIApiKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Azure OpenAI API key. Required when AgentProviderDefault=azure.
+  AzureOpenAIApiVersion:
+    Type: String
+    Default: '2024-10-21'
+    Description: Azure OpenAI API version passed to the AzureOpenAI client.
+  AzureOpenAISpecialistDeployment:
+    Type: String
+    Default: ''
+    Description: Azure deployment name for the mapping specialist. Required when AgentProviderDefault=azure.
+  AzureOpenAIVerifierDeployment:
+    Type: String
+    Default: ''
+    Description: Azure deployment name for the verifier. Required when AgentProviderDefault=azure.
+  AzureOpenAIReasoningEffort:
+    Type: String
+    Default: medium
+    Description: reasoning_effort passed to the Azure specialist+verifier shims.
+  AllowMockFallback:
+    Type: String
+    Default: ''
+    AllowedValues:
+      - ''
+      - '1'
+    Description: >-
+      Empty (default) makes /run FAIL LOUD when FalkorDB returns no candidates —
+      the real-matcher demo posture. Set to '1' ONLY to let /run degrade to the
+      in-memory sidecar mock (e.g. before the stores are seeded).
 
 Globals:
   Function:
@@ -110,6 +155,19 @@ Globals:
         SCUDO_EMBEDDINGS_MODEL_ID: !Ref EmbeddingsModelId
         SCUDO_APPSYNC_API_URL: !Ref AppSyncApiUrl
         SCUDO_APPSYNC_API_KEY: !Ref AppSyncApiKey
+        # Agentic layer: pick the specialist+verifier backend (bedrock default,
+        # azure = the pre-built AzureOpenAIShim pair). Env-var names match
+        # lambda_handler.py (_build_azure_agents / _get_agents_for_provider).
+        SCUDO_AGENT_PROVIDER_DEFAULT: !Ref AgentProviderDefault
+        AZURE_OPENAI_ENDPOINT: !Ref AzureOpenAIEndpoint
+        AZURE_OPENAI_API_KEY: !Ref AzureOpenAIApiKey
+        AZURE_OPENAI_API_VERSION: !Ref AzureOpenAIApiVersion
+        AZURE_OPENAI_SPECIALIST_DEPLOYMENT: !Ref AzureOpenAISpecialistDeployment
+        AZURE_OPENAI_VERIFIER_DEPLOYMENT: !Ref AzureOpenAIVerifierDeployment
+        AZURE_OPENAI_REASONING_EFFORT: !Ref AzureOpenAIReasoningEffort
+        # Matching engine: empty = fail loud on 0 candidates (real-matcher
+        # demo); '1' = allow in-memory sidecar mock fallback.
+        SCUDO_ALLOW_MOCK_FALLBACK: !Ref AllowMockFallback
 
 Resources:
   # ----------------------------------------------------------------------

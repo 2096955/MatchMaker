@@ -1,6 +1,18 @@
 # SCUDO MatchMaker
 
-Deterministic vendor-to-canonical product mapping with a three-MCP trust gradient, a five-rung cost ladder, and a verifier gate.
+Deterministic vendor→CDAO market-data product mapping, organised as a **five-zone
+architecture** with **Aurora PostgreSQL as the single source of truth**, a
+five-rung cost ladder, and an agentic specialist+verifier gate.
+
+> **📐 For JPMC engineers standing this up:** the approved target architecture is
+> [`docs/architecture/scudo-5zone-architecture.png`](docs/architecture/scudo-5zone-architecture.png);
+> the module→zone map is [`ZONES.md`](ZONES.md); the exact deploy commands are
+> [`backend/scudo/DEPLOY.md`](backend/scudo/DEPLOY.md); and the consolidation
+> record (why the design moved off DynamoDB/graph-of-record onto Aurora) is
+> [`infra/HANDOVER_5zone_alignment.md`](infra/HANDOVER_5zone_alignment.md). The
+> section [Where this diverges from the code on git](#where-this-diverges-from-the-code-on-git-and-why)
+> explains, deliberately and honestly, where the code retains paths the customer
+> chose not to take.
 
 > **🟢 Live demo:**
 > - Formal PoC: https://d1n9fcdyynpn9j.cloudfront.net/cogJPMdemo/
@@ -17,6 +29,65 @@ Deterministic vendor-to-canonical product mapping with a three-MCP trust gradien
 > the auth gate in "What is NOT done" before external exposure.**
 
 > **Status:** 86 mapping + 8 auth smoke tests passing. The current AWS target is the Cognizant cloudboost account `954976331678` in `us-east-1`, with stack `scudo-poc` providing the Lambda/API and the event-driven ETL substrate. The older ECS/Fargate dev templates remain under `infra/` for the `eu-west-2` sandbox. **This is a dev sandbox**, **not** the JPMC SCUDO production account. Treat all thresholds, dense-arm similarity, and Neptune retrieval as uncalibrated stand-ins until the production cutover.
+
+---
+
+## Target architecture (5 zones)
+
+This is the architecture JPMC approved (Nigel, 2026-07-03). Everything else in this
+README is an implementation detail underneath it. Read it left-to-right: vendor product
+metadata enters at Zone 1 and flows through to the system of record and human loop at
+Zone 5.
+
+![SCUDO 5-zone target architecture](docs/architecture/scudo-5zone-architecture.png)
+
+| Zone | Name | What it does | Code |
+|------|------|--------------|------|
+| **1** | Vendor Sources & Ingestion | Vendor product metadata enters (MFT/FTP, vendor-S3/DMS, or single-URL scrape). Onboarding a vendor is a **config change**, not a new Lambda. | `poller_handler.py`, `ingestion_mcp.py`, `ingest.py`, `url_ingest.py` |
+| **2** | Ingestion Processing (ETL) | Validate → normalise → land (clean/canonical or quarantine) + audit. | `etl_handler.py`, `frames.py`, `validations.py`, `csvw_aliases.py` |
+| **3** | Matching Engine | The cost ladder: scope → precedent → hybrid retrieval → confidence gate (PASS ≥0.80 / BORDERLINE 0.70–0.80 / FAIL <0.70). | `matching.py`, `retrieval.py`, `matcher_bridge.py`, `store/` |
+| **4** | Agentic Layer | Orchestrator → specialist → verifier → gate-and-decide, routing auto-approve / HITL / reject. Bedrock (Opus 4.8) default; Azure OpenAI shim optional. | `orchestrator.py`, `agents.py`, `lambda_handler.py`, `agent.py` |
+| **5** | Persistence & Human Review | The system of record and the human loop. | `aurora_store.py`, `projection_handler.py`, `catalogue.py`, `persistence_mcp.py`, `feedback.py` |
+
+> **⚡ Aurora PostgreSQL is the single source of truth.** One cluster, four schemas
+> (`public`, `scudo`, `console`, `ingestion`) — audit, decisions, transactional outbox,
+> catalogue, lineage, ETL jobs, taxonomy, and agent memory. The DynamoDB tables the
+> older design used were consolidated into Aurora and removed. The graph store
+> (FalkorDB / Neptune) is a **Zone 3 retrieval index only** — candidate discovery,
+> never the record of what was decided. This is the biggest way the target moved off
+> what the code on git originally reached for; see
+> [Where this diverges from the code on git](#where-this-diverges-from-the-code-on-git-and-why).
+
+The full module→zone map — every module, its one-line purpose, and its AWS entrypoint —
+is [`ZONES.md`](ZONES.md), and the five zones are made importable in code (without moving
+any files) by the re-export façade at
+[`backend/scudo/zones/`](backend/scudo/zones/). The canonical record of *why* the design
+consolidated onto Aurora is [`infra/HANDOVER_5zone_alignment.md`](infra/HANDOVER_5zone_alignment.md);
+the exact CloudShell deploy commands are [`backend/scudo/DEPLOY.md`](backend/scudo/DEPLOY.md).
+
+---
+
+## The catalogue data model
+
+The matcher maps vendor products *into* the CDAO catalogue ontology. This is the shape
+of that target — the customer-supplied "MDS DataCatalog and Digital Rights" model:
+
+![MDS DataCatalog and Digital Rights UML](docs/architecture/mds-datacatalog-digital-rights-uml.jpg)
+
+It has two halves. The **catalogue half** — `Dataset` / `Distribution` / `DataService` /
+`DeliveryChannel` / `ProductPackage` / `DataTaxonomy` / `Field` / `FieldGroup` — is what a
+matched product becomes a node in. The **digital-rights half** — `Policy` / `Contract` /
+`Duty` / `Permission` / `Party`, plus the `ContentDeliveryModel` enumeration — is the
+entitlement/rights overlay that governs whether a mapping is even in scope.
+
+Where it lives in code: the catalogue kinds are modelled in
+`backend/scudo_mapping_mcp/models.py` (`ConceptualNodeKind`); the rights half is a
+fail-closed ODRL 2.2 evaluator in `backend/scudo_mapping_mcp/rights_odrl.py`.
+`ContentDeliveryModel` is **deliberately partial** — only 3 of the ~11 diagram values are
+confirmed from source, and a citation guard (`test_rights_contract_model.py`) fails loudly
+if a value is ever added without a documented source, so the enum cannot grow by guesswork.
+
+---
 
 ## SCUDO as the visibility platform
 
@@ -54,35 +125,37 @@ flowchart TB
     per ==>|NEEDS_REVIEW| queue
     subgraph hitl["Human-in-the-loop — uncertain ⇒ human, never auto-published"]
         direction LR
-        queue[("Reviewer queue<br/>DynamoDB")]:::hitl --> reviewer(["Mapping Reviewer"]):::actor ==>|approve / override / reject| precedent[("Precedent graph")]:::hitl
+        queue[("Reviewer queue<br/>Aurora")]:::hitl --> reviewer(["Mapping Reviewer"]):::actor ==>|approve / override / reject| precedent[("Precedent edges<br/>graph store")]:::hitl
     end
     precedent -. rank tilt (feedback) .-> mv
 
-    mv -. reads .-> neptune
-    mv -. retrieval .-> falkor
+    mv -. candidate retrieval .-> graph
     mv -. borderline .-> bedrock
-    per -->|publishes| neptune
+    per ==>|system of record| aurora
     per -->|bundles| s3
     subgraph data["Stores &amp; specialist"]
         direction LR
-        neptune[("Neptune<br/>canonical graph")]:::store
-        falkor[("FalkorDB<br/>retrieval stand-in")]:::store
+        aurora[("Aurora PostgreSQL<br/>single source of truth")]:::record
+        graph[("Graph store<br/>FalkorDB / Neptune<br/>retrieval index only")]:::store
         bedrock{{"Bedrock · Opus 4.8<br/>BORDERLINE only"}}:::ext
         s3[("S3 frames<br/>+ bundles")]:::store
-        neptune ~~~ falkor ~~~ bedrock ~~~ s3
+        aurora ~~~ graph ~~~ bedrock ~~~ s3
     end
 
     classDef actor fill:#fde68a,stroke:#b45309,color:#1a1a1a
     classDef ctrl fill:#f5f3ef,stroke:#1a1a1a,color:#1a1a1a
     classDef store fill:#dbeafe,stroke:#1e40af,color:#1a1a1a
+    classDef record fill:#bae6fd,stroke:#0369a1,color:#1a1a1a
     classDef ext fill:#e9d5ff,stroke:#6b21a8,color:#1a1a1a
     classDef hitl fill:#bbf7d0,stroke:#15803d,color:#1a1a1a
 ```
 
 The thick green loop is the point: a mapping the matcher can't confidently decide is
-written to the reviewer queue as `NEEDS_REVIEW` — never to the canonical graph — and a
-human's verdict feeds the precedent graph that tilts the next match. See
-[Human-in-the-loop by design](#human-in-the-loop-by-design).
+written to the reviewer queue as `NEEDS_REVIEW` — never auto-published — and a human's
+verdict is persisted to Aurora **and** written back as a precedent edge in the graph
+store that tilts the next match's retrieval. Aurora is the record of *what was decided*;
+the graph store is the *retrieval index* the matcher searches (and the precedent overlay
+the loop tilts). See [Human-in-the-loop by design](#human-in-the-loop-by-design).
 
 ---
 
@@ -124,7 +197,14 @@ gate), and the dashboard HITL surface in
 
 ## The matching cost ladder
 
-Five rungs. First match wins. Anything reaching the gate must clear the 0.80 pass edge.
+Five rungs. First match wins. A **PASS** (≥0.80) auto-maps; a **FAIL** (<0.70) rejects.
+What happens to a **BORDERLINE** (0.70–0.80) depends on the caller: the public REST path
+(`/api/mapping/map`, `borderline_requires_specialist=True`) demands a specialist decision
+or routes to human review, while the default library/agent path
+(`matcher_bridge`, MCP, `borderline_requires_specialist=False`) falls back to the
+deterministic **floor** — auto-mapping a borderline candidate whose score is ≥ the 0.75
+floor centre and escalating the rest. Both paths run the same gate; they differ only in
+how strict the borderline arm is.
 
 ```mermaid
 flowchart TD
@@ -136,10 +216,14 @@ flowchart TD
     r3 --> band{{3-band gate<br/>PASS / BORDERLINE / FAIL}}
     band -->|PASS >= 0.80| seal
     band -->|FAIL < 0.70| fail_low([REJECT - below floor])
-    band -->|BORDERLINE 0.70-0.80| r4[Rung 4: Opus 4.8 specialist<br/>one-shot, concur-cap MIN not MAX]
+    band -->|BORDERLINE 0.70-0.80| arm{{specialist arm on?<br/>borderline_requires_specialist}}
+    arm -->|"REST /map (True)"| r4[Rung 4: Opus 4.8 specialist<br/>one-shot, concur-cap MIN not MAX]
+    arm -->|"default library/agent (False)"| floorgate{{>= floor 0.75?}}
+    floorgate -->|yes| seal
+    floorgate -->|no| queue
     r4 --> r5{{Rung 5: re-gate<br/>verifier concurs?}}
     r5 -->|concur PASS| seal
-    r5 -->|dissent → NEEDS_REVIEW| queue[(HITL reviewer queue)]
+    r5 -->|dissent / abstain → NEEDS_REVIEW| queue[(HITL reviewer queue)]
     seal --> persist[Persistence MCP verifies HMAC seal<br/>then publishes]
     queue -.human verdict.-> precedent[(Precedent graph)]
     precedent -.rank tilt.-> r3
@@ -154,7 +238,13 @@ The PASS / BORDERLINE / FAIL cuts above are the **defaults** (`confidence_floor 
 
 ---
 
-## Trust gradient (three MCPs)
+## Trust gradient (three MCPs) — how the zones are implemented
+
+This is not a competing architecture; it is *how the zones run today*. The three MCPs are
+the deployable services the zones map onto: **Ingestion MCP → Zone 1/2**, **Match-Verify
+MCP → Zone 3** (with the orchestrator/agents of Zone 4 driving it), and **Persistence MCP
+→ Zone 5** (the sole writer in front of Aurora). Viewed as zones it's a data-flow; viewed
+here it's an **IAM isolation boundary** — and that boundary is the point.
 
 IAM, not application code, enforces the isolation. Each MCP runs as a separate ECS Fargate service with its own task role.
 
@@ -164,24 +254,97 @@ flowchart LR
         ing[Ingestion MCP :8001<br/>ingestion_mcp.py<br/>--<br/>Role: read S3 frames<br/>EXPLICIT DENY signing key<br/>EXPLICIT DENY Neptune write]
     end
 
-    subgraph readonly[" Read-only canonical "]
-        mv[Match-Verify MCP :8002<br/>match_verify_mcp.py<br/>--<br/>Role Neptune READ<br/>Bedrock invoke<br/>Secrets Manager signing key READ<br/>Falkor read+write non-authoritative]
+    subgraph readonly[" Read-only retrieval "]
+        mv[Match-Verify MCP :8002<br/>match_verify_mcp.py<br/>--<br/>Role graph-store READ retrieval<br/>Bedrock invoke<br/>Secrets Manager signing key READ]
     end
 
     subgraph writer[" Sole writer "]
-        per[Persistence MCP :8003<br/>persistence_mcp.py<br/>--<br/>Role Neptune FULL<br/>S3 PutObject canonical bundles<br/>DynamoDB write reviewer queue<br/>Secrets Manager signing key READ]
+        per[Persistence MCP :8003<br/>persistence_mcp.py<br/>--<br/>Role Aurora WRITE system of record<br/>graph-store precedent write-back<br/>S3 PutObject canonical bundles<br/>Secrets Manager signing key READ]
     end
 
     vendor[(Vendor S3 frames)] --> ing
     ing -->|VendorProductRef<br/>over ALB rule| mv
     mv -->|sealed MappingResult<br/>HMAC-SHA256 v=2| per
-    mv -.read-only.-> nep[(Neptune)]
-    per -.full.-> nep
-    per --> ddb[(DynamoDB reviewer queue)]
+    mv -.candidate retrieval.-> graph[(Graph store<br/>FalkorDB / Neptune)]
+    per -->|system of record| aur[(Aurora PostgreSQL)]
+    per -.precedent edge.-> graph
     per --> s3b[(S3 canonical bundles)]
 ```
 
 The seal is the contract. Ingestion cannot mint one (no key). Match-Verify mints; Persistence verifies before letting anything past invariant I5 (the publish gate).
+
+---
+
+## Where this diverges from the code on git, and why
+
+The customer made architecture choices that moved *away* from what the repository still
+carries. None of these are bugs — they are deliberate: the code retains the road not
+taken, behind a single swap point, in case JPMC changes its mind. Read this section before
+you assume the git tree *is* the target.
+
+- **Graph store retained but dormant as the record.** JPMC did **not** adopt
+  Neptune/FalkorDB as the canonical store. **Aurora is the single source of truth** — the
+  durable record of what was decided (audit, catalogue, decisions, outbox, lineage, ETL
+  job-status, agent memory). The graph store still plays two roles the matcher needs:
+  it is the **candidate-retrieval index** (Zone 3 discovery, selected by
+  `STORE_BACKEND=falkordb|neptune|memory` behind one seam, `store/factory.py`) **and** it
+  carries the **precedent overlay** — a HITL approve/override/reject writes a precedent
+  edge back into the graph (`feedback.apply_decision` → `store.upsert_precedent`) so the
+  *next* retrieval is tilted. The precise, defensible claim is therefore: **Aurora is never on the
+  candidate-retrieval hot path** (the matcher searches the graph, not Aurora), and Aurora
+  is the authoritative record; it is *not* true that the graph is written only at
+  retrieval — precedents are written to it, and Aurora is written both during ETL (audit /
+  job-status, *before* any mapping decision) and after decisions. We left the
+  Neptune/FalkorDB code in place **in case they change their mind again** — flipping the
+  retrieval backend is one env var, not a rewrite.
+
+- **DynamoDB removed.** The 5-zone consolidation retired the DynamoDB tables (reviewer
+  queue, facts, audit, outbox) into Aurora schemas. Any doc, diagram, or `template.yaml`
+  parameter that still names DynamoDB is describing the pre-consolidation shape.
+
+- **Confidence bands are 0.80 / 0.70 — and the constant name misleads.** The live config
+  is `CONFIDENCE_FLOOR = 0.75` ± `BORDERLINE_HALF_WIDTH = 0.05`
+  (`backend/scudo_mapping_mcp/config.py:47,52`), yielding **PASS ≥0.80 / BORDERLINE
+  0.70–0.80 / FAIL <0.70**. The `0.75` is the band *centre*, **not** the pass edge — the
+  pass edge is `floor + half = 0.80`, computed via `pass_threshold()` which rounds to dodge
+  the `0.75 + 0.05 = 0.800000…1` float defect. Do **not** conflate this with the separate,
+  unrelated `orchestrator.py` `CONFIDENCE_FLOOR = 0.80` (the Zone 4 auto-approve gate).
+  `0.85 / 0.75` appearing in some OKF docs is **stale**.
+
+- **Agents: the approved diagram shows Azure; the code defaults to Bedrock.** This is a
+  genuine divergence, called out because the diagram and the code disagree. The
+  [5-zone diagram](docs/architecture/scudo-5zone-architecture.png) labels the agentic
+  layer **"Specialist (Azure)"** and **"Verifier (Azure)"** — that is the demo JPMC saw.
+  The **code default is Bedrock**: `SCUDO_AGENT_PROVIDER_DEFAULT` defaults to `bedrock`
+  (Opus 4.8), and the Azure OpenAI specialist+verifier shim is a deliberate, built path
+  switched on per-deploy (`SCUDO_AGENT_PROVIDER_DEFAULT=azure`) or per-request
+  (`agent_provider`) to reproduce exactly what the diagram depicts — see
+  `backend/scudo/DEPLOY.md` "Intelligent demo" (§62-69), which spells out the Azure
+  overrides. Both providers implement the same specialist+verifier pair; pick the provider
+  deliberately, and don't assume "the approved diagram ⇒ the running default."
+
+- **The percentage tri-band diamond is a rubric+floor gate.** The diagram's percentage
+  decision diamond is implemented as the deterministic rubric+floor gate above, with the
+  same three outcomes (auto-approve / HITL / reject). Same contract, deterministic
+  mechanism.
+
+- **MFT/DMS ingress and Datadog/Dynatrace observability are JPM-owned black boxes.** Per
+  the sign-off, the MFT→FTP gateway and vendor-S3/DMS ingress are JPM-owned; the repo stops
+  at the EventBridge/poller boundary. Observability is the CloudWatch-EMF shim
+  (`metrics.py`), not the JPM APM stack.
+
+Two honesty callouts that are *not* design choices — they are known, flagged, unconverged
+divergences in the code itself (see [`ZONES.md`](ZONES.md) and
+[`infra/HANDOVER_5zone_alignment.md`](infra/HANDOVER_5zone_alignment.md)):
+
+- **Two audit-table names coexist:** `scudo.audit_events` (schema-qualified, in
+  `aurora_store.py`) vs unqualified `scudo_audit_events` (in `projection_handler.py`) —
+  legacy, not yet converged.
+- **Two HITL decision contracts** at the `…/decision` path — the Flask console shape vs
+  the 5-zone Lambda shape — convergence pending.
+
+Plus the deployed-PoC reality: **auth is dev-open** (closed-demo only) — see the loud gate
+in [What is NOT done](#what-is-not-done).
 
 ---
 
@@ -220,10 +383,14 @@ backend/
   requirements.txt
 
 backend/scudo/
-  template.yaml             # us-east-1 SAM stack: API + ETL/EventBridge/SQS/S3/DynamoDB substrate
+  template.yaml             # us-east-1 SAM stack: API + ETL/EventBridge/SQS/S3 substrate (Aurora = source of truth)
   lambda_handler.py         # API Gateway /run + /health; writes audit/outbox/review records when wired
   etl_handler.py            # SQS-backed raw S3 object processor: clean canonical or quarantine
+  aurora_store.py           # Durable persistence via RDS Data API (audit, decisions, outbox, catalogue, lineage)
+  projection_handler.py     # Async projection Lambda: drains the transactional outbox
   aws_resources.py          # Lazy boto3 adapter for audit/events/table writes
+  zones/                    # 5-zone re-export façade (no files move) — importable zone map; see ZONES.md
+    z1_ingestion/ … z5_persistence/   # each __init__.py re-exports the real modules for that zone
 
 infra/
   scudo-dev-foundation.yaml  # VPC, IAM roles, Neptune, S3, ECR, Secrets, DynamoDB queue
@@ -319,7 +486,14 @@ Current connected account: `954976331678` (`cb4115669a-genaipocs-aw`) in `us-eas
 > - `infra/SMOKE_upload_flow_live.md` — live Upload & Test smoke (curl SSE +
 >   browser); `infra/SMOKE_FIXES_round1.md` — round-1 findings + fixes.
 
-The deployable AIA stack is [`backend/scudo/template.yaml`](backend/scudo/template.yaml). It matches the target diagram's first AWS slice: raw/clean/quarantine/catalog S3 buckets, EventBridge + SQS routing, ETL Lambda, DynamoDB audit/facts/HITL/outbox tables, and the Bedrock-backed matching Lambda/API. See [`backend/scudo/DEPLOY.md`](backend/scudo/DEPLOY.md) for exact CloudShell commands.
+The deployable AIA stack is [`backend/scudo/template.yaml`](backend/scudo/template.yaml). It matches the target diagram's first AWS slice: raw/clean/quarantine/catalog S3 buckets, EventBridge + SQS routing, ETL Lambda, **Aurora PostgreSQL as the persistence layer** (audit / facts / job-status / human-review / transaction-outbox — all schema-qualified tables, **not** DynamoDB), and the Bedrock-backed matching Lambda/API. See [`backend/scudo/DEPLOY.md`](backend/scudo/DEPLOY.md) for exact CloudShell commands.
+
+> **This is the biggest deploy-time divergence from the git history.** The template
+> **requires** `AuroraClusterArn` + `AuroraSecretArn` (no default — the deploy fails
+> without them) *precisely because the DynamoDB tables were removed* in the 5-zone
+> consolidation (`template.yaml` comments this at the parameter and at line 368). Any
+> older diagram or doc that still shows DynamoDB audit/facts/HITL/outbox tables is
+> pre-consolidation. See [Where this diverges](#where-this-diverges-from-the-code-on-git-and-why).
 
 ```mermaid
 flowchart LR
@@ -328,20 +502,31 @@ flowchart LR
     q --> etl[ETL Lambda worker]
     etl --> clean[S3 clean canonical metadata]
     etl --> quarantine[S3 quarantine]
-    etl --> facts[DynamoDB facts + job tracking]
+    etl --> facts[Aurora: facts + job tracking]
     api[API Gateway /run] --> match[SCUDO matching Lambda]
-    match --> audit[DynamoDB audit log]
-    match --> review[DynamoDB human review]
-    match --> outbox[DynamoDB transaction outbox]
+    match --> audit[Aurora: audit log]
+    match --> review[Aurora: human review]
+    match --> outbox[Aurora: transaction outbox]
     match --> bus[SCUDO EventBridge bus]
     bus --> projection[SQS projection queue]
 ```
 
-Cost-bearing always-on stores from the full target architecture are exposed as parameters, not created by default: `NeptuneSparqlEndpoint`, `OpenSearchEndpoint`, and `AuroraClusterArn`. Pass existing endpoints during deploy when those managed stores are ready.
+Aurora is **required** (`AuroraClusterArn` + `AuroraSecretArn`, no default — supply an
+existing cluster; the stack does not create one). The other cost-bearing always-on stores
+are optional seams, exposed as parameters and empty by default: `NeptuneSparqlEndpoint`
+and `OpenSearchEndpoint`. Pass existing endpoints during deploy when those managed stores
+are ready.
 
 ### Legacy ECS dev sandbox
 
 Target: `954976331678` / `eu-west-2` (Cognizant cloudboost). **Not JPMC.**
+
+> **Pre-5-zone shape — read as historical.** This sandbox predates the Aurora
+> consolidation: its `scudo-dev-foundation.yaml` genuinely provisions a **Neptune
+> cluster** and a **DynamoDB reviewer queue**, so the DynamoDB/Neptune mentions below are
+> real *for this legacy stack* — they are **not** the current AIA target (which is Aurora,
+> above). Kept for the `eu-west-2` sandbox and as the "in case they change their mind"
+> graph path; do not deploy this for a JPMC 5-zone stand-up.
 
 ```mermaid
 flowchart LR
@@ -372,7 +557,7 @@ pipeline, driven entirely by backend telemetry (no simulation):
    vendor to `POST /api/mapping/ingest/stream`, which streams **real ETL stage
    events** (`received → parse → validate → sink`) with actual counts as
    `ingest_bytes` runs. Each event carries the ETL graph node ids it lights up
-   (EventBridge → SQS → Lambda → Validate → S3/DynamoDB).
+   (EventBridge → SQS → Lambda → Validate → S3/Aurora).
 2. **Match** — the panel then calls `POST /api/mapping/agent/run` and consumes
    the matcher SSE stream (`find_similar_products → get_taxonomy_node →
    map_vendor_product → final_result`), lighting Parse → Semantic → Rank → Gate.
@@ -566,6 +751,8 @@ Be honest. Engineering, not marketing.
 - **`ContentDeliveryModel` is deliberately incomplete.** Only 3 of the ~11 reported values are confirmed from source; the remaining ones are not guessed, and a test-side citation guard blocks silently adding one without a documented source. See "Aurora agent memory + SkillOpt-Sleep" above.
 - **SkillOpt-Sleep domain-fit is unverified, not assumed.** The real `skillopt-sleep` CLI is wired via a genuine adapter, but whether SCUDO's mapping trajectories are a scorable training signal for its judge/replay machinery has not been tested against a real run — that's a domain question, separate from the (verified) CLI wiring itself.
 - **No EventBridge/cron infra for the nightly sleep cycle.** `run_sleep_cycle_job.py` exists and is tested; actually scheduling it in AWS is documented in the script's own docstring but not deployed.
+- **Two `test_provenance.py` tests fail at HEAD, unadjudicated.** `conceptual_layer.json` carries a node of kind `marketing_dataset` (labelled "Equity Prices Historical Series") and the test greps the JSON blob for "marketing"; the two failures are pre-existing and not yet adjudicated — flagged here so a JPMC engineer running `pytest` isn't surprised by a red suite.
+- **Outbox head-of-line starvation is a known, unadjudicated risk.** `projection_handler.py` `sweep_outbox` drains the transactional outbox in order; a poison/slow entry at the head can stall projections behind it. Flagged in `infra/HANDOVER_5zone_alignment.md`, not yet fixed.
 
 ### Upload & Test / AWS deploy — status
 
@@ -599,7 +786,7 @@ real counts; `/api/mapping/agent/run` streams the live matcher with Bedrock
 - **ETL telemetry is real for the ingest endpoint, not the full event backbone.**
   `/ingest/stream` emits genuine counts from `ingest_bytes`
   (decode/parse/validate/sink). The deployed EventBridge → SQS → Lambda →
-  S3/DynamoDB backbone is separate; surfacing *its* live telemetry is not wired.
+  S3/Aurora backbone is separate; surfacing *its* live telemetry is not wired.
 - **SSE through ALB/CloudFront — verified working** (`Compress:false` on `/api/*`,
   `X-Accel-Buffering:no` on the route). A *long* live Bedrock run could still
   exceed the ALB 60s idle timeout — a heartbeat event is a TODO for slow runs;
@@ -681,8 +868,9 @@ Status + rebuild details: [`docs/okf/README.md`](docs/okf/README.md),
 
 - **Backend:** Python 3.12, Flask + gunicorn (gthread workers for SSE), Pydantic v2, FastMCP servers (Ingestion / Match-Verify / Persistence)
 - **Frontend:** React SPA (Vite)
-- **Stores:** FalkorDB (local / prototype, Cypher), Amazon Neptune (production target, SPARQL via SigV4)
-- **LLM:** Bedrock — Claude Opus 4.8 (specialist arm, BORDERLINE band only); Titan v2 embeddings (planned for the dense arm swap)
-- **Persistence:** S3 (vendor frames + canonical bundles), DynamoDB (reviewer queue), MySQL via PyMySQL (Flask app-side relational store for auth / dataset / session metadata)
+- **System of record:** **Aurora PostgreSQL** (single source of truth — one cluster, four schemas `public`/`scudo`/`console`/`ingestion`) via the RDS Data API (`aurora_store.py`) and psycopg v3 for the console (`backend/db.py`)
+- **Retrieval index (Zone 3 only, non-authoritative):** FalkorDB (local / prototype, Cypher) or Amazon Neptune (SPARQL via SigV4), selected by `STORE_BACKEND` — candidate discovery, never the record
+- **LLM:** Bedrock — Claude Opus 4.8 (specialist+verifier, default); Titan v2 embeddings (dense arm on AWS); optional Azure OpenAI shim (`agent_provider`)
+- **Object storage:** S3 (vendor frames + canonical bundles)
 - **Auth / integrity:** Gateway-header principal resolution (`auth.py`); HMAC-SHA256 verdict seals (`verdict.py`, v=2); Secrets Manager + KMS
 - **Infra:** AWS SAM/CloudFormation for the `us-east-1` AIA Lambda stack; legacy CloudFormation for ECS Fargate, ALB, VPC endpoints (Bedrock, ECR, Logs), Cloud Map private DNS, and CodeBuild
