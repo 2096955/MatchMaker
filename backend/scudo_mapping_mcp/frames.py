@@ -33,6 +33,7 @@ M8 SWAP CONTRACT — what the upstream pipeline must guarantee for
     metadata when present) on every successful read, so the federated audit
     join with the upstream audit table is mechanical, not fuzzy.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -42,7 +43,7 @@ from typing import Any, Optional
 
 from pydantic import ValidationError
 
-from .config import PRIORITY_VENDORS, settings
+from .config import settings
 from .models import ScopeResult, VendorProductRef
 
 _log = logging.getLogger(__name__)
@@ -114,7 +115,11 @@ def _is_no_such_key(e: BaseException) -> bool:
     as "key absent" (mirrors the mock path's ``dict.get`` returning None).
     """
     response = getattr(e, "response", None) or {}
-    code = (response.get("Error") or {}).get("Code", "") if isinstance(response, dict) else ""
+    code = (
+        (response.get("Error") or {}).get("Code", "")
+        if isinstance(response, dict)
+        else ""
+    )
     if code in ("NoSuchKey", "404", "NotFound"):
         return True
     return type(e).__name__ in ("NoSuchKey", "S3NoSuchKey")
@@ -145,9 +150,7 @@ def _read_s3_frame(vendor: str, product_id: str) -> Optional[VendorProductRef]:
     """
     bucket = settings.s3_bucket
     if not bucket:
-        raise RuntimeError(
-            "FRAME_SOURCE=s3 requires S3_WORKING_SET_BUCKET to be set"
-        )
+        raise RuntimeError("FRAME_SOURCE=s3 requires S3_WORKING_SET_BUCKET to be set")
     key = _s3_key_for(vendor, product_id)
     client = _get_s3_client()
 
@@ -166,19 +169,13 @@ def _read_s3_frame(vendor: str, product_id: str) -> Optional[VendorProductRef]:
     elif isinstance(body, str):
         body_bytes = body.encode("utf-8")
     else:
-        raise FrameDataError(
-            f"S3 object at s3://{bucket}/{key} has no readable body"
-        )
+        raise FrameDataError(f"S3 object at s3://{bucket}/{key} has no readable body")
 
     content_hash = hashlib.sha256(body_bytes).hexdigest()
 
     # x-amz-meta-* user metadata; boto3 strips the prefix and lowercases.
     metadata = resp.get("Metadata") or {}
-    audit_id = (
-        metadata.get("file-audit-id")
-        or metadata.get("file_audit_id")
-        or None
-    )
+    audit_id = metadata.get("file-audit-id") or metadata.get("file_audit_id") or None
 
     try:
         payload = json.loads(body_bytes.decode("utf-8"))
@@ -188,9 +185,7 @@ def _read_s3_frame(vendor: str, product_id: str) -> Optional[VendorProductRef]:
         ) from e
 
     if not isinstance(payload, dict):
-        raise FrameDataError(
-            f"S3 object at s3://{bucket}/{key} is not a JSON object"
-        )
+        raise FrameDataError(f"S3 object at s3://{bucket}/{key} is not a JSON object")
 
     # The reader OVERWRITES source_* fields on the payload — they are
     # READER-COMPUTED provenance, not pipeline-supplied. An upstream that
@@ -227,15 +222,12 @@ def check_scope(ref: VendorProductRef) -> ScopeResult:
     without try/except scaffolding.
     """
     try:
-        if ref.vendor not in PRIORITY_VENDORS:
-            return ScopeResult(
-                allowed=False,
-                reason=f"Vendor '{ref.vendor}' is outside the in-scope set this year.",
-            )
-        # Placeholder for the ODRL entitlement lookup. In prod: query the
-        # rights triples for this product's licence; deny (and escalate)
-        # on anything the structured check cannot confirm as permitted.
-        return ScopeResult(allowed=True)
+        # Touch vendor early so malformed refs fail closed with the legacy
+        # smoke reason string (scope_check_failure_is_treated_as_deny).
+        _ = ref.vendor
+        from .rights_odrl import evaluate_odrl_scope
+
+        return evaluate_odrl_scope(ref)
     except Exception as e:  # noqa: BLE001 — fail-closed by design
         return ScopeResult(
             allowed=False,

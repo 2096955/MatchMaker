@@ -24,6 +24,7 @@ import shutil
 import traceback
 from datetime import datetime
 import pandas as pd
+from psycopg import sql
 from db import get_conn, get_ingestion_conn
 from logger import ingestion_logger
 
@@ -94,7 +95,11 @@ class IngestionEngine:
                 records_loaded=0,
                 records_skipped=0,
             )
-            ingestion_logger.warning("No files found — run logged as skipped", dataset_id=self.dataset_id, run_id=run_id)
+            ingestion_logger.warning(
+                "No files found — run logged as skipped",
+                dataset_id=self.dataset_id,
+                run_id=run_id,
+            )
             return [self._get_log(run_id)]
 
         results = [self._process_file(fp) for fp in files]
@@ -105,7 +110,12 @@ class IngestionEngine:
             if r:
                 key = r.get("run_status", "unknown")
                 summary[key] = summary.get(key, 0) + 1
-        ingestion_logger.info("Ingestion run completed", dataset_id=self.dataset_id, total_files=len(files), **summary)
+        ingestion_logger.info(
+            "Ingestion run completed",
+            dataset_id=self.dataset_id,
+            total_files=len(files),
+            **summary,
+        )
         return results
 
     # ── Abstract — subclasses implement ─────────────────────────────────
@@ -150,8 +160,12 @@ class IngestionEngine:
                 )
                 row = c.fetchone()
                 if not row:
-                    ingestion_logger.error("Dataset not found or inactive", dataset_id=self.dataset_id)
-                    raise ValueError(f"Dataset {self.dataset_id} not found or not active")
+                    ingestion_logger.error(
+                        "Dataset not found or inactive", dataset_id=self.dataset_id
+                    )
+                    raise ValueError(
+                        f"Dataset {self.dataset_id} not found or not active"
+                    )
                 # Attach column definitions to the metadata dict.
                 c.execute(
                     "SELECT col_name, col_type, col_position FROM tp_dataset_col "
@@ -187,12 +201,20 @@ class IngestionEngine:
         folder = (self.meta.get("landing_folder") or "").strip()
         pattern = (self.meta.get("file_name_pattern") or "*").strip()
         if not folder or not os.path.isdir(folder):
-            ingestion_logger.warning("Landing folder not found or not a directory", dataset_id=self.dataset_id, folder=folder)
+            ingestion_logger.warning(
+                "Landing folder not found or not a directory",
+                dataset_id=self.dataset_id,
+                folder=folder,
+            )
             return []
         matches = glob.glob(os.path.join(folder, pattern))
         # Exclude the processed sub-directory using absolute-path comparison.
         proc = os.path.join(folder, "processed")
-        matches = [m for m in matches if not os.path.abspath(m).startswith(os.path.abspath(proc))]
+        matches = [
+            m
+            for m in matches
+            if not os.path.abspath(m).startswith(os.path.abspath(proc))
+        ]
         return sorted(matches, key=os.path.getmtime)
 
     def _already_processed(self, file_path):
@@ -217,7 +239,11 @@ class IngestionEngine:
                     "SELECT run_id, run_date FROM etl_run_log "
                     "WHERE dataset_id=%s AND file_name=%s AND file_size_bytes=%s "
                     "AND run_status='success' ORDER BY run_date DESC LIMIT 1",
-                    (self.dataset_id, os.path.basename(file_path), os.path.getsize(file_path)),
+                    (
+                        self.dataset_id,
+                        os.path.basename(file_path),
+                        os.path.getsize(file_path),
+                    ),
                 )
                 return c.fetchone()
         finally:
@@ -248,7 +274,13 @@ class IngestionEngine:
         fsize = os.path.getsize(file_path)
         fmtime = datetime.fromtimestamp(os.path.getmtime(file_path))
 
-        ingestion_logger.info("File processing started", dataset_id=self.dataset_id, file=fname, size_bytes=fsize, mtime=str(fmtime))
+        ingestion_logger.info(
+            "File processing started",
+            dataset_id=self.dataset_id,
+            file=fname,
+            size_bytes=fsize,
+            mtime=str(fmtime),
+        )
 
         prior = self._already_processed(file_path)
         if prior:
@@ -265,7 +297,7 @@ class IngestionEngine:
                 run_id,
                 run_status="skipped",
                 column_status="n/a",
-                status_notes=f'Already processed on {prior["run_date"]}',
+                status_notes=f"Already processed on {prior['run_date']}",
                 records_found=0,
                 records_loaded=0,
                 records_skipped=0,
@@ -284,7 +316,13 @@ class IngestionEngine:
 
         try:
             df = self.read_file(file_path)
-            ingestion_logger.debug("File read into DataFrame", run_id=run_id, file=fname, raw_records=len(df), columns=len(df.columns))
+            ingestion_logger.debug(
+                "File read into DataFrame",
+                run_id=run_id,
+                file=fname,
+                raw_records=len(df),
+                columns=len(df.columns),
+            )
 
             # Apply column-level transformations before schema comparison.
             df = self.do_transformations(df)
@@ -293,19 +331,33 @@ class IngestionEngine:
             # Determine which columns to load based on the registered schema.
             cmp = self._compare_columns(list(df.columns))
             ingestion_logger.info(
-                "Column comparison result", run_id=run_id, file=fname, status=cmp["status"], loadable_columns=len(cmp["load_columns"])
+                "Column comparison result",
+                run_id=run_id,
+                file=fname,
+                status=cmp["status"],
+                loadable_columns=len(cmp["load_columns"]),
             )
             if cmp["notes"]:
-                ingestion_logger.warning("Column discrepancy noted", run_id=run_id, file=fname, notes=cmp["notes"])
+                ingestion_logger.warning(
+                    "Column discrepancy noted",
+                    run_id=run_id,
+                    file=fname,
+                    notes=cmp["notes"],
+                )
 
             if not cmp["load_columns"]:
                 # No overlap between file columns and registered columns — cannot load.
-                ingestion_logger.error("No loadable columns — run marked failed", run_id=run_id, file=fname, column_status=cmp["status"])
+                ingestion_logger.error(
+                    "No loadable columns — run marked failed",
+                    run_id=run_id,
+                    file=fname,
+                    column_status=cmp["status"],
+                )
                 self._update_log(
                     run_id,
                     run_status="failed",
                     column_status=cmp["status"],
-                    status_notes=f'No known columns to load. {cmp["notes"] or ""}',
+                    status_notes=f"No known columns to load. {cmp['notes'] or ''}",
                     records_found=records_found,
                     records_loaded=0,
                     records_skipped=records_found,
@@ -326,10 +378,14 @@ class IngestionEngine:
             move_note = None
             try:
                 dest = self._move_to_processed(file_path)
-                ingestion_logger.debug("File archived to processed folder", file=fname, dest=dest)
+                ingestion_logger.debug(
+                    "File archived to processed folder", file=fname, dest=dest
+                )
             except Exception as e:
                 move_note = f"Move failed: {e}"
-                ingestion_logger.warning("File archive failed", run_id=run_id, file=fname, error=str(e))
+                ingestion_logger.warning(
+                    "File archive failed", run_id=run_id, file=fname, error=str(e)
+                )
 
             # Mark as partial if any rows were skipped or the file move failed.
             final_status = "success"
@@ -361,7 +417,13 @@ class IngestionEngine:
         except Exception as e:
             # Capture the full traceback in error_detail for debugging.
             tb = traceback.format_exc()
-            ingestion_logger.error("File processing failed with unhandled exception", run_id=run_id, file=fname, error=str(e), traceback=tb)
+            ingestion_logger.error(
+                "File processing failed with unhandled exception",
+                run_id=run_id,
+                file=fname,
+                error=str(e),
+                traceback=tb,
+            )
             self._update_log(
                 run_id,
                 run_status="failed",
@@ -436,7 +498,11 @@ class IngestionEngine:
         """
         target_table = self.meta.get("target_table")
         if not target_table:
-            ingestion_logger.error("No target_table configured — cannot load", dataset_id=self.dataset_id, run_id=run_id)
+            ingestion_logger.error(
+                "No target_table configured — cannot load",
+                dataset_id=self.dataset_id,
+                run_id=run_id,
+            )
             raise ValueError("Dataset has no target_table configured")
 
         # Map lower-cased column names back to their original casing in the DataFrame.
@@ -458,35 +524,57 @@ class IngestionEngine:
         df_load["provider_id"] = self.meta["provider_id"]
         df_load["dataset_id"] = self.meta["dataset_id"]
         df_load["load_date"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        df_load["load_process"] = f"dataset_id:{self.dataset_id}|file:{os.path.basename(self.meta.get('file_name_pattern',''))}"
+        df_load["load_process"] = (
+            f"dataset_id:{self.dataset_id}|file:{os.path.basename(self.meta.get('file_name_pattern', ''))}"
+        )
 
-        # Replace pandas NaN/NaT with Python None so pymysql sends SQL NULL.
+        # Replace pandas NaN/NaT with Python None so psycopg sends SQL NULL.
         df_load = df_load.where(pd.notnull(df_load), None)
 
-        # Build the parameterised INSERT statement once for all rows.
+        # Build the parameterised INSERT once, quoting the dynamic target table
+        # and column identifiers via psycopg.sql.Identifier (never string-
+        # interpolate identifiers). Values bind as positional placeholders.
         cols = list(df_load.columns)
-        backticked = ", ".join([f"`{c}`" for c in cols])
-        placeholders = ", ".join(["%s"] * len(cols))
-        sql = f"INSERT INTO `{target_table}` ({backticked}) VALUES ({placeholders})"
+        insert_stmt = sql.SQL(
+            "INSERT INTO {table} ({fields}) VALUES ({values})"
+        ).format(
+            table=sql.Identifier(target_table),
+            fields=sql.SQL(", ").join(sql.Identifier(c) for c in cols),
+            values=sql.SQL(", ").join(sql.Placeholder() for _ in cols),
+        )
 
-        # Convert DataFrame rows to plain tuples for pymysql.
+        # Convert DataFrame rows to plain tuples for psycopg.
         rows = [tuple(r) for r in df_load.itertuples(index=False, name=None)]
 
-        ingestion_logger.debug("Starting bulk insert", run_id=run_id, table=target_table, total_rows=len(rows))
+        ingestion_logger.debug(
+            "Starting bulk insert",
+            run_id=run_id,
+            table=target_table,
+            total_rows=len(rows),
+        )
 
         loaded = skipped = 0
         ing = get_ingestion_conn()
         try:
-            with ing.cursor() as ic:
+            with ing.transaction(), ing.cursor() as ic:
                 for row in rows:
                     try:
-                        ic.execute(sql, row)
+                        # Per-row SAVEPOINT: a bad row rolls back to the savepoint
+                        # so the surrounding transaction stays usable for the
+                        # remaining rows. Without this, one failed execute aborts
+                        # the whole psycopg transaction and every later row fails.
+                        with ing.transaction():
+                            ic.execute(insert_stmt, row)
                         loaded += 1
                     except Exception as row_err:
                         # Row-level isolation: count the failure and continue.
                         skipped += 1
-                        ingestion_logger.debug("Row insert failed", run_id=run_id, table=target_table, error=str(row_err))
-                ing.commit()
+                        ingestion_logger.debug(
+                            "Row insert failed",
+                            run_id=run_id,
+                            table=target_table,
+                            error=str(row_err),
+                        )
         finally:
             ing.close()
 
@@ -511,7 +599,9 @@ class IngestionEngine:
         """
         folder = (self.meta.get("landing_folder") or "").strip()
         # Timestamp directory isolates each run's processed files.
-        ts_dir = os.path.join(folder, "processed", datetime.utcnow().strftime("%Y%m%d_%H%M%S"))
+        ts_dir = os.path.join(
+            folder, "processed", datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        )
         os.makedirs(ts_dir, exist_ok=True)
         dest = os.path.join(ts_dir, os.path.basename(file_path))
         shutil.move(file_path, dest)
@@ -561,10 +651,16 @@ class IngestionEngine:
         """
         transforms = self._load_transforms()
         if not transforms:
-            ingestion_logger.debug("No transformations configured", dataset_id=self.dataset_id)
+            ingestion_logger.debug(
+                "No transformations configured", dataset_id=self.dataset_id
+            )
             return df
 
-        ingestion_logger.debug("Applying transformations", dataset_id=self.dataset_id, transform_columns=list(transforms.keys()))
+        ingestion_logger.debug(
+            "Applying transformations",
+            dataset_id=self.dataset_id,
+            transform_columns=list(transforms.keys()),
+        )
 
         df = df.copy()
         # Build a case-insensitive map from lower-cased name → actual DataFrame column.
@@ -613,7 +709,9 @@ class IngestionEngine:
             if date_from and date_to:
                 try:
                     # errors='coerce' turns unparseable values into NaT rather than raising.
-                    series = pd.to_datetime(series, format=date_from, errors="coerce").dt.strftime(date_to)
+                    series = pd.to_datetime(
+                        series, format=date_from, errors="coerce"
+                    ).dt.strftime(date_to)
                     ops.append(f"date_fmt={date_from!r}->{date_to!r}")
                 except Exception as e:
                     ingestion_logger.warning(
@@ -627,10 +725,12 @@ class IngestionEngine:
 
             df[actual] = series
             if ops:
-                applied.append(f'{actual}({", ".join(ops)})')
+                applied.append(f"{actual}({', '.join(ops)})")
 
         if applied:
-            ingestion_logger.info("Transformations applied", dataset_id=self.dataset_id, columns=applied)
+            ingestion_logger.info(
+                "Transformations applied", dataset_id=self.dataset_id, columns=applied
+            )
 
         return df
 
@@ -650,7 +750,7 @@ class IngestionEngine:
             fmtime (datetime | None): File modification timestamp.
 
         Returns:
-            int: The ``run_id`` (auto-increment primary key) of the new row.
+            int: The ``run_id`` (SERIAL identity primary key) of the new row.
         """
         conn = get_conn()
         try:
@@ -659,7 +759,8 @@ class IngestionEngine:
                     "INSERT INTO etl_run_log "
                     "(provider_id, dataset_id, file_path, file_name, file_size_bytes, "
                     "file_mtime, target_table, dataset_version, run_status, column_status) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'in_progress','n/a')",
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'in_progress','n/a') "
+                    "RETURNING run_id",
                     (
                         self.meta["provider_id"],
                         self.meta["dataset_id"],
@@ -671,7 +772,7 @@ class IngestionEngine:
                         self.meta.get("version"),
                     ),
                 )
-                run_id = c.lastrowid
+                run_id = c.fetchone()["run_id"]
                 conn.commit()
                 ingestion_logger.debug(
                     "Run log stub created",

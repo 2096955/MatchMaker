@@ -68,9 +68,10 @@ import json
 import os
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 from .matching import map_vendor_product
+from .specialist import specialist_from_env
 from .mcp_host import McpHost, get_host
 from .models import (
     Candidate,
@@ -226,9 +227,7 @@ class ScriptedMappingAgent:
             # Ingestion only exposes ingest.list_frames / ingest.get_frame.
             try:
                 result_json = host.call(
-                    _TIER_MATCH_VERIFY,
-                    "matchverify.find_candidates",
-                    find_args,
+                    _TIER_MATCH_VERIFY, "matchverify.find_candidates", find_args
                 )
                 candidates = _candidates_from_host_result(result_json)
             except Exception as e:  # noqa: BLE001 — host transport surface
@@ -315,9 +314,7 @@ class ScriptedMappingAgent:
             if host is not None:
                 try:
                     host.call(
-                        _TIER_MATCH_VERIFY,
-                        "matchverify.get_neighbourhood",
-                        sub_args,
+                        _TIER_MATCH_VERIFY, "matchverify.get_neighbourhood", sub_args
                     )
                 except Exception:  # noqa: BLE001 — best-effort visibility hop
                     pass
@@ -362,6 +359,7 @@ class ScriptedMappingAgent:
                 pass
         result = map_vendor_product(
             ref,
+            specialist=specialist_from_env(),
             floor=confidence_floor,
             half=borderline_half_width,
         )
@@ -548,6 +546,7 @@ class BedrockMappingAgent:
         # per-run threshold override is threaded explicitly (no global).
         result = map_vendor_product(
             ref,
+            specialist=specialist_from_env(),
             floor=confidence_floor,
             half=borderline_half_width,
         )
@@ -556,6 +555,54 @@ class BedrockMappingAgent:
             payload={"mapping": _mapping_result_dict(result)},
         )
         yield AgentEvent(type="done")
+
+
+def _system_context_text() -> str:
+    """Short, static description of the 5-zone architecture + the two
+    conceptual-enrichment ontology halves, so an agent can recognise which
+    domain a field/term belongs to and adjust its reasoning/tool-calls.
+
+    Delivered two ways (asymmetric by design, see the design spec): a real
+    callable tool for BedrockMappingAgent's Strands tool-calling loop, and
+    pre-injected prompt text for AzureMappingAgent's single-shot call (which
+    has no tool loop to hang a callable off of). Same text either way.
+
+    The two entity lists below are DERIVED from ConceptualNodeKind, not hand-
+    typed — an earlier hand-maintained version silently dropped 4 of 13
+    catalogue-half members and renamed one (caught by adversarial review).
+    ConceptualNodeKind/ConceptualEdgeKind define the catalogue/DCAT half
+    first and the rights/contract half second (see their source comments),
+    so slicing by the known counts reproduces exactly that split — if either
+    enum is ever reordered this will need revisiting, but it can no longer
+    silently drift out of sync with a hand-typed string.
+    """
+    from .models import ConceptualNodeKind
+
+    def _label(kind: ConceptualNodeKind) -> str:
+        return kind.value.replace("_", " ").title().replace(" ", "")
+
+    all_kinds = list(ConceptualNodeKind)
+    catalogue_kinds = ", ".join(_label(k) for k in all_kinds[:13])
+    rights_kinds = ", ".join(_label(k) for k in all_kinds[13:])
+
+    return (
+        "SYSTEM CONTEXT — SCUDO 5-zone architecture:\n"
+        "  Zone 1 Ingress -> Zone 2 ETL -> Zone 3 Matching Engine (you are "
+        "here) -> Zone 4 Orchestration (Bedrock/Azure specialist+verifier) "
+        "-> Zone 5 Persistence + HITL (Aurora PostgreSQL).\n\n"
+        "Conceptual enrichment has two halves. The CATALOGUE / DCAT half "
+        f"(already modelled: {catalogue_kinds}) describes WHAT a data asset "
+        "is and how it's delivered. The RIGHTS / CONTRACT half "
+        f"({rights_kinds}) describes WHO may use it and under what terms — "
+        "a separate domain, grounded in ODRL 2.2 (Policy contains Permission "
+        "contains Duty; Party is assigner/assignee of a Policy). If a "
+        "field/term is about licensing, legal basis, redistribution rights, "
+        "or delivery-model terms rather than the data's shape or taxonomy "
+        "placement, it belongs to the rights/contract half — recommend "
+        "NEEDS_REVIEW with that noted in your rationale rather than forcing "
+        "a catalogue-side CDAO node; the deterministic matcher does not yet "
+        "gate on this half."
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -640,15 +687,25 @@ def _strands_tools_for_mapping(
         # matcher falls back to settings — identical to the legacy path.
         return json.dumps(
             _mapping_result_dict(
-                map_vendor_product(ref, floor=floor, half=half),
+                map_vendor_product(
+                    ref, specialist=specialist_from_env(), floor=floor, half=half
+                ),
             )
         )
+
+    @tool
+    def describe_system_context() -> str:
+        """Describe the 5-zone architecture and the two conceptual-enrichment
+        ontology halves (catalogue/DCAT vs rights/contract), so you can
+        recognise which domain a field/term belongs to."""
+        return _system_context_text()
 
     return [
         find_similar_products,
         get_taxonomy_node,
         get_ontology_neighbourhood,
         map_vendor_product_tool,
+        describe_system_context,
     ]
 
 
@@ -656,14 +713,13 @@ def _iter_strands_events(agent: Any, prompt: str) -> Iterator[AgentEvent]:
     """Run the Strands agent and translate its stream into AgentEvent.
 
     This is the wire bridge between Strands' native event surface and our
-    SSE contract. The structure below maps Strands' tool_use / reasoning /
-    final_response events onto our five AgentEvent types. Tuned when the
-    SDK pin is finalised in the sandbox.
+    SSE contract. Coalescing (one agent_message per assistant turn, one
+    tool_call per toolUseId) lives in _coalesce_strands_events so the SSE
+    consumers see semantic steps, not per-token deltas.
     """
     try:
         stream = _strands_stream(agent, prompt)
-        for event in stream:
-            yield from _strands_event_to_agent_events(event)
+        yield from _coalesce_strands_events(stream)
     except Exception as e:  # noqa: BLE001
         yield AgentEvent(
             type="error",
@@ -702,52 +758,218 @@ def _strands_stream(agent: Any, prompt: str) -> list[Any]:
     return [{"message": getattr(result, "message", result)}] if result else []
 
 
-def _strands_event_to_agent_events(event: Any) -> Iterator[AgentEvent]:
-    """Translate a Strands event dict/object into our SSE contract."""
-    if not isinstance(event, dict):
-        event = (
-            event.__dict__ if hasattr(event, "__dict__") else {"message": str(event)}
-        )
+def _coalesce_strands_events(stream: Iterable[Any]) -> Iterator[AgentEvent]:
+    """Coalesce Strands' raw stream into semantic AgentEvents.
 
-    kind = event.get("kind") or event.get("type")
-    if kind == "tool_use":
-        yield AgentEvent(
-            type="tool_call",
-            payload={
-                "tool": event.get("name") or event.get("tool_name") or "tool",
-                "args": event.get("input", {}),
-            },
-        )
-        return
+    Strands emits one event per token delta, one current_tool_use snapshot
+    per input chunk while a tool call assembles, and re-emits the assembled
+    message at each cycle stop. Forwarded 1:1 that flooded the SSE consumers
+    (every delta rendered as its own transcript turn; each tool call ~30x).
+    This generator emits instead:
 
-    if kind == "tool_result":
+      agent_message — once per assistant turn: deltas are buffered and
+          flushed at a tool_call / tool_result / stop-message boundary or
+          at end of stream
+      tool_call     — once per toolUseId. The SDK accumulates ``input`` in
+          place on ONE snapshot dict per tool use, and _strands_stream
+          collects the whole stream into a list before translation, so by
+          the time the first snapshot is read it already carries the final
+          accumulated args.
+      tool_result   — passthrough; tool name resolved via toolUseId
+
+    Boundary handling, in the order the SDK produces events:
+
+    - tool_call is DEFERRED: snapshots only record the latest (id, name,
+      input) per toolUseId; the event is emitted at the next boundary — the
+      assembled message carrying the toolUse block (whose ``input`` is the
+      complete parsed args, preferred over any partial snapshot input), a
+      tool_result for that id, or end of stream. Emitting on the first
+      snapshot would lock in partial JSON args.
+    - The assembled message SUPERSEDES its own streamed deltas: at a
+      message boundary any buffered delta text is discarded and the
+      assembled text is emitted instead. Same output when they match, and
+      when they differ (guardrail redaction rewrites the final message) the
+      authoritative text wins rather than leaking the raw deltas. A message
+      with NO preceding deltas (the non-streaming ``agent(prompt)``
+      fallback) emits directly; only a no-delta re-emit of the immediately
+      preceding turn text is dropped (the SDK's message double-emit).
+    - Tool results arrive either as typed events ({"type": "tool_result"})
+      or as user-role messages carrying toolResult blocks; both emit ONE
+      tool_result with the tool name resolved via toolUseId.
+    """
+    text_buf: list[str] = []
+    last_turn_text: Optional[str] = None
+    pending_tools: dict[str, dict] = {}  # toolUseId -> {name, input}; ordered
+    emitted_tool_ids: set[str] = set()
+    tool_names: dict[str, str] = {}
+
+    def _flush_text() -> Iterator[AgentEvent]:
+        nonlocal last_turn_text
+        content = "".join(text_buf).strip()
+        text_buf.clear()
+        if content:
+            last_turn_text = content
+            yield AgentEvent(type="agent_message", payload={"content": content})
+
+    def _note_tool_use(tool_use: dict) -> None:
+        tool_id = str(tool_use.get("toolUseId") or tool_use.get("name"))
+        if tool_id in emitted_tool_ids:
+            return
+        prev = pending_tools.get(tool_id)
+        new_input = tool_use.get("input")
+        if prev is not None and not new_input:
+            new_input = prev["input"]  # never downgrade recorded args to empty
+        pending_tools[tool_id] = {
+            "name": str(tool_use.get("name")),
+            "input": new_input,
+        }
+
+    def _emit_pending_tools() -> Iterator[AgentEvent]:
+        for tool_id, tool in pending_tools.items():
+            emitted_tool_ids.add(tool_id)
+            tool_names[tool_id] = tool["name"]
+            yield AgentEvent(
+                type="tool_call",
+                payload={"tool": tool["name"], "args": _tool_args(tool["input"])},
+            )
+        pending_tools.clear()
+
+    def _emit_tool_result(tool_id: str, result: Any) -> Iterator[AgentEvent]:
+        nonlocal last_turn_text
+        last_turn_text = None  # identical turns are legit across a tool call
         yield AgentEvent(
             type="tool_result",
-            payload={
-                "tool": event.get("name") or event.get("tool_name") or "tool",
-                "result": event.get("output") or event.get("result"),
-            },
-        )
-        return
-
-    current_tool = event.get("current_tool_use")
-    if isinstance(current_tool, dict) and current_tool.get("name"):
-        yield AgentEvent(
-            type="tool_call",
-            payload={
-                "tool": current_tool.get("name"),
-                "args": current_tool.get("input", {}),
-            },
+            payload={"tool": tool_names.get(tool_id, "tool"), "result": result},
         )
 
-    content = (
-        event.get("data")
-        or event.get("text")
-        or event.get("content")
-        or _message_text(event.get("message"))
-    )
-    if content:
-        yield AgentEvent(type="agent_message", payload={"content": str(content)})
+    for event in stream:
+        if not isinstance(event, dict):
+            event = (
+                event.__dict__
+                if hasattr(event, "__dict__")
+                else {"message": str(event)}
+            )
+
+        if event.get("reasoning"):
+            continue  # internal chain-of-thought — never surfaced over SSE
+
+        kind = event.get("kind") or event.get("type")
+
+        if kind == "tool_use":  # legacy shape — already one event per call
+            yield from _flush_text()
+            yield from _emit_pending_tools()
+            yield AgentEvent(
+                type="tool_call",
+                payload={
+                    "tool": event.get("name") or event.get("tool_name") or "tool",
+                    "args": event.get("input", {}),
+                },
+            )
+            continue
+
+        if kind == "tool_result":
+            yield from _flush_text()
+            yield from _emit_pending_tools()  # the call must precede its result
+            tool_result = event.get("tool_result")
+            if isinstance(tool_result, dict):  # strands ToolResultEvent
+                yield from _emit_tool_result(
+                    str(tool_result.get("toolUseId") or ""),
+                    _tool_result_text(tool_result),
+                )
+            else:  # legacy shape carries the tool name directly
+                yield AgentEvent(
+                    type="tool_result",
+                    payload={
+                        "tool": event.get("name") or event.get("tool_name") or "tool",
+                        "result": event.get("output") or event.get("result"),
+                    },
+                )
+                last_turn_text = None
+            continue
+
+        current_tool = event.get("current_tool_use")
+        if isinstance(current_tool, dict) and current_tool.get("name"):
+            _note_tool_use(current_tool)
+            continue  # snapshots must never fall through to the text branch
+
+        message = event.get("message")
+        if message is not None:
+            blocks = message.get("content") if isinstance(message, dict) else None
+            tool_results = [
+                b["toolResult"]
+                for b in blocks or []
+                if isinstance(b, dict) and isinstance(b.get("toolResult"), dict)
+            ]
+            if tool_results:  # user-role message ferrying tool results
+                yield from _flush_text()
+                yield from _emit_pending_tools()
+                for tr in tool_results:
+                    yield from _emit_tool_result(
+                        str(tr.get("toolUseId") or ""), _tool_result_text(tr)
+                    )
+                continue
+
+            assembled = _message_text(message)
+            if assembled:
+                # The assembled message supersedes its own streamed deltas —
+                # discard the buffer and emit the authoritative text (they
+                # normally match; under guardrail redaction they don't and
+                # the deltas must not leak). Text equal to the previous
+                # turn's emission is the SDK's double-emit of the same
+                # message (ModelStopReason then ModelMessageEvent) — drop.
+                text_buf.clear()
+                if assembled != last_turn_text:
+                    last_turn_text = assembled
+                    yield AgentEvent(
+                        type="agent_message", payload={"content": assembled}
+                    )
+            else:
+                yield from _flush_text()
+            for block in blocks or []:
+                tool_use = block.get("toolUse") if isinstance(block, dict) else None
+                if isinstance(tool_use, dict) and tool_use.get("name"):
+                    _note_tool_use(tool_use)  # complete parsed input wins
+            yield from _emit_pending_tools()
+            continue
+
+        content = event.get("data") or event.get("text") or event.get("content")
+        if content:
+            text_buf.append(str(content))
+
+    yield from _flush_text()
+    yield from _emit_pending_tools()
+
+
+def _tool_args(raw: Any) -> dict[str, Any]:
+    """Parse a tool-use ``input`` into an args dict.
+
+    Strands accumulates ``input`` as a JSON string; by translation time it
+    is complete JSON (see _coalesce_strands_events). A non-dict or
+    unparseable value degrades to a labelled wrapper rather than raising —
+    a malformed tool input must never kill the SSE stream.
+    """
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            return {"raw": raw}
+        return parsed if isinstance(parsed, dict) else {"value": parsed}
+    return {}
+
+
+def _tool_result_text(tool_result: dict) -> str:
+    """Extract display text from a strands ToolResult content block list."""
+    parts: list[str] = []
+    for block in tool_result.get("content") or []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("text"):
+            parts.append(str(block["text"]))
+        elif "json" in block:
+            parts.append(json.dumps(block["json"], default=str))
+    return "\n".join(parts)
 
 
 def _message_text(message: Any) -> str:
@@ -764,12 +986,226 @@ def _message_text(message: Any) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Azure OpenAI agent — the other live-LLM path
+# ──────────────────────────────────────────────────────────────────────────
+def _build_azure_openai_client(cfg: dict) -> Any:
+    """Lazy-import + construct the Azure OpenAI client.
+
+    Split out from ``AzureMappingAgent`` so tests can monkeypatch the
+    construction step without needing the ``openai`` package importable.
+    """
+    from openai import AzureOpenAI  # type: ignore
+
+    return AzureOpenAI(
+        azure_endpoint=cfg["endpoint"],
+        api_key=cfg["api_key"],
+        api_version=cfg["api_version"],
+    )
+
+
+class AzureMappingAgent:
+    """Azure OpenAI-backed mapping agent — the other live-LLM path.
+
+    Same authoritative contract as ScriptedMappingAgent / BedrockMappingAgent
+    (module docstring): the deterministic matcher (matching.map_vendor_product)
+    ALWAYS produces the ``final_result``; Azure OpenAI only narrates a
+    recommendation, mirroring the AzureOpenAIShim pattern in
+    ``scudo/lambda_handler.py`` (same env vars, same missing-config error,
+    same reasoning_effort fallback) but adapted to this module's streaming
+    AgentEvent contract instead of a single structured-output call.
+
+    Config is read from AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY,
+    AZURE_OPENAI_API_VERSION, AZURE_OPENAI_SPECIALIST_DEPLOYMENT and
+    AZURE_OPENAI_REASONING_EFFORT (default "medium"), validated LAZILY inside
+    ``run()`` — before the first event is yielded, same place
+    BedrockMappingAgent's lazy strands import raises. A missing/misconfigured
+    deployment therefore surfaces as ONE clear SSE ``error`` event (via
+    routes/mapping.py's ``event_stream()`` generic except) instead of a raw
+    500 or a silent Bedrock/scripted fallback — it never falls back.
+
+    NO VERIFIER STEP (intentional, not a gap): AZURE_OPENAI_VERIFIER_DEPLOYMENT
+    is deliberately unused here. This class is the streaming
+    ``/mapping/agent/run`` path — like BedrockMappingAgent, it narrates a
+    single recommendation and the deterministic matcher gates the result;
+    neither streaming backend has ever had a verifier step. The specialist +
+    verifier split (``AZURE_OPENAI_VERIFIER_DEPLOYMENT``,
+    ``_build_azure_agents()`` returning a ``(mapping, verifier)`` pair) is a
+    SEPARATE concept belonging to ``scudo/lambda_handler.py``'s Orchestrator
+    pipeline, a different endpoint entirely. Adding a verifier here would be
+    scope creep onto a pipeline this class does not participate in.
+    """
+
+    NAME = "azure"
+
+    SYSTEM_PROMPT = (
+        "You are the SCUDO mapping agent (Azure OpenAI). Your job is to "
+        "recommend how to map a vendor product to one CDAO taxonomy node, "
+        "given the candidate nodes already retrieved for you.\n\n"
+        "RULES (load-bearing — never violate):\n"
+        "  1. You do NOT decide the final mapping status. The deterministic "
+        "     matcher (which runs after you) applies a 0.80 confidence floor "
+        "     and a set of validations. Your role is to EXPLORE and "
+        "     RECOMMEND, not to gate.\n"
+        "  2. If no candidates are supplied, recommend NEEDS_REVIEW and stop.\n"
+        "  3. End with a one-paragraph rationale citing the top candidate's "
+        "     IRI and similarity score, if any."
+    )
+
+    def __init__(self) -> None:
+        # Construction never touches the environment or network — matching
+        # every other backend's "cheap to construct" contract. Config is
+        # resolved and validated lazily inside run().
+        pass
+
+    def _resolve_config(self) -> dict:
+        return {
+            "endpoint": os.getenv("AZURE_OPENAI_ENDPOINT"),
+            "api_key": os.getenv("AZURE_OPENAI_API_KEY"),
+            "api_version": os.getenv("AZURE_OPENAI_API_VERSION"),
+            "specialist_deployment": os.getenv("AZURE_OPENAI_SPECIALIST_DEPLOYMENT"),
+            "reasoning_effort": os.getenv("AZURE_OPENAI_REASONING_EFFORT") or "medium",
+        }
+
+    def _require_config(self, cfg: dict) -> None:
+        if (
+            not cfg["endpoint"]
+            or not cfg["api_key"]
+            or not cfg["specialist_deployment"]
+        ):
+            raise RuntimeError(
+                "Missing Azure OpenAI configuration. Ensure AZURE_OPENAI_ENDPOINT, "
+                "AZURE_OPENAI_API_KEY, and AZURE_OPENAI_SPECIALIST_DEPLOYMENT are "
+                "set — the azure provider does not fall back to Bedrock."
+            )
+
+    def _recommend(self, client: Any, cfg: dict, prompt: str) -> str:
+        """Call Azure OpenAI for a narrative recommendation.
+
+        Mirrors AzureOpenAIShim.structured_output's defensive fallback: try
+        with reasoning_effort first, retry without it if the deployment/SDK
+        rejects the parameter.
+        """
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            response = client.chat.completions.create(
+                model=cfg["specialist_deployment"],
+                messages=messages,
+                reasoning_effort=cfg["reasoning_effort"],
+            )
+        except Exception:  # noqa: BLE001 — deployment/SDK may reject the param
+            response = client.chat.completions.create(
+                model=cfg["specialist_deployment"],
+                messages=messages,
+            )
+        return response.choices[0].message.content or ""
+
+    def run(
+        self,
+        ref: VendorProductRef,
+        *,
+        max_candidates: int = 5,
+        confidence_floor: Optional[float] = None,
+        borderline_half_width: Optional[float] = None,
+    ) -> Iterator[AgentEvent]:
+        # Validate + build BEFORE yielding "start" — same place Bedrock's
+        # lazy strands import raises, so a missing config surfaces on the
+        # generator's first next() and event_stream()'s try/except turns it
+        # into one clear SSE `error` event (routes/mapping.py).
+        cfg = self._resolve_config()
+        self._require_config(cfg)
+        client = _build_azure_openai_client(cfg)
+
+        yield AgentEvent(
+            type="start",
+            payload={
+                "vendor": ref.vendor,
+                "product_id": ref.product_id,
+                "product_name": ref.name,
+                "agent_backend": self.NAME,
+                "model_id": cfg["specialist_deployment"],
+            },
+        )
+
+        find_args = {
+            "vendor": ref.vendor,
+            "product_id": ref.product_id,
+            "name": ref.name,
+            "max_results": max_candidates,
+        }
+        yield AgentEvent(
+            type="tool_call",
+            payload={"tool": "find_similar_products", "args": find_args},
+        )
+        candidates = get_store().find_similar_products(ref, max_results=max_candidates)
+        yield AgentEvent(
+            type="tool_result",
+            payload={
+                "tool": "find_similar_products",
+                "result": {
+                    "count": len(candidates),
+                    "candidates": [_candidate_dict(c) for c in candidates],
+                },
+            },
+        )
+
+        candidate_lines = (
+            "\n".join(
+                f"  - {c.node.iri} ({c.node.label!r}) similarity={c.similarity:.2f}"
+                for c in candidates
+            )
+            or "  (none)"
+        )
+        prompt = (
+            f"{_system_context_text()}\n\n"
+            f"Vendor product:\n"
+            f"  vendor       = {ref.vendor}\n"
+            f"  product_id   = {ref.product_id}\n"
+            f"  name         = {ref.name}\n"
+            f"  description  = {ref.description}\n\n"
+            f"Candidates (top {len(candidates)}):\n{candidate_lines}\n\n"
+            "Recommend a node and give a one-paragraph rationale."
+        )
+        rationale = self._recommend(client, cfg, prompt)
+        if rationale:
+            yield AgentEvent(type="agent_message", payload={"content": rationale})
+
+        # Authoritative final step — matcher runs regardless of what Azure
+        # recommended. Same contract as scripted/bedrock.
+        result = map_vendor_product(
+            ref,
+            specialist=specialist_from_env(),
+            floor=confidence_floor,
+            half=borderline_half_width,
+        )
+        yield AgentEvent(
+            type="final_result",
+            payload={"mapping": _mapping_result_dict(result)},
+        )
+        yield AgentEvent(type="done")
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Factory — the single swap point
 # ──────────────────────────────────────────────────────────────────────────
-def get_agent() -> Any:
-    """Return the configured mapping agent.
+def get_agent(provider: Optional[str] = None) -> Any:
+    """Return the configured mapping agent, taking provider into account.
 
-    SCUDO_AGENT_BACKEND selects between "scripted" (default) and "bedrock".
+    ``provider`` is an explicit UI override: "azure" ALWAYS returns
+    ``AzureMappingAgent`` and "bedrock" ALWAYS returns ``BedrockMappingAgent``
+    — each is unconditional on ``SCUDO_AGENT_BACKEND`` and never constructs
+    the other live backend or the scripted one. This matters for the demo's
+    "Inference Runtime" dropdown: selecting "Amazon Bedrock (Claude)" must
+    truly route to Bedrock, not silently run the scripted narrator when
+    ``SCUDO_AGENT_BACKEND`` happens to be unset/"scripted" — the same failure
+    mode the azure branch was fixed for.
+
+    Only when NO provider is given (``None``/empty — the legacy, non-UI call
+    shape) does ``SCUDO_AGENT_BACKEND`` decide scripted vs bedrock, exactly
+    as before.
+
     SCUDO_MCP_HOST_ENABLED (truthy: 1/true/yes) routes tool calls through
     the McpHost singleton instead of in-process Python. Off by default so
     the 86/86 smoke suite keeps using the deterministic in-process path.
@@ -777,8 +1213,13 @@ def get_agent() -> Any:
     The frontend / route layer is identical for all permutations — they
     consume the same AgentEvent stream regardless of backend or routing.
     """
-    backend = (os.getenv("SCUDO_AGENT_BACKEND") or "scripted").strip().lower()
     use_host = _env_truthy(os.getenv("SCUDO_MCP_HOST_ENABLED"))
+    normalized_provider = (provider or "").strip().lower()
+    if normalized_provider == "azure":
+        return AzureMappingAgent()
+    if normalized_provider == "bedrock":
+        return BedrockMappingAgent(use_mcp_host=use_host)
+    backend = (os.getenv("SCUDO_AGENT_BACKEND") or "scripted").strip().lower()
     if backend == "bedrock":
         return BedrockMappingAgent(use_mcp_host=use_host)
     return ScriptedMappingAgent(use_mcp_host=use_host)

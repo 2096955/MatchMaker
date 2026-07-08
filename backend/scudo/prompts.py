@@ -3,9 +3,9 @@
 These are scaffolds — coherent enough to drive a real run, not the final
 production prompts (which want eval-harness tuning).
 """
+
 from __future__ import annotations
 
-import json
 
 from .schemas import BriefBundle, MappingResult
 
@@ -36,13 +36,26 @@ VERIFIER_SYSTEM = (
 
 
 def mapping_prompt(bundle: BriefBundle) -> str:
+    # Part D — current best matching skill (SkillOpt-style), when one has been
+    # promoted. A clearly-labelled, standalone section — not left buried
+    # inside the BriefBundle JSON dump below, since SkillOpt's own premise is
+    # that the skill doc is a standalone instructional text, not incidental
+    # data. Omitted entirely (not even a "None" line) when nothing is
+    # promoted yet.
+    skill_section = (
+        f"CURRENT BEST MATCHING SKILL (from prior verified outcomes):\n"
+        f"{bundle.skill_hint}\n\n"
+        if bundle.skill_hint
+        else ""
+    )
     pins = (
         f"Ontology snapshot: {bundle.ontology_snapshot or '<unset>'}\n"
         f"Rubric version:    {bundle.rubric_version or '<unset>'}\n"
     )
     return (
-        pins +
-        "\nBriefBundle (everything you need — do not re-fetch):\n"
+        skill_section
+        + pins
+        + "\nBriefBundle (everything you need — do not re-fetch):\n"
         f"{bundle.model_dump_json(indent=2)}\n\n"
         "Return a MappingResult that:\n"
         "  • selects a target IRI from bundle.candidates (or sets "
@@ -68,15 +81,17 @@ def research_prompt(bundle: BriefBundle) -> str:
 
 
 def verifier_prompt(
-    result: MappingResult, *, rubric_version: str, ontology_snapshot: str = "",
+    result: MappingResult,
+    *,
+    rubric_version: str,
+    ontology_snapshot: str = "",
 ) -> str:
     pins = (
         f"Rubric version: {rubric_version}\n"
         f"Ontology snapshot: {ontology_snapshot or '<unset>'}\n"
     )
     return (
-        pins +
-        "\nScore the following MappingResult on the 10-dimension rubric. "
+        pins + "\nScore the following MappingResult on the 10-dimension rubric. "
         "For each dimension, return 0 (absent), 1 (partial), or 2 (full). "
         "Compute total_score = sum of dimension scores.\n\n"
         "For taxonomy_freshness: if the ontology snapshot above appears in any "
@@ -90,6 +105,10 @@ def verifier_prompt(
 
 
 __all__ = [
-    "MAPPING_SYSTEM", "RIGHTS_SYSTEM", "VERIFIER_SYSTEM",
-    "mapping_prompt", "research_prompt", "verifier_prompt",
+    "MAPPING_SYSTEM",
+    "RIGHTS_SYSTEM",
+    "VERIFIER_SYSTEM",
+    "mapping_prompt",
+    "research_prompt",
+    "verifier_prompt",
 ]

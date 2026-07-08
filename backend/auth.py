@@ -41,6 +41,7 @@ TRUST BOUNDARY — read before deploying:
   JWT verification. The route surface and the rest of the codebase do not
   change.
 """
+
 from __future__ import annotations
 
 import os
@@ -51,6 +52,7 @@ from typing import Optional, Protocol
 @dataclass(frozen=True)
 class Principal:
     """The authenticated identity attached to one request."""
+
     user_id: str
     source: str  # "gateway-header" | "dev-env"
 
@@ -74,6 +76,32 @@ def _dev_allowed() -> bool:
     return os.getenv("SCUDO_AUTH_ALLOW_DEV", "").strip().lower() in _TRUTHY
 
 
+def _dev_writes_allowed() -> bool:
+    """Whether a ``dev-env`` principal may perform a durable HITL write.
+
+    OFF by default, independent of ``SCUDO_AUTH_ALLOW_DEV``. Opt in with
+    ``SCUDO_AUTH_ALLOW_DEV_WRITES`` on a developer machine (run_local.py).
+    """
+    return os.getenv("SCUDO_AUTH_ALLOW_DEV_WRITES", "").strip().lower() in _TRUTHY
+
+
+def can_write_decision(principal: Principal) -> bool:
+    """Policy: may this principal make a durable HITL decision write?
+
+    Defense-in-depth for the finding-1 exposure. ``SCUDO_AUTH_DEV_PRINCIPAL``
+    is a SHARED, unauthenticated identity: if a deploy leaves it set on a
+    reachable endpoint, every anonymous visitor resolves to it and could
+    otherwise record a HITL precedent (durable + self-reinforcing) under one
+    person's name. So a ``dev-env`` principal is READ-ONLY for decisions
+    unless ``SCUDO_AUTH_ALLOW_DEV_WRITES`` is explicitly enabled. A real
+    ``gateway-header`` identity always may. Fail-closed: a misconfigured prod
+    deploy blocks the write (403) instead of forging an audited precedent.
+    """
+    if principal.source == "dev-env":
+        return _dev_writes_allowed()
+    return True
+
+
 def _resolve_from_dev() -> Optional[Principal]:
     if not _dev_allowed():
         return None
@@ -84,8 +112,9 @@ def _resolve_from_dev() -> Optional[Principal]:
 
 
 def _resolve_from_header(headers: _HeaderLike) -> Optional[Principal]:
-    name = (os.getenv("SCUDO_AUTH_PRINCIPAL_HEADER", "") or "").strip() \
-        or "X-Authenticated-User"
+    name = (
+        os.getenv("SCUDO_AUTH_PRINCIPAL_HEADER", "") or ""
+    ).strip() or "X-Authenticated-User"
     value = headers.get(name, "") or ""
     value = value.strip()
     if not value:

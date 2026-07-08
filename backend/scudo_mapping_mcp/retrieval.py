@@ -46,12 +46,16 @@ VI. When ``dense_scorer`` is None we run in DEGRADED MODE: every survivor
     in CI / Opus-out smoke gates without polluting the matcher with
     "is the scorer wired" branching.
 """
+
 from __future__ import annotations
 
 from typing import Callable, Optional
 
+from .config import env_subsumption_expand, settings
+from .loaders.subsumption import build_child_index, direct_subsumption_neighbors
 from .models import Candidate, TaxonomyNode, VendorProductRef
 from .store.base import CandidateFilter, RetrievalStore
+from .taxonomy_text import maybe_log_taxonomy_text_shadow, taxonomy_bm25_doc
 
 
 # BM25 pre-filter top-N. Matches the seam's MAX_RESULTS_CEIL so the
@@ -117,6 +121,15 @@ def multi_path_retrieve(
     # Arm 1 — BM25 PRE-FILTER. Nominates a bounded set; no scoring decisions.
     nominated = _bm25_prefilter(query_text, universe, store)
 
+    # Shadow rollout (P1): log text-on BM25 diff without changing nominations.
+    maybe_log_taxonomy_text_shadow(
+        query_text, universe, store, nominated, top_n=_BM25_PREFILTER_TOP_N
+    )
+
+    # Subsumption expansion (P1): widen nominated set with 1-hop ancestors/descendants.
+    if settings.subsumption_expand or env_subsumption_expand():
+        nominated = _expand_subsumption(nominated, universe)
+
     # Structural drop (a) — negative precedents (mirrors the seam's order).
     survivors = _drop_negative_precedents(ref, nominated, store)
 
@@ -150,6 +163,7 @@ def multi_path_retrieve(
 # individual step in isolation if a future regression needs pinning.
 # ─────────────────────────────────────────────────────────────────────────
 
+
 def _universe(store: RetrievalStore) -> list[TaxonomyNode]:
     """Pull every TaxonomyNode from the store, deterministic order by IRI.
 
@@ -171,7 +185,7 @@ def _bm25_prefilter(
     is what populates similarity. Returning real BM25 scores would invite
     a downstream caller to treat them as similarities (violating I).
     """
-    docs = [(node.iri, node.label or "") for node in universe]
+    docs = [(node.iri, taxonomy_bm25_doc(node)) for node in universe]
     bm25 = store.bm25_scores(query_text, docs)
     by_iri = {n.iri: n for n in universe}
 
@@ -183,10 +197,25 @@ def _bm25_prefilter(
         key=lambda iri: (-bm25.get(iri, 0.0), iri),
     )[:_BM25_PREFILTER_TOP_N]
 
-    return [
-        Candidate(node=by_iri[iri], similarity=0.0)
-        for iri in ranked_iris
-    ]
+    return [Candidate(node=by_iri[iri], similarity=0.0) for iri in ranked_iris]
+
+
+def _expand_subsumption(
+    nominated: list[Candidate],
+    universe: list[TaxonomyNode],
+) -> list[Candidate]:
+    """Add 1-hop subsumption neighbours to the BM25 survivor set."""
+    by_iri = {n.iri: n for n in universe}
+    child_index = build_child_index(universe)
+    seen = {c.node.iri for c in nominated}
+    out = list(nominated)
+    for c in nominated:
+        for n_iri in direct_subsumption_neighbors(c.node, child_index):
+            if n_iri in seen or n_iri not in by_iri:
+                continue
+            seen.add(n_iri)
+            out.append(Candidate(node=by_iri[n_iri], similarity=0.0))
+    return out
 
 
 def _drop_negative_precedents(
@@ -229,21 +258,21 @@ def _dense_rescore(
     """
     if dense_scorer is None:
         return [
-            Candidate(node=c.node, similarity=_DEGRADED_SIMILARITY)
-            for c in survivors
+            Candidate(node=c.node, similarity=_DEGRADED_SIMILARITY) for c in survivors
         ]
     try:
         rescored = dense_scorer(query_text, survivors)
     except Exception as exc:  # noqa: BLE001 — fail-closed swallows by design
         import logging
+
         logging.getLogger(__name__).warning(
             "dense_scorer raised %s: %s — falling back to degraded "
             "similarity (every survivor → review queue)",
-            type(exc).__name__, exc,
+            type(exc).__name__,
+            exc,
         )
         return [
-            Candidate(node=c.node, similarity=_DEGRADED_SIMILARITY)
-            for c in survivors
+            Candidate(node=c.node, similarity=_DEGRADED_SIMILARITY) for c in survivors
         ]
     # Defensive: clamp into the Pydantic [0,1] range. A scorer that hands
     # back 1.1 by mistake would otherwise blow up Candidate validation.

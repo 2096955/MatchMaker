@@ -44,6 +44,9 @@ class IntakeRequest(BaseModel):
     has_precedent: bool = False
     has_conflict: bool = False
     ontology_gap: bool = False
+    agent_provider: Optional[str] = Field(
+        default=None, description="Inference runtime provider (bedrock or azure)."
+    )
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -94,6 +97,14 @@ class BriefBundle(BaseModel):
     candidates: list[CandidateNode] = Field(default_factory=list, max_length=25)
     precedent: Optional[PrecedentMapping] = None
     conflicts: list[ConflictRecord] = Field(default_factory=list)
+    skill_hint: Optional[str] = Field(
+        default=None,
+        description=(
+            "Current best matching skill text (SkillOpt-style), populated from "
+            "aurora_memory.consult_best_skill() when one has been promoted. None "
+            "until a skill has been validated and promoted."
+        ),
+    )
     assembled_at: datetime
     bundle_ref: str = Field(
         ..., description="Replay-safe handle for the assembled bundle."

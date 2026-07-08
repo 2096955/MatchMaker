@@ -21,6 +21,7 @@ os.environ.setdefault("FRAME_SOURCE", "mock")
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _CATALOGUE = os.path.join(_HERE, "fixtures", "cdao_catalogue.json")
+_CONCEPTUAL_LAYER = os.path.join(_HERE, "fixtures", "conceptual_layer.json")
 _OUT = os.path.join(_HERE, "fixtures", "matching-graph.json")
 _META_OUT = os.path.join(_HERE, "fixtures", "meta.json")
 
@@ -29,8 +30,8 @@ from scudo_mapping_mcp.config import (  # noqa: E402
     pass_threshold,
 )
 
-PASS_THRESHOLD = pass_threshold()  # 0.85 (rounded — avoids 0.8500000000000001)
-BORDERLINE_THRESHOLD = borderline_threshold()  # 0.75
+PASS_THRESHOLD = pass_threshold()  # 0.80 (rounded — avoids 0.8000000000000001)
+BORDERLINE_THRESHOLD = borderline_threshold()  # 0.70
 _PASS = f"{PASS_THRESHOLD:.2f}"
 _BORDER = f"{BORDERLINE_THRESHOLD:.2f}"
 
@@ -203,6 +204,174 @@ def _make_edge(
     return edge
 
 
+def _seed_conceptual_fixture_into(store) -> None:
+    """Seed the synthetic M10 layer into a local graph-build store."""
+    if not os.path.exists(_CONCEPTUAL_LAYER):
+        return
+    from scudo_mapping_mcp.models import (  # noqa: PLC0415
+        ConceptualEdge,
+        ConceptualEdgeKind,
+        ConceptualNode,
+        ConceptualNodeKind,
+        conceptual_iri,
+    )
+
+    with open(_CONCEPTUAL_LAYER, encoding="utf-8") as fh:
+        data = json.load(fh)
+    concept_iri = str(data["concept_iri"])
+    local_to_iri: dict[str, str] = {}
+    for raw in data.get("nodes", []):
+        kind = ConceptualNodeKind(raw["kind"])
+        local_id = str(raw["local_id"])
+        iri = conceptual_iri(concept_iri, kind, local_id)
+        local_to_iri[local_id] = iri
+        store.upsert_conceptual_node(
+            ConceptualNode(
+                iri=iri,
+                kind=kind,
+                label=str(raw.get("label") or ""),
+                attaches_to_concept_iri=concept_iri,
+                vendor_field_name=raw.get("vendor_field_name"),
+                data_type=raw.get("data_type"),
+                primary_key=raw.get("primary_key"),
+                nullable=raw.get("nullable"),
+                database_notation=raw.get("database_notation"),
+                schema_notation=raw.get("schema_notation"),
+            )
+        )
+    for raw in data.get("edges", []):
+        store.upsert_conceptual_edge(
+            ConceptualEdge(
+                from_iri=local_to_iri[str(raw["from_local_id"])],
+                to_iri=local_to_iri[str(raw["to_local_id"])],
+                kind=ConceptualEdgeKind(raw["kind"]),
+                label=str(raw.get("label") or ""),
+            )
+        )
+
+
+def _conceptual_roots(graph) -> list[str]:
+    targets = {edge.to_iri for edge in graph.edges}
+    roots = [node.iri for node in graph.nodes if node.iri not in targets]
+    return roots or ([graph.nodes[0].iri] if graph.nodes else [])
+
+
+def _fold_conceptual_match_payload(store, concept_iri, add_node, edges) -> list[str]:
+    try:
+        graph = store.get_conceptual_graph(concept_iri)
+    except Exception:  # noqa: BLE001 — dashboard graph stays best-effort
+        return []
+    if not graph.nodes:
+        return []
+
+    node_ids: list[str] = []
+    for node in graph.nodes:
+        add_node(
+            _make_node(
+                node.iri,
+                node.label,
+                f"conceptual:{node.kind.value}",
+                f"{node.kind.value.replace('_', ' ')} attached to {concept_iri}",
+            )
+        )
+        node_ids.append(node.iri)
+    for root_iri in _conceptual_roots(graph):
+        edges.append(_make_edge(concept_iri, root_iri, "conceptual"))
+    for edge in graph.edges:
+        edges.append(_make_edge(edge.from_iri, edge.to_iri, edge.kind.value))
+    return node_ids
+
+
+# The dashboard validates node/edge `type` against a strict closed z.enum
+# (@understand-anything/core) and silently DROPS anything outside it — the
+# "30 dropped items" regression. Conceptual kinds therefore map onto the
+# nearest dashboard type; the true kind is preserved in `tags` (nodes) and
+# `description` (edges). Gated by tests/test_dashboard_enum_vocabulary.py.
+_CONCEPTUAL_NODE_TYPE: dict[str, str] = {
+    "product_package": "entity",
+    "delivery_product": "entity",
+    "data_service": "service",
+    "delivery_channel": "endpoint",
+    "distribution": "resource",
+    "distributed_dataset": "table",
+    "marketing_dataset": "table",
+    "business_concept_element": "concept",
+    "data_taxonomy": "topic",
+    "data_dictionary": "document",
+    "field_group": "schema",
+    "field": "entity",
+    "business_data_element": "concept",
+    # Rights/contract "bottom half" (PROVISIONAL v1, 2026-07-07) — see
+    # scudo_mapping_mcp/models.py's ConceptualNodeKind comment for grounding.
+    "party": "entity",
+    "contract": "document",
+    "policy": "config",
+    "duty": "step",
+    "permission": "claim",
+}
+
+_CONCEPTUAL_EDGE_TYPE: dict[str, str] = {
+    "made_available_through": "serves",
+    "delivered_by": "serves",
+    "accessed_through": "routes",
+    "formatted_as": "transforms",
+    "in_series": "related",
+    "contains": "contains",
+    "classified_as": "categorized_under",
+    # Rights/contract "bottom half" (PROVISIONAL v1, 2026-07-07)
+    "party_role": "related",
+    "grants": "related",
+    "has_permission": "contains",
+    "has_duty": "contains",
+}
+
+
+def _fold_conceptual_knowledge_graph(store, concept_iri, add_node, edges) -> list[str]:
+    try:
+        graph = store.get_conceptual_graph(concept_iri)
+    except Exception:  # noqa: BLE001 — dashboard graph stays best-effort
+        return []
+    if not graph.nodes:
+        return []
+
+    node_ids: list[str] = []
+    for node in graph.nodes:
+        add_node(
+            {
+                "id": node.iri,
+                "type": _CONCEPTUAL_NODE_TYPE.get(node.kind.value, "entity"),
+                "name": node.label,
+                "summary": f"{node.kind.value.replace('_', ' ')} attached to {concept_iri}",
+                "tags": ["conceptual", node.kind.value],
+                "complexity": "simple",
+            }
+        )
+        node_ids.append(node.iri)
+    for root_iri in _conceptual_roots(graph):
+        edges.append(
+            {
+                "source": concept_iri,
+                "target": root_iri,
+                "type": "related",
+                "direction": "forward",
+                "weight": 1.0,
+                "description": "conceptual enrichment attaches here",
+            }
+        )
+    for edge in graph.edges:
+        edges.append(
+            {
+                "source": edge.from_iri,
+                "target": edge.to_iri,
+                "type": _CONCEPTUAL_EDGE_TYPE.get(edge.kind.value, "related"),
+                "direction": "forward",
+                "weight": 1.0,
+                "description": edge.label or edge.kind.value.replace("_", " "),
+            }
+        )
+    return node_ids
+
+
 def build_match_payload(
     vendor: str | None = None,
     ref: str | None = None,
@@ -220,6 +389,7 @@ def build_match_payload(
     catalogue_nodes, catalogue_meta = _load_catalogue_meta()
     for raw in catalogue_nodes:
         store.upsert_taxonomy_node(_to_taxonomy_node(raw))
+    _seed_conceptual_fixture_into(store)
 
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -230,6 +400,8 @@ def build_match_payload(
             return
         seen.add(node["id"])
         nodes.append(node)
+
+    conceptual_concepts_seen: set[str] = set()
 
     for stage_id, label, caption in _PIPELINE_STAGES:
         add_node(_make_node(stage_id, label, "stage", caption))
@@ -329,6 +501,12 @@ def build_match_payload(
                     weight=sim,
                 )
             )
+            if ciri not in conceptual_concepts_seen:
+                _fold_conceptual_match_payload(store, ciri, add_node, edges)
+                conceptual_concepts_seen.add(ciri)
+        if mapped_iri and mapped_iri not in conceptual_concepts_seen:
+            _fold_conceptual_match_payload(store, mapped_iri, add_node, edges)
+            conceptual_concepts_seen.add(mapped_iri)
 
     return {
         "meta": {
@@ -828,7 +1006,7 @@ def build_knowledge_graph() -> dict[str, Any]:
     """Build the KnowledgeGraph dict (understand-anything dashboard contract).
 
     Emits version 1.0.0 / kind "codebase" with jpmorgan:data:cdao:* IRIs,
-    no Marketing domain, and confidence bands from config (0.85/0.75).
+    no Marketing domain, and confidence bands from config (0.80/0.70).
     """
     from scudo.seed_falkordb import _load_fixture, _to_taxonomy_node
     from scudo_mapping_mcp.models import VendorProductRef
@@ -850,10 +1028,13 @@ def build_knowledge_graph() -> dict[str, Any]:
 
     for raw in catalogue_raw:
         store.upsert_taxonomy_node(_to_taxonomy_node(raw))
+    _seed_conceptual_fixture_into(store)
 
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
     seen_nodes: set[str] = set()
+    conceptual_node_ids: list[str] = []
+    conceptual_concepts_seen: set[str] = set()
 
     def add_node(n: dict[str, Any]) -> None:
         if n["id"] in seen_nodes:
@@ -957,6 +1138,11 @@ def build_knowledge_graph() -> dict[str, Any]:
                 }
             )
             top_cdao_ids.append(ciri)
+            if ciri not in conceptual_concepts_seen:
+                conceptual_node_ids.extend(
+                    _fold_conceptual_knowledge_graph(store, ciri, add_node, edges)
+                )
+                conceptual_concepts_seen.add(ciri)
 
         tour_node_ids = [
             vp_id,
@@ -1053,6 +1239,15 @@ def build_knowledge_graph() -> dict[str, Any]:
             "nodeIds": vendor_ids,
         },
     ]
+    if conceptual_node_ids:
+        layers.append(
+            {
+                "id": "layer:m10-conceptual-enrichment",
+                "name": "M10 Conceptual Enrichment",
+                "description": "Additive Product/Delivery/DataDictionary/Field metadata attached to already-mapped CDAO Concepts.",
+                "nodeIds": sorted(set(conceptual_node_ids)),
+            }
+        )
 
     # Tour
     tour: list[dict[str, Any]] = [

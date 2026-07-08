@@ -1,0 +1,9 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix odrl: <http://www.w3.org/ns/odrl/2/> .
+
+<https://jpmc.example/shapes/PolicyShape> a sh:NodeShape ;
+    sh:targetClass odrl:Policy ;
+    sh:property [
+        sh:path odrl:uid ;
+        sh:minCount 1 ;
+    ] .

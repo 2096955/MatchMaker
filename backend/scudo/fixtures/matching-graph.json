@@ -3,7 +3,7 @@
   "kind": "codebase",
   "project": {
     "name": "SCUDO Matching Comprehension",
-    "description": "End-to-end SCUDO architecture graph: ETL ingestion (EventBridge \u2192 SQS \u2192 Lambda \u2192 S3/DynamoDB), three-stage matching engine (parse, semantic, rank), confidence gate with three routing bands (PASS \u22650.85 / BORDERLINE 0.75\u20130.85 / FAIL <0.75), agentic orchestration (Strands + Bedrock Specialist + Verifier), HITL adjudication, and JAPI persist (Aurora \u2192 Neptune \u2192 OpenSearch). Vendor product nodes carry real matcher confidence scores; CDAO taxonomy is loaded from the fixtures/cdao_catalogue.json fixture. ILLUSTRATIVE \u2014 synthetic data, not authoritative.",
+    "description": "End-to-end SCUDO architecture graph: ETL ingestion (EventBridge \u2192 SQS \u2192 Lambda \u2192 S3/DynamoDB), three-stage matching engine (parse, semantic, rank), confidence gate with three routing bands (PASS \u22650.80 / BORDERLINE 0.70\u20130.80 / FAIL <0.70), agentic orchestration (Strands + Bedrock Specialist + Verifier), HITL adjudication, and JAPI persist (Aurora \u2192 Neptune \u2192 OpenSearch). Vendor product nodes carry real matcher confidence scores; CDAO taxonomy is loaded from the fixtures/cdao_catalogue.json fixture. ILLUSTRATIVE \u2014 synthetic data, not authoritative.",
     "languages": [
       "Python"
     ],
@@ -21,7 +21,7 @@
       "AWS AppSync",
       "scudo-cost-ladder"
     ],
-    "analyzedAt": "2026-06-24T15:07:06.385656+00:00",
+    "analyzedAt": "2026-07-07T21:38:03.204879+00:00",
     "gitCommitHash": "offline-fixture"
   },
   "nodes": [
@@ -161,7 +161,7 @@
       "id": "match-confidence-gate",
       "type": "flow",
       "name": "Confidence Gate",
-      "summary": "Confidence Gate \u2014 0.85 pass threshold. Three routing bands: >=0.85 PASS \u2192 Aurora Audit Log + JAPI Persist; 0.75\u20130.85 BORDERLINE \u2192 Orchestration Layer (Strands); <0.75 FAIL \u2192 Human Review (Scudo UI).",
+      "summary": "Confidence Gate \u2014 0.80 pass threshold. Three routing bands: >=0.80 PASS \u2192 Aurora Audit Log + JAPI Persist; 0.70\u20130.80 BORDERLINE \u2192 Orchestration Layer (Strands); <0.70 FAIL \u2192 Human Review (Scudo UI).",
       "tags": [
         "matching",
         "gate",
@@ -174,7 +174,7 @@
       "id": "orch-strands",
       "type": "service",
       "name": "Strands Orchestrator",
-      "summary": "Strands Orchestrator \u2014 deterministic routing with Claude Opus 4.8. Activated only for BORDERLINE confidence (0.75\u20130.85). Coordinates the Specialist, Verifier and AgentCore Memory agents.",
+      "summary": "Strands Orchestrator \u2014 deterministic routing with Claude Opus 4.8. Activated only for BORDERLINE confidence (0.70\u20130.80). Coordinates the Specialist, Verifier and AgentCore Memory agents.",
       "tags": [
         "orchestration",
         "strands",
@@ -240,7 +240,7 @@
       "id": "hitl-review",
       "type": "entity",
       "name": "Human Review \u2014 Scudo UI",
-      "summary": "Human Review \u2014 Data Steward adjudication via Scudo UI. Receives FAIL (<0.75) and uncertain Verifier outcomes. Decision feeds back into Aurora + Neptune.",
+      "summary": "Human Review \u2014 Data Steward adjudication via Scudo UI. Receives FAIL (<0.70) and uncertain Verifier outcomes. Decision feeds back into Aurora + Neptune.",
       "tags": [
         "hitl",
         "human-review",
@@ -528,6 +528,171 @@
       "complexity": "moderate"
     },
     {
+      "id": "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
+      "type": "resource",
+      "name": "Equity Prices EOD CSV Distribution",
+      "summary": "distribution attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "distribution"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
+      "type": "service",
+      "name": "Market Data Distribution Service",
+      "summary": "data service attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "data_service"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
+      "type": "table",
+      "name": "Equity Prices Historical Series",
+      "summary": "marketing dataset attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "marketing_dataset"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:2b480e49-3ce8-5392-b634-de2e670b081e",
+      "type": "entity",
+      "name": "Equity Prices Real-Time Feed",
+      "summary": "delivery product attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "delivery_product"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:2d17c28c-69c3-5b3a-9e1e-86e81cfbb1f2",
+      "type": "entity",
+      "name": "Closing Price",
+      "summary": "field attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "field"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
+      "type": "endpoint",
+      "name": "Secure FTP Delivery Channel",
+      "summary": "delivery channel attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "delivery_channel"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:3cbaf61e-e5ba-59b1-b822-9cf5fcf09e27",
+      "type": "entity",
+      "name": "Trade Date",
+      "summary": "field attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "field"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:408e3be4-d76b-539b-927d-44c55eca0182",
+      "type": "entity",
+      "name": "Equity Prices Market Data Package",
+      "summary": "product package attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "product_package"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:42ad4075-4381-501c-903c-c01fd5790be8",
+      "type": "entity",
+      "name": "Ticker Symbol",
+      "summary": "field attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "field"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:46d541b6-ecf4-5c8d-b007-e22c57237613",
+      "type": "concept",
+      "name": "Closing Price",
+      "summary": "business data element attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "business_data_element"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
+      "type": "concept",
+      "name": "Equity Price Observation",
+      "summary": "business concept element attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "business_concept_element"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:7e8b0772-604a-5c85-87a4-91c9a644a92e",
+      "type": "topic",
+      "name": "Market Data Taxonomy",
+      "summary": "data taxonomy attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "data_taxonomy"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:b678b990-526e-561d-89f8-439b7f6495db",
+      "type": "document",
+      "name": "Equity Prices Data Dictionary",
+      "summary": "data dictionary attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "data_dictionary"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+      "type": "schema",
+      "name": "Equity Price Record",
+      "summary": "field group attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "field_group"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394",
+      "type": "table",
+      "name": "Equity Prices EOD Dataset",
+      "summary": "distributed dataset attached to jpmorgan:data:cdao:concept:equity-prices",
+      "tags": [
+        "conceptual",
+        "distributed_dataset"
+      ],
+      "complexity": "simple"
+    },
+    {
       "id": "mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f",
       "type": "entity",
       "name": "FX Spot and Forward Rates",
@@ -749,7 +914,7 @@
       "type": "writes_to",
       "direction": "forward",
       "weight": 1.0,
-      "description": "PASS >=0.85",
+      "description": "PASS >=0.80",
       "data": {
         "band": "pass"
       }
@@ -760,7 +925,7 @@
       "type": "triggers",
       "direction": "forward",
       "weight": 0.5,
-      "description": "BORDERLINE 0.75\u20130.85",
+      "description": "BORDERLINE 0.70\u20130.80",
       "data": {
         "band": "borderline"
       }
@@ -771,7 +936,7 @@
       "type": "triggers",
       "direction": "forward",
       "weight": 0.3,
-      "description": "FAIL <0.75",
+      "description": "FAIL <0.70",
       "data": {
         "band": "fail"
       }
@@ -881,6 +1046,126 @@
       }
     },
     {
+      "source": "jpmorgan:data:cdao:concept:equity-prices",
+      "target": "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
+      "type": "related",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "conceptual enrichment attaches here"
+    },
+    {
+      "source": "jpmorgan:data:cdao:concept:equity-prices",
+      "target": "mds.enrich:408e3be4-d76b-539b-927d-44c55eca0182",
+      "type": "related",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "conceptual enrichment attaches here"
+    },
+    {
+      "source": "jpmorgan:data:cdao:concept:equity-prices",
+      "target": "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
+      "type": "related",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "conceptual enrichment attaches here"
+    },
+    {
+      "source": "jpmorgan:data:cdao:concept:equity-prices",
+      "target": "mds.enrich:b678b990-526e-561d-89f8-439b7f6495db",
+      "type": "related",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "conceptual enrichment attaches here"
+    },
+    {
+      "source": "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
+      "target": "mds.enrich:2b480e49-3ce8-5392-b634-de2e670b081e",
+      "type": "serves",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "delivered over"
+    },
+    {
+      "source": "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
+      "target": "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
+      "type": "serves",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "serves via"
+    },
+    {
+      "source": "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
+      "target": "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
+      "type": "routes",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "accessed via"
+    },
+    {
+      "source": "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394",
+      "target": "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
+      "type": "transforms",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "formatted as"
+    },
+    {
+      "source": "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
+      "target": "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394",
+      "type": "related",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "in series"
+    },
+    {
+      "source": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+      "target": "mds.enrich:42ad4075-4381-501c-903c-c01fd5790be8",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "contains"
+    },
+    {
+      "source": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+      "target": "mds.enrich:3cbaf61e-e5ba-59b1-b822-9cf5fcf09e27",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "contains"
+    },
+    {
+      "source": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+      "target": "mds.enrich:2d17c28c-69c3-5b3a-9e1e-86e81cfbb1f2",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "contains"
+    },
+    {
+      "source": "mds.enrich:b678b990-526e-561d-89f8-439b7f6495db",
+      "target": "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "contains"
+    },
+    {
+      "source": "mds.enrich:2d17c28c-69c3-5b3a-9e1e-86e81cfbb1f2",
+      "target": "mds.enrich:46d541b6-ecf4-5c8d-b007-e22c57237613",
+      "type": "categorized_under",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "classified as"
+    },
+    {
+      "source": "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
+      "target": "mds.enrich:7e8b0772-604a-5c85-87a4-91c9a644a92e",
+      "type": "categorized_under",
+      "direction": "forward",
+      "weight": 1.0,
+      "description": "classified under"
+    },
+    {
       "source": "match-confidence-gate",
       "target": "jpmorgan:data:cdao:concept:fixed-income-prices",
       "type": "similar_to",
@@ -956,7 +1241,7 @@
       "weight": 0.7371,
       "description": "product=mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f; similarity=0.7371; candidate",
       "data": {
-        "band": "fail",
+        "band": "borderline",
         "weight": 0.7371
       }
     },
@@ -1036,7 +1321,7 @@
       "weight": 0.8447,
       "description": "product=mds.ice:17320f3d-2679-5765-9359-646a2908c9f0; similarity=0.8447; candidate",
       "data": {
-        "band": "borderline",
+        "band": "pass",
         "weight": 0.8447
       }
     },
@@ -1119,7 +1404,7 @@
     {
       "id": "layer:matching-engine",
       "name": "Matching Engine (AIA)",
-      "description": "Three-stage matching pipeline: (A) parse+normalize, (B) semantic matching with Titan Embeddings, (C) rank+score \u2192 confidence gate (bands 0.75/0.85).",
+      "description": "Three-stage matching pipeline: (A) parse+normalize, (B) semantic matching with Titan Embeddings, (C) rank+score \u2192 confidence gate (bands 0.70/0.80).",
       "nodeIds": [
         "match-a-parse",
         "match-b-semantic",
@@ -1131,7 +1416,7 @@
     {
       "id": "layer:orchestration",
       "name": "Orchestration Layer (Borderline only)",
-      "description": "Strands Orchestrator with Claude Opus 4.8; activated only for the 0.75\u20130.85 BORDERLINE band. Specialist + Verifier + Evaluations.",
+      "description": "Strands Orchestrator with Claude Opus 4.8; activated only for the 0.70\u20130.80 BORDERLINE band. Specialist + Verifier + Evaluations.",
       "nodeIds": [
         "orch-strands",
         "orch-agent-memory",
@@ -1191,6 +1476,28 @@
         "mds.lseg:5f56a026-c52a-5e7f-b0a9-7e9b8b5bc1e0",
         "mds.sandpglobal:92b2507d-0545-5097-ad1a-dd827e70cb9f",
         "mds.ice:17320f3d-2679-5765-9359-646a2908c9f0"
+      ]
+    },
+    {
+      "id": "layer:m10-conceptual-enrichment",
+      "name": "M10 Conceptual Enrichment",
+      "description": "Additive Product/Delivery/DataDictionary/Field metadata attached to already-mapped CDAO Concepts.",
+      "nodeIds": [
+        "mds.enrich:18ea9ec6-835e-5059-9953-b6f73c6d6ffc",
+        "mds.enrich:1c446535-6b49-5d18-bfbd-e31aa13120af",
+        "mds.enrich:28047750-e2ca-5814-85bf-1b23d4ca071d",
+        "mds.enrich:2b480e49-3ce8-5392-b634-de2e670b081e",
+        "mds.enrich:2d17c28c-69c3-5b3a-9e1e-86e81cfbb1f2",
+        "mds.enrich:3b9692d9-2c94-5b8b-89f1-4698550de435",
+        "mds.enrich:3cbaf61e-e5ba-59b1-b822-9cf5fcf09e27",
+        "mds.enrich:408e3be4-d76b-539b-927d-44c55eca0182",
+        "mds.enrich:42ad4075-4381-501c-903c-c01fd5790be8",
+        "mds.enrich:46d541b6-ecf4-5c8d-b007-e22c57237613",
+        "mds.enrich:680f98e1-deb9-5038-a41c-147e2fa1454f",
+        "mds.enrich:7e8b0772-604a-5c85-87a4-91c9a644a92e",
+        "mds.enrich:b678b990-526e-561d-89f8-439b7f6495db",
+        "mds.enrich:de33f7ad-423c-5b05-b2be-7380bc1c4f85",
+        "mds.enrich:e3aaf973-3e14-54f1-a9dd-bba1ff0a0394"
       ]
     }
   ],
@@ -1259,7 +1566,7 @@
     {
       "order": 5,
       "title": "Borderline Orchestration (Strands + Bedrock)",
-      "description": "When the confidence gate lands in the 0.75\u20130.85 BORDERLINE band, the Strands Orchestrator (Claude Opus 4.8) is invoked. It reads from AgentCore Memory, dispatches a Specialist (Bedrock) to propose the target CDAO node and triples, and runs a Verifier (Bedrock) against a 10-dimension rubric. Score >=10 promotes to AUTO_MAPPED; <10 escalates to Human Review. Bedrock Evaluations captures all traces.",
+      "description": "When the confidence gate lands in the 0.70\u20130.80 BORDERLINE band, the Strands Orchestrator (Claude Opus 4.8) is invoked. It reads from AgentCore Memory, dispatches a Specialist (Bedrock) to propose the target CDAO node and triples, and runs a Verifier (Bedrock) against a 10-dimension rubric. Score >=10 promotes to AUTO_MAPPED; <10 escalates to Human Review. Bedrock Evaluations captures all traces.",
       "nodeIds": [
         "match-confidence-gate",
         "orch-strands",

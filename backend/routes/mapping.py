@@ -12,6 +12,8 @@ exposes them over plain JSON for the browser:
 - ``POST /api/mapping/similar``                       — top-N CDAO candidates
 - ``POST /api/mapping/map``                           — map one vendor product
 - ``POST /api/mapping/decision``                      — record a HITL decision
+- ``POST /api/mapping/enrich``                        — M10 conceptual enrichment
+- ``GET  /api/mapping/conceptual/<concept_iri>``      — M10 conceptual layer read
 - ``GET  /api/mapping/bundle``                        — export the M6 bundle
 - ``POST /api/mapping/bundle/import``                 — import an M6 bundle
 - ``POST /api/mapping/ingest``                        — drop in a vendor file
@@ -30,21 +32,41 @@ import os
 from flask import Blueprint, Response, g, jsonify, request, stream_with_context
 from pydantic import ValidationError
 
+from auth import can_write_decision  # noqa: E402 — used by record_decision guard
 from logger import ui_logger
 from scudo.build_matching_graph import build_match_payload
 from scudo_mapping_mcp.agent import get_agent
 from scudo_mapping_mcp.bundle import export_bundle, import_bundle
 from scudo_mapping_mcp.config import PRIORITY_VENDORS
+from scudo_mapping_mcp.enrichment import (
+    classify_business_concept,
+    extract_field_structure,
+)
 from scudo_mapping_mcp.feedback import apply_decision
 from scudo_mapping_mcp.frames import FrameDataError, _read_vendor_frame, all_frames
 from scudo_mapping_mcp.hydrate import HydrationError, hydrate
-from scudo_mapping_mcp.ingest import ingest_bytes, seed_taxonomy
+from scudo_mapping_mcp.ingest import (
+    ingest_bytes,
+    seed_conceptual_layer,
+    seed_taxonomy,
+)
 from scudo_mapping_mcp.matching import map_vendor_product
-from scudo_mapping_mcp.specialist import make_rest_specialist
-from scudo_mapping_mcp.models import MappingBundle, VendorProductRef
+from scudo_mapping_mcp.models import (
+    ConceptualGraph,
+    MappingBundle,
+    MappingStatus,
+    VendorProductRef,
+)
+from scudo_mapping_mcp.specialist import resolve_specialist
 from scudo_mapping_mcp.store import get_store
 
 mapping_bp = Blueprint("mapping", __name__)
+
+_ENRICHABLE_STATUSES = {
+    MappingStatus.AUTO_MAPPED,
+    MappingStatus.APPROVED,
+    MappingStatus.OVERRIDDEN,
+}
 
 # One-shot best-effort seed of the CDAO taxonomy. Mirrors the MCP server's
 # lifespan hook: the store stays usable even if it isn't reachable yet (a later
@@ -77,6 +99,19 @@ def _ensure_seeded():
         _readiness["last_error"] = f"seed: {type(e).__name__}: {e}"
         # Do NOT set _seeded=True — leave it so the next request retries.
         return
+    # M10 — best-effort seed of the illustrative conceptual-enrichment layer.
+    # Additive metadata only (Section 10c): a failure here never blocks
+    # taxonomy readiness and never retries on its own — the layer is not
+    # required for the cost ladder, so a one-shot failed attempt just means
+    # GET /api/mapping/conceptual/<iri> serves an empty graph.
+    try:
+        n_concept = seed_conceptual_layer()
+        ui_logger.info("conceptual layer seeded", nodes_and_edges=n_concept)
+    except Exception as e:  # noqa: BLE001 — additive only, never gates readiness
+        ui_logger.warning(
+            "conceptual layer seed failed (non-fatal)",
+            error=f"{type(e).__name__}: {e}",
+        )
     # Replay the M6 canonical bundle into FalkorDB so confirmed precedents are
     # available on boot — the resilience pin from the matching strategy:
     # stale or empty FalkorDB serves confident-but-wrong matches. Best-effort
@@ -491,7 +526,10 @@ def map_product():
     try:
         result = map_vendor_product(
             ref,
-            specialist=make_rest_specialist(),
+            # Env-selectable borderline arm (SCUDO_SPECIALIST_BACKEND); the REST
+            # path keeps its opus_dense default via resolve_specialist()'s
+            # "local" backend (= make_rest_specialist), preserving behaviour.
+            specialist=resolve_specialist(),
             borderline_requires_specialist=True,
             floor=floor,
             half=half,
@@ -571,6 +609,31 @@ def record_decision():
         decided_by=decided_by,
         node_iri=node_iri,
     )
+
+    # Finding-1 defense-in-depth: a HITL decision is a durable, self-reinforcing
+    # precedent, so the shared/unauthenticated dev-env principal must not be
+    # able to write one on a reachable endpoint (even if SCUDO_AUTH_DEV_PRINCIPAL
+    # was left set on a deploy). Fail closed — local dev opts in via
+    # SCUDO_AUTH_ALLOW_DEV_WRITES. Reads/maps are unaffected; only this write is.
+    if not can_write_decision(g.principal):
+        ui_logger.warning(
+            "HITL mapping decision blocked — dev-env principal cannot write",
+            vendor=vendor,
+            product_id=product_id,
+            decided_by=decided_by,
+            principal_source=g.principal.source,
+        )
+        return (
+            jsonify(
+                {
+                    "error": (
+                        "HITL decision writes are disabled for the development "
+                        "principal on this deployment"
+                    )
+                }
+            ),
+            403,
+        )
 
     if not vendor:
         return jsonify({"error": "vendor is required"}), 400
@@ -675,6 +738,148 @@ def record_decision():
         node_iri=node_iri,
     )
     return jsonify(result.model_dump(mode="json"))
+
+
+def _coerce_mapping_status(value) -> MappingStatus | None:
+    try:
+        return value if isinstance(value, MappingStatus) else MappingStatus(value)
+    except ValueError:
+        return None
+
+
+def _conceptual_graph_response(graph: ConceptualGraph):
+    return jsonify(graph.model_dump(mode="json"))
+
+
+@mapping_bp.post("/mapping/enrich")
+def enrich_mapped_product():
+    """Run additive M10 enrichment for an already-decided mapping.
+
+    The route does not add a new input to the cost ladder. It first resolves
+    the product's existing mapping through the same store/matcher contract as
+    `/mapping/map`, and only writes conceptual metadata when that mapping is
+    already AUTO_MAPPED, APPROVED, or OVERRIDDEN.
+    """
+    body = request.get_json(silent=True) or {}
+    vendor = (body.get("vendor") or "").strip()
+    product_id = (body.get("product_id") or "").strip()
+    if not vendor:
+        return jsonify({"error": "vendor is required"}), 400
+    if not product_id:
+        return jsonify({"error": "product_id is required"}), 400
+    err = _validate_vendor(vendor)
+    if err:
+        return jsonify({"error": err}), 400
+
+    try:
+        ref = _read_vendor_frame(vendor, product_id)
+    except ValidationError as e:
+        return jsonify({"error": e.errors()}), 400
+    except FrameDataError as e:
+        ui_logger.error(
+            "Frame data invalid",
+            op="enrich_mapped_product",
+            vendor=vendor,
+            product_id=product_id,
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": f"upstream frame invalid: {e}"}), 502
+    except NotImplementedError as e:
+        ui_logger.error(
+            "Frame source unavailable",
+            op="enrich_mapped_product",
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": f"frame source unavailable: {e}"}), 503
+
+    if ref is None:
+        return jsonify({"error": "vendor product frame not found"}), 404
+
+    store = get_store()
+    try:
+        mapping = store.get_precedent_mapping(vendor, product_id)
+        if mapping is None:
+            mapping = map_vendor_product(ref, store=store)
+    except (ConnectionError, TimeoutError, OSError) as e:
+        ui_logger.error(
+            "Mapping store unavailable",
+            op="enrich_mapped_product",
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": "mapping store unavailable"}), 503
+
+    status = _coerce_mapping_status(mapping.status)
+    if status not in _ENRICHABLE_STATUSES or not mapping.mapped_node_iri:
+        return (
+            jsonify(
+                {
+                    "error": "product mapping is not ready for enrichment",
+                    "status": mapping.status,
+                }
+            ),
+            409,
+        )
+
+    concept_iri = mapping.mapped_node_iri
+    try:
+        existing = store.get_conceptual_graph(concept_iri)
+        extracted = extract_field_structure(ref, concept_iri)
+        classified = classify_business_concept(ref, concept_iri, existing.nodes)
+
+        nodes = {node.iri: node for node in extracted.nodes}
+        if classified is not None:
+            nodes[classified.iri] = classified
+        edges = list(extracted.edges)
+
+        for node in nodes.values():
+            store.upsert_conceptual_node(node)
+        for edge in edges:
+            store.upsert_conceptual_edge(edge)
+    except (ConnectionError, TimeoutError, OSError) as e:
+        ui_logger.error(
+            "Mapping store unavailable",
+            op="enrich_mapped_product",
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": "mapping store unavailable"}), 503
+
+    return _conceptual_graph_response(
+        ConceptualGraph(
+            root_concept_iri=concept_iri,
+            nodes=list(nodes.values()),
+            edges=edges,
+        )
+    )
+
+
+@mapping_bp.get("/mapping/conceptual/<path:concept_iri>")
+def get_conceptual_graph(concept_iri):
+    """Read the additive M10 conceptual graph attached to one CDAO concept."""
+    if not concept_iri or not concept_iri.strip():
+        return jsonify({"error": "concept_iri is required"}), 400
+    try:
+        max_depth = int(request.args.get("max_depth", 2))
+        max_nodes = int(request.args.get("max_nodes", 50))
+    except ValueError:
+        return jsonify({"error": "max_depth/max_nodes must be integers"}), 400
+    if not 1 <= max_depth <= 3:
+        return jsonify({"error": "max_depth must be between 1 and 3"}), 400
+    if not 1 <= max_nodes <= 100:
+        return jsonify({"error": "max_nodes must be between 1 and 100"}), 400
+    try:
+        graph = get_store().get_conceptual_graph(
+            concept_iri,
+            max_depth=max_depth,
+            max_nodes=max_nodes,
+        )
+    except (ConnectionError, TimeoutError, OSError) as e:
+        ui_logger.error(
+            "Mapping store unavailable",
+            op="get_conceptual_graph",
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": "mapping store unavailable"}), 503
+    return _conceptual_graph_response(graph)
 
 
 @mapping_bp.get("/mapping/bundle")
@@ -1003,6 +1208,74 @@ def ingest_vendor_file_stream():
     )
 
 
+@mapping_bp.post("/mapping/ingest/url")
+def ingest_vendor_url():
+    """Fetch a website URL server-side, synthesize a single vendor-product
+    row from its title/text, and run it through the SAME real ingest_bytes
+    pipeline used for file uploads (see ``ingest_url`` in
+    ``scudo_mapping_mcp/ingest.py``).
+
+    JSON body:
+        vendor (str): One of ``PRIORITY_VENDORS``.
+        url (str):    The website URL to fetch (http/https only; SSRF-guarded).
+
+    Returns:
+        flask.Response: JSON ``{ingested: int, products: [{vendor,
+            product_id, name}]}`` on success — same shape as
+            ``POST /mapping/ingest``.
+    """
+    import requests
+
+    from scudo_mapping_mcp.ingest import ingest_url
+
+    body = request.get_json(silent=True) or {}
+    vendor = (body.get("vendor") or "").strip()
+    url = (body.get("url") or "").strip()
+    if not vendor:
+        return jsonify({"error": "vendor is required"}), 400
+    err = _validate_vendor(vendor)
+    if err:
+        return jsonify({"error": err}), 400
+    if not url:
+        return jsonify({"error": "url is required"}), 400
+
+    try:
+        frames = ingest_url(vendor, url, upsert=True)
+    except ValueError as e:
+        # Covers UrlIngestError (SSRF/scheme/DNS rejection) — a ValueError
+        # subclass, same 400-mapping convention as ingest_vendor_file's
+        # "except (UnicodeDecodeError, ValueError)".
+        ui_logger.warning(
+            "Vendor URL ingest rejected", vendor=vendor, url=url, reason=str(e)
+        )
+        return jsonify({"error": str(e)}), 400
+    except requests.exceptions.RequestException as e:
+        ui_logger.error(
+            "Vendor URL fetch failed",
+            vendor=vendor,
+            url=url,
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": f"failed to fetch URL: {e}"}), 502
+
+    ui_logger.info(
+        "Vendor URL ingested",
+        principal=g.principal.user_id,
+        vendor=vendor,
+        url=url,
+        products=len(frames),
+    )
+    return jsonify(
+        {
+            "ingested": len(frames),
+            "products": [
+                {"vendor": fr.vendor, "product_id": fr.product_id, "name": fr.name}
+                for fr in frames
+            ],
+        }
+    )
+
+
 @mapping_bp.get("/mapping/working_set")
 def list_working_set():
     """List vendor product refs currently in the in-memory working set.
@@ -1029,11 +1302,39 @@ def list_working_set():
 
 @mapping_bp.get("/mapping/agent/describe")
 def describe_agent():
-    """Tell the frontend which agent backend is wired (scripted | bedrock)."""
+    """Tell the frontend which agent backend is wired and the available providers."""
     backend = (os.getenv("SCUDO_AGENT_BACKEND") or "scripted").strip().lower()
+    default_provider = (
+        (os.getenv("SCUDO_AGENT_PROVIDER_DEFAULT") or "bedrock").strip().lower()
+    )
+
+    # Azure is only genuinely usable once every field
+    # AzureMappingAgent._require_config (scudo_mapping_mcp/agent.py) checks is
+    # present — endpoint alone would offer a runtime that always fails at
+    # first run.
+    azure_enabled = bool(
+        os.getenv("AZURE_OPENAI_ENDPOINT")
+        and os.getenv("AZURE_OPENAI_API_KEY")
+        and os.getenv("AZURE_OPENAI_SPECIALIST_DEPLOYMENT")
+    )
+    providers = [
+        {
+            "id": "bedrock",
+            "label": "Amazon Bedrock (Claude)",
+            "enabled": True,
+        },
+        {
+            "id": "azure",
+            "label": "Azure OpenAI (ChatGPT 5.5 Med)",
+            "enabled": azure_enabled,
+        },
+    ]
+
     return jsonify(
         {
             "backend": backend,
+            "default_provider": default_provider,
+            "providers": providers,
             "model_id": (
                 os.getenv("SCUDO_BEDROCK_MODEL_ID") or "eu.anthropic.claude-opus-4-8"
                 if backend == "bedrock"
@@ -1058,6 +1359,7 @@ def run_agent():
                             the working set OR have ``name`` inline).
         name (str, optional):           Inline product name (avoids frame lookup).
         description (str, optional):    Inline product description.
+        agent_provider (str, optional): Requested provider (bedrock or azure).
 
     SSE event types streamed: start · tool_call · tool_result ·
         agent_message · final_result · error · done. The frontend's
@@ -1067,6 +1369,12 @@ def run_agent():
     body = request.get_json(silent=True) or {}
     vendor = (body.get("vendor") or "").strip()
     product_id = (body.get("product_id") or "").strip()
+    agent_provider = (body.get("agent_provider") or "").strip().lower() or None
+    if agent_provider is not None and agent_provider not in ("bedrock", "azure"):
+        # Matches scudo/lambda_handler.py's handler() validation — an unknown
+        # provider must 400, not silently fall through to whatever
+        # SCUDO_AGENT_BACKEND happens to resolve to.
+        return jsonify({"error": f"unknown agent provider: {agent_provider}"}), 400
     if not vendor:
         return jsonify({"error": "vendor is required"}), 400
     if not product_id:
@@ -1101,7 +1409,7 @@ def run_agent():
     except NotImplementedError as e:
         return jsonify({"error": f"frame source unavailable: {e}"}), 503
 
-    agent = get_agent()
+    agent = get_agent(provider=agent_provider)
     ui_logger.info(
         "Agent run started",
         principal=g.principal.user_id,

@@ -4,8 +4,10 @@ Description: >
   SCUDO MatchMaker AIA stack for the us-east-1 cloudboost account. Provisions
   the event-driven ETL + matching substrate shown in the target architecture:
   S3 raw/clean/quarantine/catalogue stores, EventBridge/SQS routing,
-  DynamoDB audit/review/outbox tables, an ETL worker Lambda, and the existing
-  Bedrock-backed matching Lambda API.
+  a single Aurora PostgreSQL cluster (audit/review/outbox/facts/jobs via the
+  RDS Data API) reached with the AuroraClusterArn/AuroraSecretArn parameters
+  (both required), an ETL worker Lambda, and the Bedrock-backed matching
+  Lambda API.
 
 Parameters:
   ApiKey:
@@ -33,16 +35,32 @@ Parameters:
     Description: Optional existing OpenSearch endpoint for lexical/vector projection.
   AuroraClusterArn:
     Type: String
-    Default: ''
-    Description: Optional existing Aurora cluster ARN for audit-log/outbox projection.
+    Description: >-
+      REQUIRED. ARN of the single Aurora PostgreSQL cluster (the fail-loud
+      persistence store). Backs the rds-data:ExecuteStatement IAM grant
+      (Resource) and the runtime SCUDO_AURORA_CLUSTER_ARN. No default — Aurora
+      is mandatory since the DynamoDB tables were removed, so an empty value
+      would produce an invalid IAM Resource; supply it at deploy.
   AuroraSecretArn:
     Type: String
-    Default: ''
     NoEcho: true
-    Description: Optional Aurora master/user secret ARN for the RDS Data API.
+    Description: >-
+      REQUIRED. ARN of the Aurora secret used by the RDS Data API. Backs the
+      secretsmanager:GetSecretValue IAM grant (Resource) and the runtime
+      SCUDO_AURORA_SECRET_ARN. No default — mandatory for the fail-loud store.
   AuroraDatabaseName:
     Type: String
     Default: scudo
+  PollerConfigUri:
+    Type: String
+    Default: ''
+    Description: >-
+      Optional s3://bucket/key of the per-vendor poller config JSON. It must
+      point to an object in the stack-owned VendorCatalogBucket — the only
+      bucket the poller is granted s3:GetObject on. Empty -> the scheduled
+      vendor-API poller is a no-op (ship the schedule before onboarding a vendor
+      API). Vendor API keys are read from Secrets Manager (scudo/poller/<vendor>)
+      at runtime, never from this config.
   NeptuneEndpoint:
     Type: String
     Default: ''
@@ -61,6 +79,51 @@ Parameters:
     Type: String
     Default: ''
     NoEcho: true
+  AgentProviderDefault:
+    Type: String
+    Default: bedrock
+    AllowedValues:
+      - bedrock
+      - azure
+    Description: >-
+      Default live-LLM backend for the specialist+verifier when a /run payload
+      does not set agent_provider. 'azure' selects the pre-built AzureOpenAIShim
+      pair (requires the AzureOpenAI* params below and openai in the image).
+  AzureOpenAIEndpoint:
+    Type: String
+    Default: ''
+    Description: Azure OpenAI resource endpoint, e.g. https://<resource>.openai.azure.com. Required when AgentProviderDefault=azure.
+  AzureOpenAIApiKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Azure OpenAI API key. Required when AgentProviderDefault=azure.
+  AzureOpenAIApiVersion:
+    Type: String
+    Default: '2024-10-21'
+    Description: Azure OpenAI API version passed to the AzureOpenAI client.
+  AzureOpenAISpecialistDeployment:
+    Type: String
+    Default: ''
+    Description: Azure deployment name for the mapping specialist. Required when AgentProviderDefault=azure.
+  AzureOpenAIVerifierDeployment:
+    Type: String
+    Default: ''
+    Description: Azure deployment name for the verifier. Required when AgentProviderDefault=azure.
+  AzureOpenAIReasoningEffort:
+    Type: String
+    Default: medium
+    Description: reasoning_effort passed to the Azure specialist+verifier shims.
+  AllowMockFallback:
+    Type: String
+    Default: ''
+    AllowedValues:
+      - ''
+      - '1'
+    Description: >-
+      Empty (default) makes /run FAIL LOUD when FalkorDB returns no candidates —
+      the real-matcher demo posture. Set to '1' ONLY to let /run degrade to the
+      in-memory sidecar mock (e.g. before the stores are seeded).
 
 Globals:
   Function:
@@ -80,11 +143,6 @@ Globals:
         SCUDO_CDAO_CATALOG_BUCKET: !Ref CdaoCatalogBucket
         SCUDO_ETL_QUEUE_URL: !Ref EtlQueue
         SCUDO_PERSISTENCE_QUEUE_URL: !Ref PersistenceProjectionQueue
-        SCUDO_JOB_TABLE: !Ref JobTrackingTable
-        SCUDO_FACTS_TABLE: !Ref FactsTable
-        SCUDO_AUDIT_TABLE: !Ref AuditLogTable
-        SCUDO_REVIEW_TABLE: !Ref HumanReviewTable
-        SCUDO_OUTBOX_TABLE: !Ref TransactionOutboxTable
         SCUDO_EVENT_BUS_NAME: !Ref ScudoEventBus
         SCUDO_NEPTUNE_SPARQL_ENDPOINT: !Ref NeptuneSparqlEndpoint
         SCUDO_NEPTUNE_ENDPOINT: !Ref NeptuneEndpoint
@@ -97,6 +155,19 @@ Globals:
         SCUDO_EMBEDDINGS_MODEL_ID: !Ref EmbeddingsModelId
         SCUDO_APPSYNC_API_URL: !Ref AppSyncApiUrl
         SCUDO_APPSYNC_API_KEY: !Ref AppSyncApiKey
+        # Agentic layer: pick the specialist+verifier backend (bedrock default,
+        # azure = the pre-built AzureOpenAIShim pair). Env-var names match
+        # lambda_handler.py (_build_azure_agents / _get_agents_for_provider).
+        SCUDO_AGENT_PROVIDER_DEFAULT: !Ref AgentProviderDefault
+        AZURE_OPENAI_ENDPOINT: !Ref AzureOpenAIEndpoint
+        AZURE_OPENAI_API_KEY: !Ref AzureOpenAIApiKey
+        AZURE_OPENAI_API_VERSION: !Ref AzureOpenAIApiVersion
+        AZURE_OPENAI_SPECIALIST_DEPLOYMENT: !Ref AzureOpenAISpecialistDeployment
+        AZURE_OPENAI_VERIFIER_DEPLOYMENT: !Ref AzureOpenAIVerifierDeployment
+        AZURE_OPENAI_REASONING_EFFORT: !Ref AzureOpenAIReasoningEffort
+        # Matching engine: empty = fail loud on 0 candidates (real-matcher
+        # demo); '1' = allow in-memory sidecar mock fallback.
+        SCUDO_ALLOW_MOCK_FALLBACK: !Ref AllowMockFallback
 
 Resources:
   # ----------------------------------------------------------------------
@@ -266,7 +337,10 @@ Resources:
         detail-type:
           - MappingCompleted
           - CanonicalMetadataReady
-      State: ENABLED
+      # DISABLED: the Aurora publish_outbox sweep (ProjectionFn OutboxSweepSchedule)
+      # replaced this EventBridge->SQS projection feed. Left in place (disabled)
+      # for rollback; its queue + DLQ are now orphaned but harmless.
+      State: DISABLED
       Targets:
         - Id: persistence-projection-sqs
           Arn: !GetAtt PersistenceProjectionQueue.Arn
@@ -289,95 +363,11 @@ Resources:
                 aws:SourceArn: !GetAtt PersistenceProjectionRule.Arn
 
   # ----------------------------------------------------------------------
-  # State, audit, HITL, and outbox tables
+  # State, audit, HITL, and outbox now live in the single Aurora PostgreSQL
+  # cluster (scudo schema, provisioned by aurora_store.ensure_schema). The
+  # DynamoDB tables that were here are removed by the 5-zone persistence
+  # consolidation — access is via the RDS Data API (see IAM grants below).
   # ----------------------------------------------------------------------
-  JobTrackingTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub '${AWS::StackName}-jobs'
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: job_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: job_id
-          KeyType: HASH
-      SSESpecification:
-        SSEEnabled: true
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
-
-  FactsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub '${AWS::StackName}-facts'
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: pk
-          AttributeType: S
-        - AttributeName: sk
-          AttributeType: S
-      KeySchema:
-        - AttributeName: pk
-          KeyType: HASH
-        - AttributeName: sk
-          KeyType: RANGE
-      SSESpecification:
-        SSEEnabled: true
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
-
-  AuditLogTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub '${AWS::StackName}-audit-log'
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: pk
-          AttributeType: S
-        - AttributeName: sk
-          AttributeType: S
-      KeySchema:
-        - AttributeName: pk
-          KeyType: HASH
-        - AttributeName: sk
-          KeyType: RANGE
-      SSESpecification:
-        SSEEnabled: true
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
-
-  HumanReviewTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub '${AWS::StackName}-human-review'
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: ticket
-          AttributeType: S
-      KeySchema:
-        - AttributeName: ticket
-          KeyType: HASH
-      SSESpecification:
-        SSEEnabled: true
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
-
-  TransactionOutboxTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub '${AWS::StackName}-transaction-outbox'
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: event_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: event_id
-          KeyType: HASH
-      SSESpecification:
-        SSEEnabled: true
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
 
   # ----------------------------------------------------------------------
   # Lambda/API runtime
@@ -420,16 +410,13 @@ Resources:
                 - !Sub '${CdaoCatalogBucket.Arn}/*'
             - Effect: Allow
               Action:
-                - dynamodb:PutItem
-                - dynamodb:UpdateItem
-                - dynamodb:GetItem
-                - dynamodb:Query
-              Resource:
-                - !GetAtt JobTrackingTable.Arn
-                - !GetAtt FactsTable.Arn
-                - !GetAtt AuditLogTable.Arn
-                - !GetAtt HumanReviewTable.Arn
-                - !GetAtt TransactionOutboxTable.Arn
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+              Resource: !Ref AuroraClusterArn
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Ref AuroraSecretArn
             - Effect: Allow
               Action:
                 - events:PutEvents
@@ -476,13 +463,13 @@ Resources:
                 - !Sub '${QuarantineBucket.Arn}/*'
             - Effect: Allow
               Action:
-                - dynamodb:PutItem
-                - dynamodb:UpdateItem
-                - dynamodb:GetItem
-              Resource:
-                - !GetAtt JobTrackingTable.Arn
-                - !GetAtt FactsTable.Arn
-                - !GetAtt AuditLogTable.Arn
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+              Resource: !Ref AuroraClusterArn
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Ref AuroraSecretArn
             - Effect: Allow
               Action:
                 - events:PutEvents
@@ -493,6 +480,50 @@ Resources:
           Properties:
             Queue: !GetAtt EtlQueue.Arn
             BatchSize: 5
+    Metadata:
+      DockerTag: latest
+      DockerContext: ..
+      Dockerfile: scudo/Dockerfile
+
+  # Third Zone-1 ingress route: poll vendor APIs and push into the raw bucket.
+  # Runs OUTSIDE the VPC (like EtlFn) so it can reach vendor endpoints. One
+  # Lambda for all vendors — onboarding is a PollerConfigUri change, not a new
+  # function. Twice-a-month schedule (SAM manages the EventBridge rule).
+  PollerFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-vendor-poller'
+      PackageType: Image
+      Architectures: [x86_64]
+      Timeout: 300
+      ImageConfig:
+        Command:
+          - scudo.poller_handler.handler
+      Environment:
+        Variables:
+          SCUDO_POLLER_CONFIG: !Ref PollerConfigUri
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: !Sub '${RawFeedBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              # The poller config object lives in the stack-owned vendor
+              # catalogue bucket, pinned at runtime by PollerConfigUri.
+              Resource: !Sub '${VendorCatalogBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:scudo/poller/*'
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 6 1,15 * ? *)
+            Description: Poll vendor APIs into the raw bucket twice a month.
     Metadata:
       DockerTag: latest
       DockerContext: ..
@@ -545,11 +576,11 @@ Resources:
                 - bedrock:InvokeModel
               Resource: '*'
       Events:
-        ProjectionQueueSource:
-          Type: SQS
+        OutboxSweepSchedule:
+          Type: Schedule
           Properties:
-            Queue: !GetAtt PersistenceProjectionQueue.Arn
-            BatchSize: 5
+            Schedule: rate(5 minutes)
+            Description: Drain the Aurora publish_outbox into the projection sinks.
     Metadata:
       DockerTag: latest
       DockerContext: ..
@@ -585,6 +616,12 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-projection-worker'
       RetentionInDays: 14
 
+  PollerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-vendor-poller'
+      RetentionInDays: 14
+
 Outputs:
   ApiUrl:
     Description: Base URL of the SCUDO API.
@@ -601,6 +638,8 @@ Outputs:
     Value: !Ref EtlFn
   ProjectionFunctionName:
     Value: !Ref ProjectionFn
+  PollerFunctionName:
+    Value: !Ref PollerFn
   LogGroup:
     Value: !Ref ScudoLogGroup
   RawFeedBucketName:
@@ -619,13 +658,3 @@ Outputs:
     Value: !Ref PersistenceProjectionQueue
   EventBusName:
     Value: !Ref ScudoEventBus
-  JobTrackingTableName:
-    Value: !Ref JobTrackingTable
-  FactsTableName:
-    Value: !Ref FactsTable
-  AuditLogTableName:
-    Value: !Ref AuditLogTable
-  HumanReviewTableName:
-    Value: !Ref HumanReviewTable
-  TransactionOutboxTableName:
-    Value: !Ref TransactionOutboxTable

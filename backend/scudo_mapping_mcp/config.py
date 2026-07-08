@@ -14,6 +14,8 @@ Three-seam vendor-agnostic contract (#18):
 
       SCUDO_VENDOR_ADAPTERS  -> Settings.vendor_adapters
       SCUDO_TAXONOMY_LOADER  -> Settings.taxonomy_loader
+                               ("cdao" | "dcat"; see ALLOWED_TAXONOMY_LOADERS)
+      SCUDO_TAXONOMY_SOURCE   -> Settings.taxonomy_source (RDF path when dcat)
       SCUDO_PERSIST_TARGET   -> Settings.persist_target
 
     These three are the only contract points the matching strategy needs to
@@ -40,9 +42,9 @@ PRIORITY_VENDORS: tuple[str, ...] = (
 # IRI namespace convention: mds.<vendor>:<uuid5>
 IRI_NAMESPACE = "mds"
 
-# Confidence floor. At or above -> auto-mapped. Below -> escalate to a human.
-# This is an invariant, enforced in code, not a model preference.
-CONFIDENCE_FLOOR: float = 0.80
+# Confidence band centre. pass_threshold() is the auto-map edge; scores between
+# borderline_threshold() and pass_threshold() consult the specialist/reviewer path.
+CONFIDENCE_FLOOR: float = 0.75
 
 # Cost-ladder band half-width around the floor. Cases within ±this distance
 # of the floor are the "borderline" band — the only band that consults the
@@ -55,8 +57,8 @@ def pass_threshold(
 ) -> float:
     """Upper band edge (>= this -> PASS).
 
-    Rounded to 2 dp: a naive ``floor + half`` yields 0.8500000000000001 for the
-    canonical 0.80/0.05 config, which silently pushes a score of exactly 0.85
+    Rounded to 2 dp: a naive ``floor + half`` yields 0.8000000000000001 for the
+    canonical 0.75/0.05 config, which silently pushes a score of exactly 0.80
     into BORDERLINE. Banding is the product's headline behaviour, so the edge
     must be exact.
     """
@@ -70,8 +72,12 @@ def borderline_threshold(
     return round(floor - half, 2)
 
 
-_ALLOWED_TAXONOMY_LOADERS: tuple[str, ...] = ("cdao",)
+_ALLOWED_TAXONOMY_LOADERS: tuple[str, ...] = ("cdao", "dcat")
+# Public alias — taxonomy_loader registry must stay in sync with this tuple.
+ALLOWED_TAXONOMY_LOADERS = _ALLOWED_TAXONOMY_LOADERS
 _ALLOWED_PERSIST_TARGETS: tuple[str, ...] = ("falkordb", "neptune", "none", "memory")
+_ALLOWED_ENRICHMENT_BACKENDS: tuple[str, ...] = ("opus", "off")
+_ALLOWED_DENSE_BACKENDS: tuple[str, ...] = ("opus", "jaro_winkler")
 
 
 def _default_vendor_adapters() -> tuple[str, ...]:
@@ -128,8 +134,8 @@ class Settings:
             tracks the in-scope vendor list automatically.
         taxonomy_loader: str
             Which classification ontology is loaded. Read from
-            SCUDO_TAXONOMY_LOADER. Defaults to "cdao". Allowed values
-            today: "cdao" only (will expand for other clients later).
+            SCUDO_TAXONOMY_LOADER. Defaults to "cdao". Allowed values:
+            "cdao" | "dcat".
         persist_target: str
             Where the canonical write goes. Read from SCUDO_PERSIST_TARGET.
             Defaults to "falkordb" (matches store_backend in dev).
@@ -149,8 +155,16 @@ class Settings:
     borderline_half_width: float  # cost-ladder band width around the floor
     # Three-seam vendor-agnostic contract — see module docstring (#18).
     vendor_adapters: tuple[str, ...]  # SCUDO_VENDOR_ADAPTERS
-    taxonomy_loader: str  # SCUDO_TAXONOMY_LOADER — "cdao" (only allowed today)
+    taxonomy_loader: str  # SCUDO_TAXONOMY_LOADER — "cdao" | "dcat"
     persist_target: str  # SCUDO_PERSIST_TARGET — "falkordb" | "neptune" | "none"
+    dense_backend: str  # SCUDO_DENSE_BACKEND — "opus" | "jaro_winkler"
+    taxonomy_text_enabled: bool  # SCUDO_TAXONOMY_TEXT — inject SKOS text into matching
+    taxonomy_text_shadow: bool  # SCUDO_TAXONOMY_TEXT_SHADOW — log text-on BM25 diff
+    subsumption_depth: int  # SCUDO_SUBSUMPTION_DEPTH — load-time RDFS closure (0=off)
+    subsumption_expand: (
+        bool  # SCUDO_SUBSUMPTION_EXPAND — 1-hop BM25 candidate expansion
+    )
+    taxonomy_source: str  # SCUDO_TAXONOMY_SOURCE — RDF path when loader=dcat
     # Opus-dense feature flag — see method docstring on from_env.
     # When True, find_similar_products delegates to
     # retrieval.multi_path_retrieve (Opus-judged dense scoring with the
@@ -158,6 +172,11 @@ class Settings:
     # BM25 + RRF path runs unchanged. Gated so the 86 smoke gates keep
     # exercising the legacy path until the new path is fully calibrated.
     use_opus_dense: bool  # SCUDO_USE_OPUS_DENSE — "1"/"true"/"yes" -> True
+    # M10 conceptual-enrichment backend — see enrichment.py. "off" (default)
+    # means extract_field_structure/classify_business_concept abstain with no
+    # AWS call, so smoke gates stay green without Bedrock creds. "opus" turns
+    # on the real Bedrock call.
+    enrichment_backend: str  # SCUDO_ENRICHMENT_BACKEND — "opus" | "off"
 
     @staticmethod
     def from_env() -> "Settings":
@@ -215,6 +234,40 @@ class Settings:
             "on",
         }
 
+        # M10 enrichment backend: case-insensitive; validated against
+        # allow-list; defaults to "off" so smoke gates stay green without
+        # Bedrock creds until an environment explicitly opts in.
+        enrichment_backend = (
+            os.getenv("SCUDO_ENRICHMENT_BACKEND", "off").strip().lower()
+        )
+        if enrichment_backend not in _ALLOWED_ENRICHMENT_BACKENDS:
+            raise ValueError(
+                f"SCUDO_ENRICHMENT_BACKEND={enrichment_backend!r} not in "
+                f"{_ALLOWED_ENRICHMENT_BACKENDS!r}"
+            )
+
+        dense_backend = os.getenv("SCUDO_DENSE_BACKEND", "jaro_winkler").strip().lower()
+        if dense_backend not in _ALLOWED_DENSE_BACKENDS:
+            raise ValueError(
+                f"SCUDO_DENSE_BACKEND={dense_backend!r} not in "
+                f"{_ALLOWED_DENSE_BACKENDS!r}"
+            )
+
+        taxonomy_text_enabled = (
+            os.getenv("SCUDO_TAXONOMY_TEXT", "").strip().lower() in _TRUTHY_ENV
+        )
+
+        taxonomy_text_shadow = (
+            os.getenv("SCUDO_TAXONOMY_TEXT_SHADOW", "").strip().lower() in _TRUTHY_ENV
+        )
+
+        subsumption_depth = int(os.getenv("SCUDO_SUBSUMPTION_DEPTH", "0"))
+        subsumption_expand = (
+            os.getenv("SCUDO_SUBSUMPTION_EXPAND", "").strip().lower() in _TRUTHY_ENV
+        )
+
+        taxonomy_source = os.getenv("SCUDO_TAXONOMY_SOURCE", "").strip()
+
         return Settings(
             store_backend=store_backend,
             falkordb_url=os.getenv("FALKORDB_URL", "falkordb://localhost:6379"),
@@ -232,8 +285,48 @@ class Settings:
             vendor_adapters=vendor_adapters,
             taxonomy_loader=taxonomy_loader,
             persist_target=persist_target,
+            dense_backend=dense_backend,
+            taxonomy_text_enabled=taxonomy_text_enabled,
+            taxonomy_text_shadow=taxonomy_text_shadow,
+            subsumption_depth=subsumption_depth,
+            subsumption_expand=subsumption_expand,
+            taxonomy_source=taxonomy_source,
             use_opus_dense=use_opus_dense,
+            enrichment_backend=enrichment_backend,
         )
+
+
+_TRUTHY_ENV = frozenset({"1", "true", "yes", "on"})
+
+
+def env_dense_backend() -> str:
+    """Live ``SCUDO_DENSE_BACKEND`` — re-reads env for smoke/tests."""
+    backend = os.getenv("SCUDO_DENSE_BACKEND", "jaro_winkler").strip().lower()
+    if backend not in _ALLOWED_DENSE_BACKENDS:
+        raise ValueError(
+            f"SCUDO_DENSE_BACKEND={backend!r} not in {_ALLOWED_DENSE_BACKENDS!r}"
+        )
+    return backend
+
+
+def env_use_opus_dense() -> bool:
+    """Live ``SCUDO_USE_OPUS_DENSE`` — re-reads env for smoke/tests."""
+    return os.getenv("SCUDO_USE_OPUS_DENSE", "").strip().lower() in _TRUTHY_ENV
+
+
+def env_taxonomy_text_enabled() -> bool:
+    """Live ``SCUDO_TAXONOMY_TEXT`` — re-reads env for smoke/tests."""
+    return os.getenv("SCUDO_TAXONOMY_TEXT", "").strip().lower() in _TRUTHY_ENV
+
+
+def env_taxonomy_text_shadow_enabled() -> bool:
+    """Live ``SCUDO_TAXONOMY_TEXT_SHADOW`` — re-reads env for smoke/tests."""
+    return os.getenv("SCUDO_TAXONOMY_TEXT_SHADOW", "").strip().lower() in _TRUTHY_ENV
+
+
+def env_subsumption_expand() -> bool:
+    """Live ``SCUDO_SUBSUMPTION_EXPAND`` — re-reads env for smoke/tests."""
+    return os.getenv("SCUDO_SUBSUMPTION_EXPAND", "").strip().lower() in _TRUTHY_ENV
 
 
 settings = Settings.from_env()

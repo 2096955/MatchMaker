@@ -14,6 +14,7 @@ import ReportDetail     from './pages/reports/ReportDetail'
 import IngestionConsole from './pages/ingestion/IngestionConsole'
 import CatalogueList    from './pages/catalogue/CatalogueList'
 import CatalogueDetail  from './pages/catalogue/CatalogueDetail'
+import MatchingTest     from './pages/matching/MatchingTest'
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/reports/:id"  element={<ReportDetail />} />
         <Route path="/catalogue"                   element={<CatalogueList />} />
         <Route path="/catalogue/:vendor/:ref"      element={<CatalogueDetail />} />
+        <Route path="/matching-test" element={<MatchingTest />} />
       </Routes>
     </Layout>
   )

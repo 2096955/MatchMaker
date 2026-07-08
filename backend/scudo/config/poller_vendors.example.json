@@ -1,0 +1,13 @@
+{
+  "vendors": [
+    {
+      "vendor": "stub",
+      "endpoint": "https://httpbin.org/json",
+      "pagination": "next",
+      "secret_id": "scudo/poller/stub",
+      "cadence": "cron(0 6 1,15 * ? *)",
+      "max_pages": 1000,
+      "enabled": false
+    }
+  ]
+}
