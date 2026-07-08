@@ -280,3 +280,26 @@ def ingest_bytes(
     emit("sink", persisted=len(frames), upserted=bool(store))
 
     return frames
+
+
+def ingest_url(
+    vendor: str,
+    url: str,
+    upsert: bool = True,
+    on_stage: Optional[StageCallback] = None,
+    **fetch_kwargs,
+) -> list[VendorProductRef]:
+    """Fetch a website URL server-side, synthesize ONE vendor-product row
+    from its title/text, and run it through the SAME real ingest_bytes
+    pipeline used for file uploads - no parallel ingestion path, no
+    fabricated success. ``fetch_kwargs`` forwards to
+    ``url_ingest.fetch_and_extract`` (e.g. a fake ``resolve``/``getter`` in
+    tests).
+    """
+    from .url_ingest import fetch_and_extract, synthesize_product_row
+
+    title, excerpt = fetch_and_extract(url, **fetch_kwargs)
+    row = synthesize_product_row(url, title, excerpt)
+    data = json.dumps([row]).encode("utf-8")
+    filename = f"{row['product_id']}.json"
+    return ingest_bytes(vendor, filename, data, upsert=upsert, on_stage=on_stage)

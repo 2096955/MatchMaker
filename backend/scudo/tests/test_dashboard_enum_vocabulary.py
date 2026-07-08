@@ -10,9 +10,6 @@ builder can never again emit types the dashboard throws away.
 
 from __future__ import annotations
 
-import json
-import os
-
 # Mirrors NodeType / EdgeType z.enum in
 # understand-anything-plugin/packages/core (schema version 1.0.0).
 DASHBOARD_NODE_TYPES = {
@@ -78,35 +75,59 @@ DASHBOARD_EDGE_TYPES = {
 }
 
 
-def _run_main_and_load() -> dict:
-    os.environ.setdefault("STORE_BACKEND", "memory")
-    os.environ.setdefault("FRAME_SOURCE", "mock")
+def test_rights_contract_node_kinds_map_into_dashboard_enum():
+    """The 5 new bottom-half ConceptualNodeKind entries (party/contract/
+    policy/duty/permission) must map to a real dashboard-closed type, same
+    as every top-half kind — proven directly against the mapping dict, since
+    no fixture data instantiates these kinds yet (this only tests the map
+    entries exist and are valid, not an end-to-end graph build)."""
+    from scudo.build_matching_graph import _CONCEPTUAL_NODE_TYPE
+    from scudo_mapping_mcp.models import ConceptualNodeKind
 
-    from scudo.build_matching_graph import main
+    for kind in (
+        ConceptualNodeKind.PARTY,
+        ConceptualNodeKind.CONTRACT,
+        ConceptualNodeKind.POLICY,
+        ConceptualNodeKind.DUTY,
+        ConceptualNodeKind.PERMISSION,
+    ):
+        assert kind.value in _CONCEPTUAL_NODE_TYPE, (
+            f"{kind.value} has no dashboard mapping"
+        )
+        assert _CONCEPTUAL_NODE_TYPE[kind.value] in DASHBOARD_NODE_TYPES
 
-    main()
-    fixture = os.path.join(
-        os.path.dirname(__file__), "..", "fixtures", "matching-graph.json"
-    )
-    with open(fixture, encoding="utf-8") as fh:
-        return json.load(fh)
+
+def test_rights_contract_edge_kinds_map_into_dashboard_enum():
+    from scudo.build_matching_graph import _CONCEPTUAL_EDGE_TYPE
+    from scudo_mapping_mcp.models import ConceptualEdgeKind
+
+    for kind in (
+        ConceptualEdgeKind.PARTY_ROLE,
+        ConceptualEdgeKind.GRANTS,
+        ConceptualEdgeKind.HAS_PERMISSION,
+        ConceptualEdgeKind.HAS_DUTY,
+    ):
+        assert kind.value in _CONCEPTUAL_EDGE_TYPE, (
+            f"{kind.value} has no dashboard mapping"
+        )
+        assert _CONCEPTUAL_EDGE_TYPE[kind.value] in DASHBOARD_EDGE_TYPES
 
 
-def test_all_node_types_within_dashboard_enum():
-    g = _run_main_and_load()
+def test_all_node_types_within_dashboard_enum(built_matching_graph):
+    g = built_matching_graph["graph"]
     bad = {n["type"] for n in g["nodes"]} - DASHBOARD_NODE_TYPES
     assert not bad, f"node types the dashboard would drop: {sorted(bad)}"
 
 
-def test_all_edge_types_within_dashboard_enum():
-    g = _run_main_and_load()
+def test_all_edge_types_within_dashboard_enum(built_matching_graph):
+    g = built_matching_graph["graph"]
     bad = {e["type"] for e in g["edges"]} - DASHBOARD_EDGE_TYPES
     assert not bad, f"edge types the dashboard would drop: {sorted(bad)}"
 
 
-def test_all_edge_endpoints_exist():
+def test_all_edge_endpoints_exist(built_matching_graph):
     """Edges referencing dropped/missing nodes also drop in the dashboard."""
-    g = _run_main_and_load()
+    g = built_matching_graph["graph"]
     node_ids = {n["id"] for n in g["nodes"]}
     dangling = [
         (e["source"], e["target"])
@@ -116,10 +137,10 @@ def test_all_edge_endpoints_exist():
     assert not dangling, f"edges with missing endpoints: {dangling}"
 
 
-def test_m10_conceptual_layer_survives_validation():
+def test_m10_conceptual_layer_survives_validation(built_matching_graph):
     """The M10 layer must reference only nodes that pass the enum gate —
     a 0-component layer card is the visible symptom of the drop."""
-    g = _run_main_and_load()
+    g = built_matching_graph["graph"]
     layers = {lyr["id"]: lyr for lyr in g["layers"]}
     m10 = layers.get("layer:m10-conceptual-enrichment")
     assert m10 is not None, "M10 conceptual enrichment layer missing"

@@ -256,6 +256,16 @@ python -m tests.test_auth                   # 8 auth gates
 
 No golden-set evaluation harness is wired up yet. The smoke suite verifies wiring and invariants, not retrieval quality.
 
+Separately, the Aurora agent memory, offline SkillOpt-Sleep tooling, rights/contract
+model, and the URL-ingest/Matching-Test-page work (see the sections below) are
+covered by hermetic `pytest` suites (no real AWS/network in any of them — Aurora
+calls, the `skillopt-sleep` CLI, and outbound URL fetches are all injected/faked).
+Run from `backend/`:
+
+```bash
+python -m pytest scudo/tests/ scudo_mapping_mcp/tests/ tests/ -v
+```
+
 ---
 
 ## Run locally
@@ -422,6 +432,109 @@ a hardening follow-up — see TODO(aws) below.
 
 ---
 
+## Matching Test page (`frontend/`) — file + website URL ingest, provider selection
+
+A second, narrower demo surface lives in the editable `frontend/` (React 18)
+app itself, at **`/matching-test`** — built to prove the UI can drive the real
+matching path for a file *and* a website URL, with live provider selection,
+against one locally running backend (`STORE_BACKEND=memory`, scripted agent
+backend — zero real LLM/AWS calls unless `SCUDO_AGENT_BACKEND` is set).
+
+- **File upload** → `POST /api/mapping/ingest/stream` (the same real,
+  SSE-streaming ETL route the dashboard uses — real stage events, not a
+  simulation).
+- **Website URL ingest** → `POST /api/mapping/ingest/url` (new). Fetches the
+  URL **server-side**, SSRF-guarded (rejects non-http(s) schemes and any
+  resolved loopback/private/link-local/reserved/multicast address —
+  `scudo_mapping_mcp/url_ingest.py`), extracts the page `<title>` + a
+  2000-character text excerpt via `lxml`, synthesizes ONE product row, and
+  feeds it through the **same, unmodified** `ingest_bytes()` pipeline used
+  for file uploads — no parallel ingestion path. `SCUDO_URL_INGEST_ALLOW_LOOPBACK=1`
+  is a narrow, off-by-default escape hatch (loopback only — private/
+  link-local/reserved addresses stay blocked unconditionally) that exists
+  purely so a live E2E/demo run can target a local fixture server instead of
+  the real internet; never set it in a deployed environment.
+- **Provider selection** → the dropdown is populated live from
+  `GET /api/mapping/agent/describe`. Bedrock is always shown enabled; Azure
+  is shown **disabled** whenever the 3 required Azure OpenAI env vars aren't
+  all set — proving the not-configured contract honestly in the UI rather
+  than letting an operator pick a path already known to fail.
+- **Run match** → `POST /api/mapping/agent/run` with the selected
+  `agent_provider`, rendering confidence/provenance/provider and a distinct
+  error state on failure.
+
+Live-verified via a Playwright E2E suite
+(`backend/tests/e2e/test_matching_ui_e2e.py`, run through
+`infra/e2e_smoke.sh`) that starts the real backend + frontend, drives both
+this page and the dashboard bundle, and tears both down — see that script for
+exact ports (`BACKEND_PORT`/`FRONTEND_PORT`, defaulting to 5050/3010 to dodge
+two machine-specific local port conflicts encountered while building this:
+macOS's AirPlay Receiver on 5000, and an unrelated process on 3000).
+
+---
+
+## Aurora agent memory + SkillOpt-Sleep (offline, outside the Lambda)
+
+The Orchestrator/Lambda pipeline's CONSULT/DISTILL memory (precedents,
+promoted rules, and a versioned matching **skill document**) is backed by one
+Aurora PostgreSQL table, `scudo.agent_memory`, via the RDS Data API
+(`backend/scudo/aurora_store.py`/`aurora_memory.py`). Reads are fail-open
+(a missing/unreachable Aurora is advisory, never blocks a mapping request);
+writes are fail-loud.
+
+**Required env vars** (same three `aurora_store._execute` already requires
+for every other Aurora write in this codebase):
+
+```bash
+export SCUDO_AURORA_CLUSTER_ARN=arn:aws:rds:...
+export SCUDO_AURORA_SECRET_ARN=arn:aws:secretsmanager:...
+export SCUDO_AURORA_DATABASE_NAME=scudo
+```
+
+**Diagnostics** (`backend/scudo/scripts/aurora_smoke.py`) — read-only by
+default:
+
+```bash
+python -m scudo.scripts.aurora_smoke                  # SELECT 1 FROM scudo.agent_memory LIMIT 1
+python -m scudo.scripts.aurora_smoke --write-smoke-test  # + one throwaway insert/read/delete round-trip
+```
+
+Skips clearly (exit `77`, the conventional "test skipped" code) when the env
+vars above are absent — the expected state for a local/CI run without Aurora
+credentials, not a diagnostic failure.
+
+**Offline SkillOpt-Sleep cycle** (`backend/scudo/scripts/run_sleep_cycle_job.py`)
+— harvest → mine → evaluate → gate → promote, against real `aurora_memory`,
+**dry-run by default**:
+
+```bash
+python -m scudo.scripts.run_sleep_cycle_job            # dry-run: reports the gate decision, writes nothing
+python -m scudo.scripts.run_sleep_cycle_job --apply     # actually promotes if the gate accepts
+```
+
+Neither script is ever imported by `lambda_handler.py` — verified by a
+subprocess-based test per module (a grep of import lines is not sufficient
+against transitive imports; this bit us once during this work and is now
+a permanent regression test).
+
+**Be honest about SkillOpt itself**: microsoft/SkillOpt's real CLI
+(`skillopt-sleep`, verified directly from source — see
+`backend/scudo/skillopt_adapter.py`'s docstring for the exact verified flags/
+schemas) is wired as far as safely possible without inventing anything. The
+default optimizer/evaluator seam (`skillopt_sleep_runner.py`) and the CLI
+adapter both **fail clearly** (a typed error, not a silent no-op or a fake
+result) when the `skillopt-sleep` binary isn't installed. Two things remain
+genuinely open, not glossed over: whether SCUDO's vendor-mapping outcomes are
+a meaningfully *scorable* signal for SkillOpt-Sleep's judge/replay machinery
+is a domain-fit question, not a technical one; and `ContentDeliveryModel`
+(the rights/contract model's delivery-channel enum) is **deliberately
+provisional** — only 3 of the ~11 reported values are confirmed from source,
+and a test-side citation guard (`test_rights_contract_model.py`) fails loudly
+if a future value is ever added without a documented source, so the enum
+cannot silently grow by guesswork.
+
+---
+
 ## Key invariants
 
 | # | Invariant | Where enforced |
@@ -450,6 +563,9 @@ Be honest. Engineering, not marketing.
 - **Aurora, Neptune, and OpenSearch are not created by the SAM stack default.** The stack exposes endpoint/ARN seams and provisions the event backbone. Create or import the managed stores explicitly before switching those parameters away from empty strings.
 - **No production secret rotation.** `VERDICT_SIGNING_KEY` is dev-only; KMS-backed rotation hooks are stubbed.
 - **Q1 (validations as candidate-set filter) is the next matching-ladder code task** — validations currently gate the single best candidate, not the full surviving set.
+- **`ContentDeliveryModel` is deliberately incomplete.** Only 3 of the ~11 reported values are confirmed from source; the remaining ones are not guessed, and a test-side citation guard blocks silently adding one without a documented source. See "Aurora agent memory + SkillOpt-Sleep" above.
+- **SkillOpt-Sleep domain-fit is unverified, not assumed.** The real `skillopt-sleep` CLI is wired via a genuine adapter, but whether SCUDO's mapping trajectories are a scorable training signal for its judge/replay machinery has not been tested against a real run — that's a domain question, separate from the (verified) CLI wiring itself.
+- **No EventBridge/cron infra for the nightly sleep cycle.** `run_sleep_cycle_job.py` exists and is tested; actually scheduling it in AWS is documented in the script's own docstring but not deployed.
 
 ### Upload & Test / AWS deploy — status
 

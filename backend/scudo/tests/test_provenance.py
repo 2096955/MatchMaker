@@ -3,26 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 
 
-def _run_main_and_load() -> dict:
-    os.environ.setdefault("STORE_BACKEND", "memory")
-    os.environ.setdefault("FRAME_SOURCE", "mock")
-
-    from scudo.build_matching_graph import main
-
-    main()
-    fixture = os.path.join(
-        os.path.dirname(__file__), "..", "fixtures", "matching-graph.json"
-    )
-    with open(fixture, encoding="utf-8") as fh:
-        return json.load(fh)
-
-
-def test_matching_graph_is_knowledge_graph_schema():
+def test_matching_graph_is_knowledge_graph_schema(built_matching_graph):
     """KnowledgeGraph top-level contract: version, kind, project, layers, tour."""
-    g = _run_main_and_load()
+    g = built_matching_graph["graph"]
 
     assert g.get("version") == "1.0.0", "version must be 1.0.0"
     assert g.get("kind") == "codebase", "kind must be codebase"
@@ -68,7 +53,7 @@ def test_matching_graph_is_knowledge_graph_schema():
     assert "marketing" not in blob, "Marketing domain still present in KnowledgeGraph"
 
 
-def test_vendor_nodes_use_canonical_mds_iri():
+def test_vendor_nodes_use_canonical_mds_iri(built_matching_graph):
     """Vendor product node ids must use the canonical mds.<vendor>:<uuid5>
     scheme (the runtime source of truth), not a hand-rolled vendor:<slug>:<ref>.
     The human-readable product ref stays recoverable from name/summary.
@@ -76,7 +61,7 @@ def test_vendor_nodes_use_canonical_mds_iri():
     import re
     import uuid
 
-    g = _run_main_and_load()
+    g = built_matching_graph["graph"]
 
     vendor_nodes = [n for n in g["nodes"] if "vendor" in (n.get("tags") or [])]
     assert vendor_nodes, "expected at least one vendor product node"
@@ -99,9 +84,9 @@ def test_vendor_nodes_use_canonical_mds_iri():
         assert ref in blob, f"product ref {ref} lost from graph text"
 
 
-def test_every_node_is_labelled_and_expositional():
+def test_every_node_is_labelled_and_expositional(built_matching_graph):
     """Every node has a non-empty summary, correct IRI scheme, no Marketing."""
-    g = _run_main_and_load()
+    g = built_matching_graph["graph"]
 
     for n in g["nodes"]:
         assert n.get("summary"), f"{n['id']} missing expositional summary"
@@ -124,10 +109,7 @@ def test_every_node_is_labelled_and_expositional():
             assert "weight" in data, f"similar_to edge missing data.weight: {e}"
 
     # meta.json has correct provenance
-    meta_path = os.path.join(os.path.dirname(__file__), "..", "fixtures", "meta.json")
-    assert os.path.exists(meta_path), "meta.json not written"
-    with open(meta_path, encoding="utf-8") as fh:
-        meta = json.load(fh)
+    meta = built_matching_graph["meta"]
     assert meta.get("dataProvenance") == "synthetic", (
         "meta.json dataProvenance must be synthetic"
     )

@@ -45,7 +45,11 @@ from scudo_mapping_mcp.enrichment import (
 from scudo_mapping_mcp.feedback import apply_decision
 from scudo_mapping_mcp.frames import FrameDataError, _read_vendor_frame, all_frames
 from scudo_mapping_mcp.hydrate import HydrationError, hydrate
-from scudo_mapping_mcp.ingest import ingest_bytes, seed_conceptual_layer, seed_taxonomy
+from scudo_mapping_mcp.ingest import (
+    ingest_bytes,
+    seed_conceptual_layer,
+    seed_taxonomy,
+)
 from scudo_mapping_mcp.matching import map_vendor_product
 from scudo_mapping_mcp.models import (
     ConceptualGraph,
@@ -1201,6 +1205,74 @@ def ingest_vendor_file_stream():
             "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
         },
+    )
+
+
+@mapping_bp.post("/mapping/ingest/url")
+def ingest_vendor_url():
+    """Fetch a website URL server-side, synthesize a single vendor-product
+    row from its title/text, and run it through the SAME real ingest_bytes
+    pipeline used for file uploads (see ``ingest_url`` in
+    ``scudo_mapping_mcp/ingest.py``).
+
+    JSON body:
+        vendor (str): One of ``PRIORITY_VENDORS``.
+        url (str):    The website URL to fetch (http/https only; SSRF-guarded).
+
+    Returns:
+        flask.Response: JSON ``{ingested: int, products: [{vendor,
+            product_id, name}]}`` on success — same shape as
+            ``POST /mapping/ingest``.
+    """
+    import requests
+
+    from scudo_mapping_mcp.ingest import ingest_url
+
+    body = request.get_json(silent=True) or {}
+    vendor = (body.get("vendor") or "").strip()
+    url = (body.get("url") or "").strip()
+    if not vendor:
+        return jsonify({"error": "vendor is required"}), 400
+    err = _validate_vendor(vendor)
+    if err:
+        return jsonify({"error": err}), 400
+    if not url:
+        return jsonify({"error": "url is required"}), 400
+
+    try:
+        frames = ingest_url(vendor, url, upsert=True)
+    except ValueError as e:
+        # Covers UrlIngestError (SSRF/scheme/DNS rejection) — a ValueError
+        # subclass, same 400-mapping convention as ingest_vendor_file's
+        # "except (UnicodeDecodeError, ValueError)".
+        ui_logger.warning(
+            "Vendor URL ingest rejected", vendor=vendor, url=url, reason=str(e)
+        )
+        return jsonify({"error": str(e)}), 400
+    except requests.exceptions.RequestException as e:
+        ui_logger.error(
+            "Vendor URL fetch failed",
+            vendor=vendor,
+            url=url,
+            error=f"{type(e).__name__}: {e}",
+        )
+        return jsonify({"error": f"failed to fetch URL: {e}"}), 502
+
+    ui_logger.info(
+        "Vendor URL ingested",
+        principal=g.principal.user_id,
+        vendor=vendor,
+        url=url,
+        products=len(frames),
+    )
+    return jsonify(
+        {
+            "ingested": len(frames),
+            "products": [
+                {"vendor": fr.vendor, "product_id": fr.product_id, "name": fr.name}
+                for fr in frames
+            ],
+        }
     )
 
 

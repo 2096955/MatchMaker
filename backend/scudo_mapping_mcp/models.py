@@ -322,6 +322,41 @@ class ConceptualNodeKind(str, Enum):
     FIELD = "field"
     BUSINESS_DATA_ELEMENT = "business_data_element"
 
+    # ── Rights/contract "bottom half" (PROVISIONAL v1, 2026-07-07) ──────────
+    # The DCAT/catalogue "top half" above is modelled 1:1 onto the
+    # CatalogueOntology transcript. This half has no source transcript to
+    # mirror yet — it is grounded instead in the public, stable ODRL 2.2 spec
+    # structure (Policy contains Permission contains Duty; Party is
+    # assigner/assignee of a Policy), which rights_odrl.py already partially
+    # implements as an untyped evaluator. See
+    # docs/superpowers/specs/2026-07-07-aurora-memory-rights-model-zone-tool-design.md.
+    PARTY = "party"
+    CONTRACT = "contract"
+    POLICY = "policy"
+    DUTY = "duty"
+    PERMISSION = "permission"
+
+
+class ContentDeliveryModel(str, Enum):
+    """PROVISIONAL, INCOMPLETE — only 3 of the reported ~11 values are
+    confirmed from source. Do not treat as exhaustive; the remaining values
+    are pending the real target ContentDeliveryModel enum (see the design
+    spec referenced above). Inventing the rest would bake wrong data into the
+    codebase, so this deliberately stops at what's verified.
+
+    TODO(content-delivery-model): add the remaining ~8 reported values ONLY
+    once a real, citable source for them is found (re-searched twice this
+    session — 2026-07-07 and 2026-07-08 — nothing found either time). Every
+    member added here MUST also get an entry in
+    `test_rights_contract_model.py`'s `_CONTENT_DELIVERY_MODEL_SOURCES` map,
+    which fails the test suite loudly if a member is missing one — that
+    guard is what makes this TODO structurally enforced, not just a comment.
+    """
+
+    DISTRIBUTION_SERVICE = "distributionService"
+    REDISTRIBUTION_SERVICE = "redistributionService"
+    DISPLAY_SERVICE = "displayService"
+
 
 class ConceptualEdgeKind(str, Enum):
     """Closed edge-vocabulary (I1 / I6) — mirrors named predicates in the
@@ -338,6 +373,13 @@ class ConceptualEdgeKind(str, Enum):
     IN_SERIES = "in_series"  # MarketingDataset -> DistributedDataset
     CONTAINS = "contains"  # generic parent -> child (FieldGroup -> Field)
     CLASSIFIED_AS = "classified_as"  # ... -> BusinessConceptElement / DataTaxonomy
+
+    # ── Rights/contract "bottom half" (PROVISIONAL v1, 2026-07-07) ──────────
+    # Grounded in ODRL 2.2's real structure, not guessed — see ConceptualNodeKind.
+    PARTY_ROLE = "party_role"  # Party -> Policy (assigner/assignee)
+    GRANTS = "grants"  # Contract -> Policy
+    HAS_PERMISSION = "has_permission"  # Policy -> Permission
+    HAS_DUTY = "has_duty"  # Permission -> Duty
 
 
 def conceptual_iri(concept_iri: str, kind: "ConceptualNodeKind", local_id: str) -> str:

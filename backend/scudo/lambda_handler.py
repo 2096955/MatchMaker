@@ -38,6 +38,7 @@ from uuid import uuid4
 from strands import Agent
 from strands.models import BedrockModel
 
+from . import aurora_memory
 from .aws_resources import (
     env_resource_summary,
     put_audit_record,
@@ -52,6 +53,8 @@ from .schemas import (
     CandidateNode,
     ConflictRecord,
     IntakeRequest,
+    MappingObject,
+    Outcome,
     PrecedentMapping,
     Route,
     SCHEMA_VERSION,
@@ -204,17 +207,28 @@ def _build_bundle_assembler(payload: dict):
     candidates = [CandidateNode(**c) for c in candidate_dicts]
 
     def _assemble(request: IntakeRequest, route: Route) -> BriefBundle:
+        # Synthesise a deterministic vendor IRI from (vendor, ref) for the bundle.
+        from uuid import uuid5, NAMESPACE_URL
+
+        ns = uuid5(NAMESPACE_URL, "https://mds.jpmc.internal/catalogue")
+        vendor_iri = f"mds.{request.vendor}:{uuid5(ns, f'{request.vendor}:{request.vendor_product_ref}')}"
+
+        # CONSULT — real Aurora-backed precedent (scudo.agent_memory), not the
+        # fabricated canned mapping this used to invent whenever the caller
+        # asserted has_precedent=True. has_precedent still independently
+        # drives Route selection (orchestrator.py) — untouched here; this only
+        # decides what the bundle's `precedent` PAYLOAD actually contains.
+        # Fails open (aurora_memory.consult_priors never raises).
+        priors = aurora_memory.consult_priors(
+            vendor=request.vendor, vendor_product_ref=request.vendor_product_ref
+        )
         precedent = None
-        if request.has_precedent:
+        if priors.precedent:
             precedent = PrecedentMapping(
-                source_iri=f"mds.{request.vendor}:placeholder",
-                target_iri=(
-                    candidates[0].iri
-                    if candidates
-                    else "jpmorgan:data:cdao:EquityResearch"
-                ),
-                rationale="prior accepted mapping",
-                confidence=0.88,
+                source_iri=vendor_iri,
+                target_iri=priors.precedent["target_iri"],
+                rationale=priors.precedent.get("rationale"),
+                confidence=priors.precedent["confidence"],
             )
         conflicts = []
         if request.has_conflict:
@@ -226,11 +240,12 @@ def _build_bundle_assembler(payload: dict):
                     note="competing equivalent",
                 )
             )
-        # Synthesise a deterministic vendor IRI from (vendor, ref) for the bundle.
-        from uuid import uuid5, NAMESPACE_URL
-
-        ns = uuid5(NAMESPACE_URL, "https://mds.jpmc.internal/catalogue")
-        vendor_iri = f"mds.{request.vendor}:{uuid5(ns, f'{request.vendor}:{request.vendor_product_ref}')}"
+        # Part D — current best matching skill (SkillOpt-style), if one has
+        # ever been promoted. Same CONSULT/fail-open pattern as precedent
+        # above; None until skillopt_sleep_runner.py's offline gate promotes
+        # a candidate. mapping_prompt() surfaces this prominently when set.
+        best_skill = aurora_memory.consult_best_skill()
+        skill_hint = best_skill["skill_text"] if best_skill else None
         return BriefBundle(
             request=request,
             route=route,
@@ -244,6 +259,7 @@ def _build_bundle_assembler(payload: dict):
             candidates=candidates,
             precedent=precedent,
             conflicts=conflicts,
+            skill_hint=skill_hint,
             assembled_at=datetime.now(tz=timezone.utc),
             bundle_ref=f"lambda-{uuid4()}",
             ontology_snapshot=_ONTOLOGY_SNAPSHOT,
@@ -251,6 +267,40 @@ def _build_bundle_assembler(payload: dict):
         )
 
     return _assemble
+
+
+def _record_precedent_if_published(
+    obj: MappingObject, *, vendor: str, vendor_product_ref: str
+) -> None:
+    """DISTILL — write a durable precedent on a verified auto-pass.
+
+    Replaces InMemoryPublishSink()'s behaviour of evaporating every outcome at
+    the end of the Lambda invocation. Only PUBLISHED outcomes are already-
+    verified (verifier >= 16, confidence >= floor — orchestrator.py's publish
+    gate) so no extra verification is needed here. Fails loud
+    (aurora_memory.record_verified_precedent never swallows an error) — a
+    lost precedent write defeats the entire point of this feature.
+    """
+    if obj.outcome != Outcome.PUBLISHED or obj.mapping_result is None:
+        return
+    aurora_memory.record_verified_precedent(
+        vendor=vendor,
+        vendor_product_ref=vendor_product_ref,
+        target_iri=obj.mapping_result.proposed_target_iri,
+        confidence=obj.mapping_result.confidence,
+        rationale=obj.mapping_result.rationale,
+        source_outcome_ref=obj.bundle_ref,
+    )
+    # Part D — SkillOpt-style rollout evidence for the offline harvest step
+    # (skillopt_sleep_runner.py), alongside the precedent write above.
+    aurora_memory.record_trajectory(
+        bundle_ref=obj.bundle_ref,
+        vendor=vendor,
+        vendor_product_ref=vendor_product_ref,
+        target_iri=obj.mapping_result.proposed_target_iri,
+        confidence=obj.mapping_result.confidence,
+        rationale=obj.mapping_result.rationale,
+    )
 
 
 class AzureOpenAIShim:
@@ -543,6 +593,13 @@ def handler(event: dict, context: Any) -> dict:
         put_eventbridge_event(
             detail_type="MappingCompleted",
             detail={"event_id": event_id, **audit_payload},
+        )
+        # DISTILL — durable Aurora precedent for a verified auto-pass, replacing
+        # InMemoryPublishSink's evaporate-on-return behaviour.
+        _record_precedent_if_published(
+            obj,
+            vendor=payload["vendor"],
+            vendor_product_ref=payload["vendor_product_ref"],
         )
     if obj.hitl_ticket:
         put_review_record(ticket=obj.hitl_ticket, payload=audit_payload)

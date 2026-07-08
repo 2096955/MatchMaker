@@ -557,6 +557,54 @@ class BedrockMappingAgent:
         yield AgentEvent(type="done")
 
 
+def _system_context_text() -> str:
+    """Short, static description of the 5-zone architecture + the two
+    conceptual-enrichment ontology halves, so an agent can recognise which
+    domain a field/term belongs to and adjust its reasoning/tool-calls.
+
+    Delivered two ways (asymmetric by design, see the design spec): a real
+    callable tool for BedrockMappingAgent's Strands tool-calling loop, and
+    pre-injected prompt text for AzureMappingAgent's single-shot call (which
+    has no tool loop to hang a callable off of). Same text either way.
+
+    The two entity lists below are DERIVED from ConceptualNodeKind, not hand-
+    typed — an earlier hand-maintained version silently dropped 4 of 13
+    catalogue-half members and renamed one (caught by adversarial review).
+    ConceptualNodeKind/ConceptualEdgeKind define the catalogue/DCAT half
+    first and the rights/contract half second (see their source comments),
+    so slicing by the known counts reproduces exactly that split — if either
+    enum is ever reordered this will need revisiting, but it can no longer
+    silently drift out of sync with a hand-typed string.
+    """
+    from .models import ConceptualNodeKind
+
+    def _label(kind: ConceptualNodeKind) -> str:
+        return kind.value.replace("_", " ").title().replace(" ", "")
+
+    all_kinds = list(ConceptualNodeKind)
+    catalogue_kinds = ", ".join(_label(k) for k in all_kinds[:13])
+    rights_kinds = ", ".join(_label(k) for k in all_kinds[13:])
+
+    return (
+        "SYSTEM CONTEXT — SCUDO 5-zone architecture:\n"
+        "  Zone 1 Ingress -> Zone 2 ETL -> Zone 3 Matching Engine (you are "
+        "here) -> Zone 4 Orchestration (Bedrock/Azure specialist+verifier) "
+        "-> Zone 5 Persistence + HITL (Aurora PostgreSQL).\n\n"
+        "Conceptual enrichment has two halves. The CATALOGUE / DCAT half "
+        f"(already modelled: {catalogue_kinds}) describes WHAT a data asset "
+        "is and how it's delivered. The RIGHTS / CONTRACT half "
+        f"({rights_kinds}) describes WHO may use it and under what terms — "
+        "a separate domain, grounded in ODRL 2.2 (Policy contains Permission "
+        "contains Duty; Party is assigner/assignee of a Policy). If a "
+        "field/term is about licensing, legal basis, redistribution rights, "
+        "or delivery-model terms rather than the data's shape or taxonomy "
+        "placement, it belongs to the rights/contract half — recommend "
+        "NEEDS_REVIEW with that noted in your rationale rather than forcing "
+        "a catalogue-side CDAO node; the deterministic matcher does not yet "
+        "gate on this half."
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Strands integration helpers (filled in when Bedrock access lands)
 # ──────────────────────────────────────────────────────────────────────────
@@ -645,11 +693,19 @@ def _strands_tools_for_mapping(
             )
         )
 
+    @tool
+    def describe_system_context() -> str:
+        """Describe the 5-zone architecture and the two conceptual-enrichment
+        ontology halves (catalogue/DCAT vs rights/contract), so you can
+        recognise which domain a field/term belongs to."""
+        return _system_context_text()
+
     return [
         find_similar_products,
         get_taxonomy_node,
         get_ontology_neighbourhood,
         map_vendor_product_tool,
+        describe_system_context,
     ]
 
 
@@ -1103,6 +1159,7 @@ class AzureMappingAgent:
             or "  (none)"
         )
         prompt = (
+            f"{_system_context_text()}\n\n"
             f"Vendor product:\n"
             f"  vendor       = {ref.vendor}\n"
             f"  product_id   = {ref.product_id}\n"

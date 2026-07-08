@@ -6,6 +6,7 @@ const NAV = [
     { to: '/catalogue',  icon: '📚', label: 'Vendor Catalogue'   },
     { to: '/datasets',   icon: '📦', label: 'Datasets'            },
     { to: '/ingestion',  icon: '⚡', label: 'Ingestion Console'   },
+    { to: '/matching-test', icon: '🧪', label: 'Matching Test' },
   ]},
   { section: 'Reports', links: [
     { to: '/reports', icon: '📋', label: 'Ingestion Reports' },

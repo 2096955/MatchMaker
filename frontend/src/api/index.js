@@ -110,6 +110,36 @@ export const publishMappingToIfusion = ({ mappingId, vendor, productId }) =>
 export const listRecentIfusionPublishes = (limit = 20) =>
   api.get('/ifusion/recent', { params: { limit } })
 
+// Shared SSE-frame consumer for both /mapping/agent/run and
+// /mapping/ingest/stream - both stream `data: {...}\n\n` frames the same
+// way; this is the one place that parses that wire format.
+async function _consumeSSE(resp, onEvent) {
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}))
+    onEvent({ type: 'error', error: body.error || `HTTP ${resp.status}` })
+    return
+  }
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const frames = buf.split('\n\n')
+    buf = frames.pop() // keep the partial frame
+    for (const frame of frames) {
+      const line = frame.split('\n').find(l => l.startsWith('data: '))
+      if (!line) continue
+      try {
+        onEvent(JSON.parse(line.slice(6)))
+      } catch {
+        // Ignore malformed event; the next frame is likely valid.
+      }
+    }
+  }
+}
+
 // runAgentStream streams Server-Sent Events from POST /mapping/agent/run.
 // EventSource doesn't support POST, so we use fetch + ReadableStream.
 // onEvent is called with each parsed AgentEvent (type + payload fields).
@@ -130,30 +160,7 @@ export const runAgentStream = ({ vendor, productId, name, description, agentProv
         }),
         signal: controller.signal,
       })
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}))
-        onEvent({ type: 'error', error: body.error || `HTTP ${resp.status}` })
-        return
-      }
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const frames = buf.split('\n\n')
-        buf = frames.pop() // keep the partial frame
-        for (const frame of frames) {
-          const line = frame.split('\n').find(l => l.startsWith('data: '))
-          if (!line) continue
-          try {
-            onEvent(JSON.parse(line.slice(6)))
-          } catch {
-            // Ignore malformed event; the next frame is likely valid.
-          }
-        }
-      }
+      await _consumeSSE(resp, onEvent)
     } catch (err) {
       if (err.name !== 'AbortError') {
         onEvent({ type: 'error', error: err.message || String(err) })
@@ -162,3 +169,35 @@ export const runAgentStream = ({ vendor, productId, name, description, agentProv
   })()
   return () => controller.abort()
 }
+
+// ingestMappingFileStream streams Server-Sent Events from POST
+// /mapping/ingest/stream (multipart vendor + file) - same wire format and
+// consumption helper as runAgentStream above, so the UI can show real ETL
+// stage progress instead of an instant fake success.
+export const ingestMappingFileStream = ({ vendor, file }, onEvent) => {
+  const controller = new AbortController()
+  ;(async () => {
+    try {
+      const form = new FormData()
+      form.append('vendor', vendor)
+      form.append('file', file)
+      const resp = await fetch('/api/mapping/ingest/stream', {
+        method: 'POST',
+        body: form,
+        signal: controller.signal,
+      })
+      await _consumeSSE(resp, onEvent)
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        onEvent({ type: 'error', error: err.message || String(err) })
+      }
+    }
+  })()
+  return () => controller.abort()
+}
+
+// ingestMappingUrl posts a website URL for server-side fetch + ingestion
+// (POST /mapping/ingest/url). Not streamed - a single JSON response, same
+// shape as ingestMappingFile above.
+export const ingestMappingUrl = (vendor, url) =>
+  api.post('/mapping/ingest/url', { vendor, url })

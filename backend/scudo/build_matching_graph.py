@@ -301,6 +301,13 @@ _CONCEPTUAL_NODE_TYPE: dict[str, str] = {
     "field_group": "schema",
     "field": "entity",
     "business_data_element": "concept",
+    # Rights/contract "bottom half" (PROVISIONAL v1, 2026-07-07) — see
+    # scudo_mapping_mcp/models.py's ConceptualNodeKind comment for grounding.
+    "party": "entity",
+    "contract": "document",
+    "policy": "config",
+    "duty": "step",
+    "permission": "claim",
 }
 
 _CONCEPTUAL_EDGE_TYPE: dict[str, str] = {
@@ -311,6 +318,11 @@ _CONCEPTUAL_EDGE_TYPE: dict[str, str] = {
     "in_series": "related",
     "contains": "contains",
     "classified_as": "categorized_under",
+    # Rights/contract "bottom half" (PROVISIONAL v1, 2026-07-07)
+    "party_role": "related",
+    "grants": "related",
+    "has_permission": "contains",
+    "has_duty": "contains",
 }
 
 

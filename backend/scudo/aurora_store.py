@@ -199,6 +199,14 @@ def ensure_schema() -> None:
           fields jsonb
         )
         """,
+        """
+        create table if not exists scudo.agent_memory (
+          memory_key text primary key,
+          memory_type text,
+          updated_at_ms bigint,
+          payload jsonb
+        )
+        """,
     ]
     for sql in statements:
         _execute(sql, [])

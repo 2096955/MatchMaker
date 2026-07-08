@@ -80,6 +80,26 @@ app.register_blueprint(ifusion_bp, url_prefix="/api")
 app.register_blueprint(ingestion_mock_bp, url_prefix="/api")
 app.register_blueprint(visibility_bp, url_prefix="/api")
 
+# Off-by-default local-dev convenience: serve the vendored, READ-ONLY
+# dashboard-dist/ bundle same-origin so its relative /api/* fetches
+# (confirmed empty base URL in the bundle) reach this same Flask process.
+# Unset in every deployed environment (the SPA is served via CloudFront
+# there) - this changes NOTHING when SCUDO_SERVE_DASHBOARD_DIST is unset.
+if os.getenv("SCUDO_SERVE_DASHBOARD_DIST"):
+    from flask import send_from_directory
+
+    _DASHBOARD_DIST_DIR = os.path.join(
+        os.path.dirname(__file__), "..", "dashboard-dist"
+    )
+
+    @app.get("/demo/")
+    def _serve_dashboard_dist_index():
+        return send_from_directory(_DASHBOARD_DIST_DIR, "index.html")
+
+    @app.get("/demo/<path:filename>")
+    def _serve_dashboard_dist_asset(filename):
+        return send_from_directory(_DASHBOARD_DIST_DIR, filename)
+
 
 @app.get("/healthz")
 def _healthz():
