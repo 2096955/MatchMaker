@@ -474,6 +474,9 @@ Switching to Neptune locally is not supported — Neptune is reachable only from
 ## Deploy to AWS cloudboost account
 
 Current connected account: `954976331678` (`cb4115669a-genaipocs-aw`) in `us-east-1`.
+There is a **second, separate live deployment** in a different AWS account —
+see [Second live deployment](#second-live-deployment-account-426271381846-us-east-1)
+below. The two do not share any infrastructure; neither promotes to the other.
 
 > **Operational runbooks** (CloudShell, for an operator with AWS creds — the
 > local repo has none):
@@ -516,6 +519,36 @@ existing cluster; the stack does not create one). The other cost-bearing always-
 are optional seams, exposed as parameters and empty by default: `NeptuneSparqlEndpoint`
 and `OpenSearchEndpoint`. Pass existing endpoints during deploy when those managed stores
 are ready.
+
+### Second live deployment (account `426271381846`, us-east-1)
+
+A separate AWS account also runs the full stack at the same deployed commit
+(`848f104`) — independent infrastructure, not connected to the `954976331678`
+deployment above and not a promotion pipeline between them. Built and deployed
+from AWS CloudShell (`/home/cloudshell-user/matchmaker-deploys/`), the same
+no-local-creds pattern as the primary account.
+
+- **CloudFront:** `https://d2im563be0sl1r.cloudfront.net` (distribution `E3FLKLK9JY9832`)
+- **S3 (frontend):** `scudo-poc-frontend-426271381846`
+- **ECR:** `scudo-poc-console-backend` (tags `848f104`, `latest`)
+- **Stacks:** `scudo-poc-net` (`backend/scudo/network-falkordb.yaml`),
+  `scudo-poc-data` (`backend/scudo/data-platform.yaml`), `scudo-poc-foundation`
+  (`infra/scudo-poc-foundation.yaml`), `scudo-poc` (`infra/scudo-poc-app.yaml`),
+  `scudo-poc-frontend` (`infra/scudo-poc-frontend.yaml`)
+
+Live paths: root React app at `/`, Matching Test at `/matching-test`, dashboard
+demo at `/demo/`, health at `/healthz`, provider info at
+`/api/mapping/agent/describe`.
+
+Build/publish steps run from CloudShell: backend image built from
+`backend/Dockerfile` and pushed to ECR; `frontend/` built with
+`npm ci && npm run build` and synced to the S3 bucket root; `dashboard-dist/`
+synced to `s3://scudo-poc-frontend-426271381846/demo/`, with an explicit
+`demo/` object key written from `dashboard-dist/index.html` so `/demo/` serves
+the dashboard instead of falling through to the root SPA.
+
+See [Second deployment — status](#second-deployment-426271381846--status)
+below for smoke results and known gaps.
 
 ### Legacy ECS dev sandbox
 
@@ -744,7 +777,7 @@ Be honest. Engineering, not marketing.
 - **`NeptuneStore.find_similar_products` is a placeholder.** It returns every taxonomy node with `similarity=0.0`. The production cutover requires Neptune Analytics or a Bedrock-backed vector search; both are M9 work. Until then, do not run rung 3 against Neptune in any meaningful test.
 - **The dense arm is not dense.** `falkordb_store.py` uses Jaro-Winkler as a stand-in for vector similarity. The PASS ≥0.80 / BORDERLINE ≥0.70 defaults were chosen for the Jaro-Winkler distribution. When real embeddings arrive, the floor and bands must be **re-derived against a golden set** as a coupled swap — do not assume the numbers carry over.
 - **No golden-set evaluation harness.** Smoke tests cover wiring; they do not measure precision / recall.
-- **CloudFront frontend — deployed.** The dashboard is served via CloudFront on both the formal `scudo-poc-frontend` stack (`d1n9fcdyynpn9j.cloudfront.net`) and the dev distribution (`dp4ji14se0pct.cloudfront.net`), at `/demo/` + `/cogJPMdemo/`.
+- **CloudFront frontend — deployed.** The dashboard is served via CloudFront on both the formal `scudo-poc-frontend` stack (`d1n9fcdyynpn9j.cloudfront.net`) and the dev distribution (`dp4ji14se0pct.cloudfront.net`), at `/demo/` + `/cogJPMdemo/`. A separate, independent deployment in account `426271381846` also serves it at `d2im563be0sl1r.cloudfront.net` — see [Second live deployment](#second-live-deployment-account-426271381846-us-east-1).
 - **Aurora, Neptune, and OpenSearch are not created by the SAM stack default.** The stack exposes endpoint/ARN seams and provisions the event backbone. Create or import the managed stores explicitly before switching those parameters away from empty strings.
 - **No production secret rotation.** `VERDICT_SIGNING_KEY` is dev-only; KMS-backed rotation hooks are stubbed.
 - **Q1 (validations as candidate-set filter) is the next matching-ladder code task** — validations currently gate the single best candidate, not the full surviving set.
@@ -801,6 +834,27 @@ real counts; `/api/mapping/agent/run` streams the live matcher with Bedrock
   prebuild `core`) is unspiked.
 - **NodeInfo live-context per-node detail** is best-effort (node-ring animation
   is reliable; the per-node live panel depends on mid-drill-down selection).
+
+### Second deployment (`426271381846`) — status
+
+**✅ Smoke-tested** at `https://d2im563be0sl1r.cloudfront.net`: `/healthz` →
+`{"status":"ok"}`; `/api/mapping/agent/describe` responds; `POST
+/api/mapping/ingest/url` ingests a URL; `POST /api/mapping/agent/run` reaches
+the matching path and returns a final CDAO mapping result.
+
+**Known gaps on this deployment, `TODO(aws)`:**
+
+- **Bedrock live inference is blocked.** The provider is configured
+  (`AgentProviderDefault=bedrock`), but this account lacks AWS model/Marketplace
+  access for `us.anthropic.claude-opus-4-8` — request access before demoing
+  live inference here.
+- **Azure is visible but disabled.** It appears in the provider dropdown but
+  has no Azure OpenAI env vars/secrets configured on this account's ECS task.
+- **Matching Test vendor field is free-text, not a dropdown**, on this
+  deployment.
+- **Providers admin page is broken here** — the default `/providers` page
+  loads but shows "Failed to load providers"; use `/matching-test` for the
+  validated demo workflow instead.
 
 ---
 
