@@ -129,17 +129,17 @@ flowchart TB
     end
     precedent -. rank tilt (feedback) .-> mv
 
-    mv -. candidate retrieval .-> graph
+    mv -. candidate retrieval .-> graphdb
     mv -. borderline .-> bedrock
     per ==>|system of record| aurora
     per -->|bundles| s3
     subgraph data["Stores &amp; specialist"]
         direction LR
         aurora[("Aurora PostgreSQL<br/>single source of truth")]:::record
-        graph[("Graph store<br/>FalkorDB / Neptune<br/>retrieval index only")]:::store
+        graphdb[("Graph store<br/>FalkorDB / Neptune<br/>retrieval index only")]:::store
         bedrock{{"Bedrock · Opus 4.8<br/>BORDERLINE only"}}:::ext
         s3[("S3 frames<br/>+ bundles")]:::store
-        aurora ~~~ graph ~~~ bedrock ~~~ s3
+        aurora ~~~ graphdb ~~~ bedrock ~~~ s3
     end
 
     classDef actor fill:#fde68a,stroke:#b45309,color:#1a1a1a
@@ -265,9 +265,9 @@ flowchart LR
     vendor[(Vendor S3 frames)] --> ing
     ing -->|VendorProductRef<br/>over ALB rule| mv
     mv -->|sealed MappingResult<br/>HMAC-SHA256 v=2| per
-    mv -.candidate retrieval.-> graph[(Graph store<br/>FalkorDB / Neptune)]
+    mv -.candidate retrieval.-> graphdb[(Graph store<br/>FalkorDB / Neptune)]
     per -->|system of record| aur[(Aurora PostgreSQL)]
-    per -.precedent edge.-> graph
+    per -.precedent edge.-> graphdb
     per --> s3b[(S3 canonical bundles)]
 ```
 
