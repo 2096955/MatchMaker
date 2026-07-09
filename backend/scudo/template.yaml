@@ -17,7 +17,7 @@ Parameters:
     Description: Shared secret expected on x-api-key header.
   BedrockModelId:
     Type: String
-    Default: us.anthropic.claude-opus-4-8
+    Default: us.anthropic.claude-sonnet-5
     Description: Bedrock inference-profile id used by both specialist + verifier.
   OntologySnapshot:
     Type: String

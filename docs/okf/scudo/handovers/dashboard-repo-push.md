@@ -7,7 +7,7 @@ tags:
 - handover
 - dashboard
 staleness: historical
-timestamp: '2026-06-28T06:28:37Z'
+timestamp: '2026-07-09T13:18:02Z'
 ---
 
 ## Dashboard source bundle — apply & push

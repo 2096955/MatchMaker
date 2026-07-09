@@ -7,7 +7,7 @@ tags:
 - architecture
 - diagrams
 staleness: current
-timestamp: '2026-06-28T06:28:37Z'
+timestamp: '2026-07-09T13:18:02Z'
 ---
 
 > **Note:** The canonical Mermaid (`.mmd`) diagrams referred to below live in the repo at `backend/scudo_mapping_mcp/docs/architecture/`; they are not part of this `.md` bundle. Where the text below says "this directory", it means that repo path.

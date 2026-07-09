@@ -90,8 +90,9 @@ record.
 ## Zone 4 — Agentic Layer
 
 Orchestrator → specialist → verifier → gate-and-decide, with auto-approve / HITL
-/ reject routing. Specialist+verifier run on **Bedrock (Opus 4.8) by default**;
-the deliberate **Azure OpenAI shim** switches on per-deploy or per-request.
+/ reject routing. Specialist+verifier run on **Bedrock (Claude Sonnet 5 by
+template default; the first deployment still runs Opus 4.8)**; the deliberate
+**Azure OpenAI shim** switches on per-deploy or per-request.
 
 | Module | Purpose | AWS entrypoint |
 |--------|---------|----------------|

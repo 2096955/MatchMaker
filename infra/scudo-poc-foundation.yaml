@@ -18,11 +18,12 @@ Parameters:
     Default: poc
   BedrockModelId:
     Type: String
-    Default: us.anthropic.claude-opus-4-8
+    Default: us.anthropic.claude-sonnet-5
     Description: >-
       Bedrock model / cross-region inference profile id the agent invokes.
       Used to SCOPE the Bedrock invoke/converse IAM permissions (Codex B4)
-      instead of Resource '*'.
+      instead of Resource '*'. Must match the app stack's BedrockModelId —
+      the IAM grant is scoped to this exact profile id.
   OwnerTag:
     Type: String
     Default: 2096955@cognizant.com
