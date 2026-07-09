@@ -7,7 +7,7 @@ tags:
 - handover
 - hitl
 staleness: historical
-timestamp: '2026-06-28T06:28:37Z'
+timestamp: '2026-07-09T13:18:02Z'
 ---
 
 # SCUDO — HITL-visible + reviewer-tunable bands: work summary & deploy/push handover

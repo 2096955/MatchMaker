@@ -44,7 +44,7 @@ sam deploy \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides \
     ApiKey="$SCUDO_API_KEY" \
-    BedrockModelId=us.anthropic.claude-opus-4-8 \
+    BedrockModelId=us.anthropic.claude-sonnet-5 \
     OntologySnapshot=cdao-2026-05-19 \
     RubricVersion=v1 \
     NeptuneSparqlEndpoint="" \

@@ -46,7 +46,7 @@ Zone 5.
 | **1** | Vendor Sources & Ingestion | Vendor product metadata enters (MFT/FTP, vendor-S3/DMS, or single-URL scrape). Onboarding a vendor is a **config change**, not a new Lambda. | `poller_handler.py`, `ingestion_mcp.py`, `ingest.py`, `url_ingest.py` |
 | **2** | Ingestion Processing (ETL) | Validate → normalise → land (clean/canonical or quarantine) + audit. | `etl_handler.py`, `frames.py`, `validations.py`, `csvw_aliases.py` |
 | **3** | Matching Engine | The cost ladder: scope → precedent → hybrid retrieval → confidence gate (PASS ≥0.80 / BORDERLINE 0.70–0.80 / FAIL <0.70). | `matching.py`, `retrieval.py`, `matcher_bridge.py`, `store/` |
-| **4** | Agentic Layer | Orchestrator → specialist → verifier → gate-and-decide, routing auto-approve / HITL / reject. Bedrock (Opus 4.8) default; Azure OpenAI shim optional. | `orchestrator.py`, `agents.py`, `lambda_handler.py`, `agent.py` |
+| **4** | Agentic Layer | Orchestrator → specialist → verifier → gate-and-decide, routing auto-approve / HITL / reject. Bedrock (Claude Sonnet 5) default; Azure OpenAI shim optional. | `orchestrator.py`, `agents.py`, `lambda_handler.py`, `agent.py` |
 | **5** | Persistence & Human Review | The system of record and the human loop. | `aurora_store.py`, `projection_handler.py`, `catalogue.py`, `persistence_mcp.py`, `feedback.py` |
 
 > **⚡ Aurora PostgreSQL is the single source of truth.** One cluster, four schemas
@@ -167,7 +167,7 @@ control of every uncertain decision:
 
 1. **Uncertain mappings escalate; they don't guess.** A mapping auto-publishes only
    when it clears the gate cleanly — a confirmed-precedent reuse, or a PASS band the
-   Opus specialist concurs with. A BORDERLINE result the specialist can't confirm
+   Claude specialist concurs with. A BORDERLINE result the specialist can't confirm
    (verifier dissent), or one a reviewer-tightened window pushes below PASS, is marked
    `NEEDS_REVIEW` and routed to the reviewer queue — *not* the graph of record. (When,
    exactly, is the [cost ladder](#the-matching-cost-ladder) below.)
@@ -217,7 +217,7 @@ flowchart TD
     band -->|PASS >= 0.80| seal
     band -->|FAIL < 0.70| fail_low([REJECT - below floor])
     band -->|BORDERLINE 0.70-0.80| arm{{specialist arm on?<br/>borderline_requires_specialist}}
-    arm -->|"REST /map (True)"| r4[Rung 4: Opus 4.8 specialist<br/>one-shot, concur-cap MIN not MAX]
+    arm -->|"REST /map (True)"| r4[Rung 4: Claude Sonnet 5 specialist<br/>one-shot, concur-cap MIN not MAX]
     arm -->|"default library/agent (False)"| floorgate{{>= floor 0.75?}}
     floorgate -->|yes| seal
     floorgate -->|no| queue
@@ -316,7 +316,9 @@ you assume the git tree *is* the target.
   [5-zone diagram](docs/architecture/scudo-5zone-architecture.png) labels the agentic
   layer **"Specialist (Azure)"** and **"Verifier (Azure)"** — that is the demo JPMC saw.
   The **code default is Bedrock**: `SCUDO_AGENT_PROVIDER_DEFAULT` defaults to `bedrock`
-  (Opus 4.8), and the Azure OpenAI specialist+verifier shim is a deliberate, built path
+  (Claude Sonnet 5 via `BedrockModelId` / `SCUDO_BEDROCK_MODEL_ID`; the first
+  deployment in `954976331678` still runs Opus 4.8), and the Azure OpenAI
+  specialist+verifier shim is a deliberate, built path
   switched on per-deploy (`SCUDO_AGENT_PROVIDER_DEFAULT=azure`) or per-request
   (`agent_provider`) to reproduce exactly what the diagram depicts — see
   `backend/scudo/DEPLOY.md` "Intelligent demo" (§62-69), which spells out the Azure
@@ -844,10 +846,26 @@ the matching path and returns a final CDAO mapping result.
 
 **Known gaps on this deployment, `TODO(aws)`:**
 
-- **Bedrock live inference is blocked.** The provider is configured
-  (`AgentProviderDefault=bedrock`), but this account lacks AWS model/Marketplace
-  access for `us.anthropic.claude-opus-4-8` — request access before demoing
-  live inference here.
+- **✅ Bedrock live inference UNBLOCKED (2026-07-09) — runs Claude Sonnet 5.**
+  This account lacks model access for `us.anthropic.claude-opus-4-8`, so the
+  deployment was moved to `us.anthropic.claude-sonnet-5`: both stacks updated
+  (`scudo-poc-foundation` for the model-scoped IAM grant, `scudo-poc` for the
+  task env), ECS `scudo-poc-console` force-redeployed (task definition
+  `scudo-poc-console:2`). Verified: in-account Bedrock runtime smoke OK;
+  `/api/mapping/agent/describe` reports `backend: bedrock`,
+  `model_id: us.anthropic.claude-sonnet-5`; live `/api/mapping/agent/run`
+  completed with Sonnet output (HTTP 200 in CloudWatch). Note this demo runs a
+  different model than the `954976331678` deployment (Opus 4.8).
+- **⚠️ SSE streams can close client-side mid-run (CloudFront origin read
+  timeout).** The frontend stack's ALB origin sets no `OriginReadTimeout`
+  (`infra/scudo-poc-frontend.yaml`), so CloudFront defaults to 30s of allowed
+  origin *silence*. `/api/mapping/agent/run` emits SSE only when the agent
+  yields an event and has no heartbeat, so a >30s inference gap (more likely
+  post-coalescing) closes the viewer stream while the backend completes fine —
+  observed as an HTTP/2 stream close after the start event, with the full run
+  logged 200 in CloudWatch. Fix: emit an SSE comment heartbeat (`: ping`)
+  every ~15s from the streaming generators (robust), and/or raise
+  `OriginReadTimeout` on the `/api/*` origin (60s max without a quota bump).
 - **Azure is visible but disabled.** It appears in the provider dropdown but
   has no Azure OpenAI env vars/secrets configured on this account's ECS task.
 - **Matching Test vendor field is free-text, not a dropdown**, on this
