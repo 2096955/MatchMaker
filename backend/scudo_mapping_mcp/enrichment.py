@@ -148,6 +148,8 @@ def extract_field_structure(ref: VendorProductRef, concept_iri: str) -> Conceptu
                 vendor_field_name=f["vendor_field_name"],
                 data_type=f["data_type"],
                 primary_key=f["primary_key"],
+                nullable=f.get("nullable"),
+                sequence_number=f.get("sequence_number"),
             )
         )
         edges.append(
@@ -217,7 +219,20 @@ def _extract_invoke(ref: VendorProductRef) -> list[dict]:
     # String-normalize the raw row's keys before comparing — ref.raw is a
     # plain dict, and comparing a non-string proposed name against
     # non-string raw keys risks Python equality oddities (True == 1).
-    valid_keys = {str(k) for k in ref.raw.keys()}
+    return _validated_fields(fields, valid_keys={str(k) for k in ref.raw.keys()})
+
+
+def _validated_fields(fields: list, *, valid_keys: set[str]) -> list[dict]:
+    """Validate model-proposed field dicts against the allowed-keys contract.
+
+    Phase C extension (spec "extractor asymmetry", acceptance-side only):
+    ``nullable`` and ``sequence_number`` are now accepted — the fields exist
+    on ``ConceptualNode`` and conceptual_layer.json fixtures carry them. The
+    live prompt (``_EXTRACT_SYSTEM_PROMPT``) is deliberately UNCHANGED: the
+    model is not asked for the new keys; when it volunteers them they are
+    type-checked (bool / int, coerced to None otherwise — fail-closed like
+    the data_type coercion) instead of silently dropped.
+    """
     out: list[dict] = []
     for f in fields:
         if not isinstance(f, dict):
@@ -236,12 +251,22 @@ def _extract_invoke(ref: VendorProductRef) -> list[dict]:
             data_type = "string"
         primary_key_raw = f.get("primary_key", False)
         primary_key = primary_key_raw is True
+        nullable_raw = f.get("nullable")
+        nullable = nullable_raw if isinstance(nullable_raw, bool) else None
+        seq_raw = f.get("sequence_number")
+        sequence_number = (
+            seq_raw
+            if isinstance(seq_raw, int) and not isinstance(seq_raw, bool)
+            else None
+        )
         out.append(
             {
                 "vendor_field_name": vendor_field_name,
                 "label": str(f.get("label") or vendor_field_name),
                 "data_type": data_type,
                 "primary_key": primary_key,
+                "nullable": nullable,
+                "sequence_number": sequence_number,
             }
         )
     return out

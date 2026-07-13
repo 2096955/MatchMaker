@@ -6,7 +6,8 @@
 - Matching UI must tell an expositional story (vendor → ETL → matcher → confidence gate → persist); every stage should explain itself in context.
 - Incoherent mock taxonomy presented as real bank data is unacceptable — e.g. Marketing domain for LSEG/ICE/S&P financial-data vendors.
 - MatchMaker only — no Defra, no project switches, no commits unless explicitly asked.
-- Ontology-matching work is phased P0→P4 per the DCAT design spec; stop after each phase for review before continuing.
+- Multi-phase ontology/rights work (DCAT P0→P4; catalogue-rights UML gap Phases A→C) stops after each phase for review with changed files, verification commands, and pass/fail counts before continuing.
+- When executing phased plans on a dirty worktree, preserve unrelated uncommitted changes; edit shared files narrowly (e.g. retain existing SSE heartbeat edits in `backend/routes/mapping.py`).
 - Keep matcher diffs narrow and bounded; preserve flag-gated compatible defaults and dense-score-only / BM25-nominator-only invariants.
 - Verify the design spec's residual evidence gaps in code (matching bands, enrichment shapes, Neptune precedent) before editing affected files.
 
@@ -22,5 +23,5 @@
 - Binding SCUDO matching spec: `docs/superpowers/specs/2026-06-24-scudo-matching-frontend-spec.md`; AWS deploy gated on owner `:5177` screenshot approval.
 - DCAT ontology matching spec: `docs/superpowers/specs/2026-07-03-dcat-ontology-matching-design.md`; P0 = DCAT/SKOS loader + extended `TaxonomyNode` + `taxonomy_text` threading; P1 = subsumption + enrichment projection + calibration; P2/P3 = real RDF/SHACL + ODRL; P4 = CSVW/`TurtleIngester` upload seam.
 - Backend verification cwd: `MatchMaker/backend/` with `PYTHONPATH=.` for pytest, import smoke (`scudo_mapping_mcp.retrieval`, `store.memory_store`, `scudo.tools`).
-- P0 ontology fixtures: `backend/scudo_mapping_mcp/tests/fixtures/` (e.g. `dcat_taxonomy.ttl`); catalogue POC `catalogue_ontology_v0_1_deontic.ttl` is transcript-derived and unverified.
-- P0 matcher scope excludes `backend/scudo/tools.py`, `frames.py`, enrichment, ODRL, SHACL, and Neptune precedent schema unless a P0 test proves required.
+- Catalogue/rights UML gap binding spec: `docs/superpowers/specs/2026-07-13-catalogue-rights-uml-gap-analysis.md`; `ContentDeliveryModel` has 11 confirmed values; PROVISIONAL annotation is `HAS_DUTY`-only (not other rights edges).
+- Known pre-existing failures in `backend/scudo/tests/test_provenance.py` (Marketing domain / incoherent Marketing branch) are unrelated to rights-model phases — distinguish from new regressions.

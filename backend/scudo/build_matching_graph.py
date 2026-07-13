@@ -211,9 +211,9 @@ def _seed_conceptual_fixture_into(store) -> None:
     from scudo_mapping_mcp.models import (  # noqa: PLC0415
         ConceptualEdge,
         ConceptualEdgeKind,
-        ConceptualNode,
         ConceptualNodeKind,
         conceptual_iri,
+        conceptual_node_from_fixture_raw,
     )
 
     with open(_CONCEPTUAL_LAYER, encoding="utf-8") as fh:
@@ -226,17 +226,8 @@ def _seed_conceptual_fixture_into(store) -> None:
         iri = conceptual_iri(concept_iri, kind, local_id)
         local_to_iri[local_id] = iri
         store.upsert_conceptual_node(
-            ConceptualNode(
-                iri=iri,
-                kind=kind,
-                label=str(raw.get("label") or ""),
-                attaches_to_concept_iri=concept_iri,
-                vendor_field_name=raw.get("vendor_field_name"),
-                data_type=raw.get("data_type"),
-                primary_key=raw.get("primary_key"),
-                nullable=raw.get("nullable"),
-                database_notation=raw.get("database_notation"),
-                schema_notation=raw.get("schema_notation"),
+            conceptual_node_from_fixture_raw(
+                raw, iri=iri, kind=kind, concept_iri=concept_iri
             )
         )
     for raw in data.get("edges", []):
@@ -301,13 +292,14 @@ _CONCEPTUAL_NODE_TYPE: dict[str, str] = {
     "field_group": "schema",
     "field": "entity",
     "business_data_element": "concept",
-    # Rights/contract "bottom half" (PROVISIONAL v1, 2026-07-07) — see
-    # scudo_mapping_mcp/models.py's ConceptualNodeKind comment for grounding.
+    # Rights/contract "bottom half" (MDSRights-UML, 2026-07-13)
     "party": "entity",
     "contract": "document",
     "policy": "config",
     "duty": "step",
     "permission": "claim",
+    "obligation": "step",
+    "document": "document",
 }
 
 _CONCEPTUAL_EDGE_TYPE: dict[str, str] = {
@@ -318,10 +310,14 @@ _CONCEPTUAL_EDGE_TYPE: dict[str, str] = {
     "in_series": "related",
     "contains": "contains",
     "classified_as": "categorized_under",
-    # Rights/contract "bottom half" (PROVISIONAL v1, 2026-07-07)
-    "party_role": "related",
+    # Rights/contract "bottom half" (MDSRights-UML, 2026-07-13)
     "grants": "related",
-    "has_permission": "contains",
+    "policy_has_permission": "contains",
+    "policy_has_duty": "contains",
+    "rule_object": "related",
+    "rule_subject": "related",
+    "contract_documents": "contains",
+    "dataset_party": "related",
     "has_duty": "contains",
 }
 
@@ -336,13 +332,16 @@ def _fold_conceptual_knowledge_graph(store, concept_iri, add_node, edges) -> lis
 
     node_ids: list[str] = []
     for node in graph.nodes:
+        tags = ["conceptual", node.kind.value]
+        if node.subtype:
+            tags.append(node.subtype)
         add_node(
             {
                 "id": node.iri,
                 "type": _CONCEPTUAL_NODE_TYPE.get(node.kind.value, "entity"),
                 "name": node.label,
                 "summary": f"{node.kind.value.replace('_', ' ')} attached to {concept_iri}",
-                "tags": ["conceptual", node.kind.value],
+                "tags": tags,
                 "complexity": "simple",
             }
         )

@@ -55,6 +55,7 @@ from scudo_mapping_mcp.models import (
     ConceptualGraph,
     MappingBundle,
     MappingStatus,
+    RIGHTS_HALF_NODE_KINDS,
     VendorProductRef,
 )
 from scudo_mapping_mcp.specialist import resolve_specialist
@@ -824,7 +825,14 @@ def enrich_mapped_product():
     try:
         existing = store.get_conceptual_graph(concept_iri)
         extracted = extract_field_structure(ref, concept_iri)
-        classified = classify_business_concept(ref, concept_iri, existing.nodes)
+        # Rights-half nodes (Party/Contract/Policy/...) must not be offered as
+        # business-concept classification candidates (Phase B / G14 bridge).
+        classification_candidates = [
+            n for n in existing.nodes if n.kind not in RIGHTS_HALF_NODE_KINDS
+        ]
+        classified = classify_business_concept(
+            ref, concept_iri, classification_candidates
+        )
 
         nodes = {node.iri: node for node in extracted.nodes}
         if classified is not None:

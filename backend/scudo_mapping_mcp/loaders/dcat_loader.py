@@ -17,14 +17,23 @@ if TYPE_CHECKING:
 from rdflib import Literal, Namespace, URIRef
 from rdflib.namespace import DCAT, DCTERMS, OWL, RDF, RDFS, SKOS
 
+from ..csvw_aliases import CAT_ONTOLOGY_NS
 from ..models import TaxonomyNode
-from ..models_dcat import _join_definition
+from ..models_dcat import (
+    DcatDataService,
+    DcatDataset,
+    DcatDistribution,
+    _join_definition,
+)
 from .subsumption import materialize_subsumption_closure
 
 SKOS_NS = Namespace("http://www.w3.org/2004/02/skos/core#")
 RDFS_NS = Namespace("http://www.w3.org/2000/01/rdf-schema#")
 OWL_NS = Namespace("http://www.w3.org/2002/07/owl#")
 DCAT_NS = Namespace("http://www.w3.org/ns/dcat#")
+# cat: placeholder namespace — SAME constant the ingest-side alias map uses
+# (G20 consistency: one canonical cat: IRI, no second hardcoding).
+CAT_NS = Namespace(CAT_ONTOLOGY_NS)
 
 _CONCEPT_TYPES = {SKOS.Concept, SKOS_NS.Concept}
 _CLASS_TYPES = {OWL.Class, OWL_NS.Class, RDFS.Class, RDFS_NS.Class}
@@ -108,6 +117,25 @@ def _is_taxonomy_entity(g: "Graph", subject: URIRef) -> bool:
     )
 
 
+def _first_text(g: "Graph", subject: URIRef, *predicates) -> str | None:
+    """First non-empty object as DISPLAY TEXT: literals pass through, IRI
+    references resolve to their prefLabel via ``_labels`` (Phase E step 3 —
+    never raw IRIs into text-bearing fields; raw IRIs are tokeniser junk).
+    """
+    for p in predicates:
+        for o in g.objects(subject, p):
+            if isinstance(o, Literal):
+                s = str(o)
+                if s:
+                    return s
+                continue
+            if isinstance(o, URIRef):
+                label, _ = _labels(g, o)
+                if label:
+                    return label
+    return None
+
+
 def _extract_node(g: "Graph", subject: URIRef) -> TaxonomyNode | None:
     if not _is_taxonomy_entity(g, subject):
         return None
@@ -133,6 +161,113 @@ def _extract_node(g: "Graph", subject: URIRef) -> TaxonomyNode | None:
         node_kind=_node_kind(g, subject),
         superclass_iris=merged_super,
         superproperty_iris=super_prop,
+        # Phase E matching signals — read UNCONDITIONALLY into STRUCTURED
+        # fields (never pre-concatenated into definition/alt_labels; text
+        # composition is flag time only, see taxonomy_text.py). IRI-valued
+        # references resolve to prefLabels via _first_text.
+        business_concept=_first_text(g, subject, CAT_NS.businessConcept),
+        asset_class=_first_text(g, subject, CAT_NS.assetClass),
+        super_asset_class=_first_text(g, subject, CAT_NS.superAssetClass),
+    )
+
+
+# ── Phase C — typed DCAT entity extraction (2026-07-13 UML attrs) ──────────
+# LOCKSTEP RULE (spec Phase C): ``_extract_node`` above builds TaxonomyNode
+# directly for the loader path; ``models_dcat`` projectors are the parallel
+# path used by ``enrichment_dcat_projection``. These extractors are the
+# single place graph → widened-Dcat-model reading happens, so both paths
+# read the same predicates. ``test_dcat_phase_c_lockstep.py`` pins the two
+# paths' TaxonomyNode agreement for the same input graph.
+
+
+def _first_literal(g: "Graph", subject: URIRef, *predicates) -> str | None:
+    for p in predicates:
+        for o in g.objects(subject, p):
+            s = _as_str(o)
+            if s:
+                return s
+    return None
+
+
+def _dataset_iri_for(g: "Graph", subject: URIRef, forward, backward) -> str | None:
+    """Resolve the owning dataset via a forward predicate (subject→dataset)
+    or a backward one (dataset→subject), whichever the export used."""
+    for o in g.objects(subject, forward):
+        return _as_str(o)
+    for s in g.subjects(backward, subject):
+        return _as_str(s)
+    return None
+
+
+def extract_dcat_dataset(g: "Graph", subject: URIRef) -> DcatDataset:
+    """Read a dcat:Dataset subject into the widened DcatDataset model.
+
+    Phase E boundary: business_concept / asset_class / super_asset_class /
+    update_period and the coverage block (geographic / temporal / industry /
+    contentType) are extracted into MODEL fields only — nothing here (or in
+    ``project_dcat_dataset``) feeds them into matching text. That wiring is
+    Phase E's flag-gated rollout.
+    """
+    title, alts = _labels(g, subject)
+    keywords = [
+        str(o) for o in g.objects(subject, DCAT.keyword) if isinstance(o, Literal)
+    ]
+    return DcatDataset(
+        iri=_as_str(subject),
+        title=title,
+        description=_definition(g, subject),
+        themes=_object_iris(g, subject, DCAT.theme),
+        keywords=list(dict.fromkeys(alts + keywords)),
+        update_period=_first_literal(g, subject, CAT_NS.updatePeriod),
+        # Phase E signals: _first_text (not _first_literal) so IRI-valued
+        # references resolve to prefLabels — keeps this projector path in
+        # LOCKSTEP with _extract_node above (test_dcat_phase_c_lockstep).
+        business_concept=_first_text(g, subject, CAT_NS.businessConcept),
+        asset_class=_first_text(g, subject, CAT_NS.assetClass),
+        super_asset_class=_first_text(g, subject, CAT_NS.superAssetClass),
+        geographic_coverage=_first_literal(g, subject, CAT_NS.geographicCoverage),
+        temporal_coverage=_first_literal(g, subject, CAT_NS.temporalCoverage),
+        industry_coverage=_first_literal(g, subject, CAT_NS.industryCoverage),
+        content_type_coverage=_first_literal(g, subject, CAT_NS.contentTypeCoverage),
+    )
+
+
+def extract_dcat_distribution(g: "Graph", subject: URIRef) -> DcatDistribution:
+    """Read a dcat:Distribution subject into the widened model.
+
+    UML ``distribution_type`` has no dcat: predicate; the transcript grounds
+    typed-ness on dcterms:type, so that is what carries it here.
+    """
+    title, _ = _labels(g, subject)
+    return DcatDistribution(
+        iri=_as_str(subject),
+        title=title,
+        description=_definition(g, subject),
+        access_url=_first_literal(g, subject, DCAT.accessURL) or "",
+        dataset_iri=_dataset_iri_for(g, subject, DCTERMS.isPartOf, DCAT.distribution),
+        media_type=_first_literal(g, subject, DCAT.mediaType),
+        conforms_to=_first_literal(g, subject, DCTERMS.conformsTo),
+        distribution_type=_first_literal(g, subject, DCTERMS.type),
+    )
+
+
+def extract_dcat_data_service(g: "Graph", subject: URIRef) -> DcatDataService:
+    """Read a dcat:DataService subject into the widened model.
+
+    UML ``type`` → ``service_type`` (dcterms:type, per the transcript's
+    "Database Data Service, API Data Service" note); deploymentType/apiType
+    have no standard dcat: home so they read from the cat: namespace.
+    """
+    title, _ = _labels(g, subject)
+    return DcatDataService(
+        iri=_as_str(subject),
+        title=title,
+        description=_definition(g, subject),
+        endpoint_url=_first_literal(g, subject, DCAT.endpointURL) or "",
+        service_type=_first_literal(g, subject, DCTERMS.type),
+        deployment_type=_first_literal(g, subject, CAT_NS.deploymentType),
+        api_type=_first_literal(g, subject, CAT_NS.apiType),
+        dataset_iri=_dataset_iri_for(g, subject, DCAT.servesDataset, DCAT.service),
     )
 
 

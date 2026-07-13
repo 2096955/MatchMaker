@@ -29,10 +29,10 @@ from .frames import put_frame
 from .models import (
     ConceptualEdge,
     ConceptualEdgeKind,
-    ConceptualNode,
     ConceptualNodeKind,
     VendorProductRef,
     conceptual_iri,
+    conceptual_node_from_fixture_raw,
 )
 from .store import get_store
 
@@ -109,17 +109,8 @@ def seed_conceptual_layer(path: Path | None = None) -> int:
         iri = conceptual_iri(concept_iri, kind, local_id)
         local_to_iri[local_id] = iri
         store.upsert_conceptual_node(
-            ConceptualNode(
-                iri=iri,
-                kind=kind,
-                label=str(raw.get("label") or ""),
-                attaches_to_concept_iri=concept_iri,
-                vendor_field_name=raw.get("vendor_field_name"),
-                data_type=raw.get("data_type"),
-                primary_key=raw.get("primary_key"),
-                nullable=raw.get("nullable"),
-                database_notation=raw.get("database_notation"),
-                schema_notation=raw.get("schema_notation"),
+            conceptual_node_from_fixture_raw(
+                raw, iri=iri, kind=kind, concept_iri=concept_iri
             )
         )
         count += 1

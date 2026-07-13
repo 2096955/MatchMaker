@@ -76,21 +76,13 @@ DASHBOARD_EDGE_TYPES = {
 
 
 def test_rights_contract_node_kinds_map_into_dashboard_enum():
-    """The 5 new bottom-half ConceptualNodeKind entries (party/contract/
-    policy/duty/permission) must map to a real dashboard-closed type, same
-    as every top-half kind — proven directly against the mapping dict, since
-    no fixture data instantiates these kinds yet (this only tests the map
-    entries exist and are valid, not an end-to-end graph build)."""
+    """Every ConceptualNodeKind (incl. rights half) must map to a
+    dashboard-closed type — iterate the FULL enum so forgotten map entries
+    cannot hide behind the ``.get(kind, "entity")`` fallback."""
     from scudo.build_matching_graph import _CONCEPTUAL_NODE_TYPE
     from scudo_mapping_mcp.models import ConceptualNodeKind
 
-    for kind in (
-        ConceptualNodeKind.PARTY,
-        ConceptualNodeKind.CONTRACT,
-        ConceptualNodeKind.POLICY,
-        ConceptualNodeKind.DUTY,
-        ConceptualNodeKind.PERMISSION,
-    ):
+    for kind in ConceptualNodeKind:
         assert kind.value in _CONCEPTUAL_NODE_TYPE, (
             f"{kind.value} has no dashboard mapping"
         )
@@ -98,15 +90,12 @@ def test_rights_contract_node_kinds_map_into_dashboard_enum():
 
 
 def test_rights_contract_edge_kinds_map_into_dashboard_enum():
+    """Every ConceptualEdgeKind must map to a dashboard-closed type —
+    full-enum iteration (same forgotten-entry hardening as nodes)."""
     from scudo.build_matching_graph import _CONCEPTUAL_EDGE_TYPE
     from scudo_mapping_mcp.models import ConceptualEdgeKind
 
-    for kind in (
-        ConceptualEdgeKind.PARTY_ROLE,
-        ConceptualEdgeKind.GRANTS,
-        ConceptualEdgeKind.HAS_PERMISSION,
-        ConceptualEdgeKind.HAS_DUTY,
-    ):
+    for kind in ConceptualEdgeKind:
         assert kind.value in _CONCEPTUAL_EDGE_TYPE, (
             f"{kind.value} has no dashboard mapping"
         )

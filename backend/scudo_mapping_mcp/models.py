@@ -11,7 +11,7 @@ import uuid
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .config import IRI_NAMESPACE
 
@@ -71,6 +71,21 @@ class TaxonomyNode(BaseModel):
     node_kind: Literal["concept", "class", "property"] = "concept"
     superclass_iris: list[str] = Field(default_factory=list)
     superproperty_iris: list[str] = Field(default_factory=list)
+    # ── Phase E structured matching signals (spec 2026-07-13, Phase E) ──────
+    # UML Dataset.businessConcept / assetClass / superAssetClass, read
+    # UNCONDITIONALLY at load into these structured fields — never
+    # pre-concatenated into ``definition``/``alt_labels`` (that would be
+    # irreversible per loaded graph and destroy flag separation / shadow
+    # attribution). Composition into BM25 text happens only at flag time
+    # behind SCUDO_TAXONOMY_UML_TEXT (see taxonomy_text.py) and is
+    # BM25-ONLY: ``taxonomy_dense_text`` stays label+definition so these
+    # fields can never move ``Candidate.similarity``. Provenance (I5):
+    # values here come from the customer-curated catalogue export ONLY —
+    # never from SCUDO-inferred enrichment (see the I5 boundary note on
+    # the M10 block below).
+    business_concept: Optional[str] = None
+    asset_class: Optional[str] = None
+    super_asset_class: Optional[str] = None
 
 
 class Candidate(BaseModel):
@@ -305,6 +320,16 @@ class BundleImportSummary(BaseModel):
 # single @type string. This is METADATA ONLY: it never feeds matching.py's
 # cost ladder (I5 — the ladder's decision surface does not grow a new input)
 # and is never queried above the store seam as raw Cypher/SPARQL (I2).
+#
+# I5 PROVENANCE BOUNDARY (Phase E, 2026-07-13): only customer-curated
+# catalogue text may feed matching text. SCUDO-inferred conceptual metadata
+# (``classify_business_concept`` output, and any other enrichment-layer
+# inference) must NEVER be written back into TaxonomyNode text fields
+# (label / definition / alt_labels / business_concept / asset_class /
+# super_asset_class) — that would close an LLM feedback loop into the
+# confidence gate. Enrichment writes go through ``upsert_conceptual_node``
+# onto ``ConceptualNode`` ONLY; the guard test is
+# ``tests/test_phase_e_provenance_guard.py``.
 
 
 class ConceptualNodeKind(str, Enum):
@@ -322,40 +347,45 @@ class ConceptualNodeKind(str, Enum):
     FIELD = "field"
     BUSINESS_DATA_ELEMENT = "business_data_element"
 
-    # ── Rights/contract "bottom half" (PROVISIONAL v1, 2026-07-07) ──────────
-    # The DCAT/catalogue "top half" above is modelled 1:1 onto the
-    # CatalogueOntology transcript. This half has no source transcript to
-    # mirror yet — it is grounded instead in the public, stable ODRL 2.2 spec
-    # structure (Policy contains Permission contains Duty; Party is
-    # assigner/assignee of a Policy), which rights_odrl.py already partially
-    # implements as an untyped evaluator. See
-    # docs/superpowers/specs/2026-07-07-aurora-memory-rights-model-zone-tool-design.md.
+    # ── Rights/contract "bottom half" (MDSRights-UML, 2026-07-13) ───────────
+    # Grounded in the MDSRights-UML customer image (received 2026-07-13;
+    # transcribed in docs/architecture/mds-rights-uml.mmd), with the
+    # CatalogueOntology-UML image as the coarse catalogue-side view of the
+    # same structure. See
+    # docs/superpowers/specs/2026-07-13-catalogue-rights-uml-gap-analysis.md.
+    # Obligation ⊂ Duty; Document carries OrderForm/Schedule/Pricelist/
+    # MasterAgreement via ``subtype`` (D1). Rule stays abstract — its attrs
+    # live on duty/permission/obligation nodes.
     PARTY = "party"
     CONTRACT = "contract"
     POLICY = "policy"
     DUTY = "duty"
     PERMISSION = "permission"
+    OBLIGATION = "obligation"
+    DOCUMENT = "document"
 
 
 class ContentDeliveryModel(str, Enum):
-    """PROVISIONAL, INCOMPLETE — only 3 of the reported ~11 values are
-    confirmed from source. Do not treat as exhaustive; the remaining values
-    are pending the real target ContentDeliveryModel enum (see the design
-    spec referenced above). Inventing the rest would bake wrong data into the
-    codebase, so this deliberately stops at what's verified.
+    """Closed ContentDeliveryModel vocabulary — all 11 literals confirmed
+    identically by CatalogueOntology-UML and MDSRights-UML customer images
+    (received 2026-07-13; transcribed in docs/architecture/*.mmd).
 
-    TODO(content-delivery-model): add the remaining ~8 reported values ONLY
-    once a real, citable source for them is found (re-searched twice this
-    session — 2026-07-07 and 2026-07-08 — nothing found either time). Every
-    member added here MUST also get an entry in
+    Every member MUST also have an entry in
     `test_rights_contract_model.py`'s `_CONTENT_DELIVERY_MODEL_SOURCES` map,
-    which fails the test suite loudly if a member is missing one — that
-    guard is what makes this TODO structurally enforced, not just a comment.
+    which fails the test suite if a member is missing a citation.
     """
 
     DISTRIBUTION_SERVICE = "distributionService"
     REDISTRIBUTION_SERVICE = "redistributionService"
+    USE_SERVICE = "useService"
     DISPLAY_SERVICE = "displayService"
+    DIRECT_DISPLAY_SERVICE = "directDisplayService"
+    NON_DISPLAY_SERVICE = "nonDisplayService"
+    FULL_NON_DISPLAY_SERVICE = "fullNonDisplayService"
+    AUTOMATED_TRADING_SERVICE = "automatedTradingService"
+    DERIVED_DATA_SERVICE = "derivedDataService"
+    INTERNAL_DISTRIBUTION_SERVICE = "internalDistributionService"
+    DIRECT_ACCESS_SERVICE = "directAccessService"
 
 
 class ConceptualEdgeKind(str, Enum):
@@ -371,15 +401,95 @@ class ConceptualEdgeKind(str, Enum):
     ACCESSED_THROUGH = "accessed_through"  # Distribution -> DataService
     FORMATTED_AS = "formatted_as"  # DistributedDataset <-> Distribution
     IN_SERIES = "in_series"  # MarketingDataset -> DistributedDataset
-    CONTAINS = "contains"  # generic parent -> child (FieldGroup -> Field)
+    CONTAINS = "contains"  # generic parent -> child (FieldGroup -> Field;
+    # also ProductPackage→Dataset, Distribution→DataDictionary per G15/G16)
     CLASSIFIED_AS = "classified_as"  # ... -> BusinessConceptElement / DataTaxonomy
 
-    # ── Rights/contract "bottom half" (PROVISIONAL v1, 2026-07-07) ──────────
-    # Grounded in ODRL 2.2's real structure, not guessed — see ConceptualNodeKind.
-    PARTY_ROLE = "party_role"  # Party -> Policy (assigner/assignee)
+    # ── Rights/contract "bottom half" (MDSRights-UML, 2026-07-13) ───────────
     GRANTS = "grants"  # Contract -> Policy
-    HAS_PERMISSION = "has_permission"  # Policy -> Permission
-    HAS_DUTY = "has_duty"  # Permission -> Duty
+    POLICY_HAS_PERMISSION = "policy_has_permission"  # Policy -> Permission
+    POLICY_HAS_DUTY = "policy_has_duty"  # Policy -> Duty (policyDuties)
+    RULE_OBJECT = "rule_object"  # Duty/Permission/Obligation -> Party
+    RULE_SUBJECT = "rule_subject"  # Duty/Permission/Obligation -> Party
+    CONTRACT_DOCUMENTS = "contract_documents"  # Contract -> Document
+    DATASET_PARTY = "dataset_party"  # Dataset -> Party (G14 bridge)
+    # PROVISIONAL (D2 / G13): Permission→Duty contested link. CatalogueOntology-
+    # UML draws Duty—Permission (arrowhead may be navigability-only);
+    # MDSRights-UML omits the association. ODRL 2.2 odrl:duty is
+    # Permission→Duty — retained as optional pending ontology-owner
+    # confirmation of survival/direction/role name after the Rule refactor.
+    HAS_DUTY = "has_duty"  # Permission -> Duty (PROVISIONAL)
+
+
+# Document / Obligation subtypes (D1) — closed per-kind, not extra enum kinds.
+DocumentSubtype = Literal["order_form", "schedule", "pricelist", "master_agreement"]
+ObligationSubtype = Literal["direct_access", "internal_distribution"]
+ConceptualSubtype = Literal[
+    "order_form",
+    "schedule",
+    "pricelist",
+    "master_agreement",
+    "direct_access",
+    "internal_distribution",
+]
+
+_DOCUMENT_SUBTYPES: frozenset[str] = frozenset(
+    {"order_form", "schedule", "pricelist", "master_agreement"}
+)
+_OBLIGATION_SUBTYPES: frozenset[str] = frozenset(
+    {"direct_access", "internal_distribution"}
+)
+
+# Rights-half kinds for agent context / enrich classification filtering.
+RIGHTS_HALF_NODE_KINDS: frozenset[ConceptualNodeKind] = frozenset(
+    {
+        ConceptualNodeKind.PARTY,
+        ConceptualNodeKind.CONTRACT,
+        ConceptualNodeKind.POLICY,
+        ConceptualNodeKind.DUTY,
+        ConceptualNodeKind.PERMISSION,
+        ConceptualNodeKind.OBLIGATION,
+        ConceptualNodeKind.DOCUMENT,
+    }
+)
+
+
+class PartyProfile(BaseModel):
+    """Party attributes from MDSRights-UML (6 fields).
+
+    TODO(g18-enums): ``supply_chain_status`` / ``organization_type`` are
+    typed as plain strings until the customer supplies closed literal lists
+    for SupplyChainStatus / OrganizationType — then promote to guard-tested
+    enums (same citation discipline as ContentDeliveryModel).
+    """
+
+    perm_id: Optional[str] = None
+    supply_chain_status: Optional[str] = None
+    organization_type: Optional[str] = None
+    issuer_on: Optional[str] = None
+    member_of: Optional[str] = None
+    exchange: Optional[str] = None
+
+
+class ContractTerms(BaseModel):
+    """Contract attributes from MDSRights-UML (11 fields).
+
+    TODO(g18-enums): ``status`` / ``legal_basis`` / ``licensing_model`` /
+    ``renewal_type`` are plain strings until ContractStatus / LegalBasis /
+    LicensingModel / RenewalType literal lists are sourced.
+    """
+
+    status: Optional[str] = None
+    legal_basis: Optional[str] = None
+    licensing_model: Optional[str] = None
+    renewal_type: Optional[str] = None
+    term: Optional[str] = None
+    initial_term: Optional[str] = None
+    initial_term_end: Optional[str] = None
+    renewal_term: Optional[str] = None
+    store_purpose: Optional[str] = None
+    post_term_store_purpose: Optional[str] = None
+    internal_controls: Optional[str] = None
 
 
 def conceptual_iri(concept_iri: str, kind: "ConceptualNodeKind", local_id: str) -> str:
@@ -394,6 +504,48 @@ def conceptual_iri(concept_iri: str, kind: "ConceptualNodeKind", local_id: str) 
     return f"mds.enrich:{u}"
 
 
+def conceptual_node_from_fixture_raw(
+    raw: dict,
+    *,
+    iri: str,
+    kind: ConceptualNodeKind,
+    concept_iri: str,
+) -> ConceptualNode:
+    """Build a ConceptualNode from conceptual_layer.json-style raw dicts.
+
+    Shared by ingest seeding and build_matching_graph fixture seeding so new
+    rights fields cannot silently drop on one path.
+    """
+    cdm_raw = raw.get("cdm")
+    terms_raw = raw.get("contract_terms")
+    profile_raw = raw.get("party_profile")
+    return ConceptualNode(
+        iri=iri,
+        kind=kind,
+        label=str(raw.get("label") or ""),
+        attaches_to_concept_iri=concept_iri,
+        vendor_field_name=raw.get("vendor_field_name"),
+        data_type=raw.get("data_type"),
+        primary_key=raw.get("primary_key"),
+        nullable=raw.get("nullable"),
+        database_notation=raw.get("database_notation"),
+        schema_notation=raw.get("schema_notation"),
+        sequence_number=raw.get("sequence_number"),
+        notation=raw.get("notation"),
+        group_type=raw.get("group_type"),
+        subtype=raw.get("subtype"),
+        cdm=ContentDeliveryModel(cdm_raw) if cdm_raw else None,
+        time_interval=raw.get("time_interval"),
+        deadline=raw.get("deadline"),
+        party_scope=raw.get("party_scope"),
+        description=raw.get("description"),
+        contract_terms=(ContractTerms.model_validate(terms_raw) if terms_raw else None),
+        party_profile=(
+            PartyProfile.model_validate(profile_raw) if profile_raw else None
+        ),
+    )
+
+
 class ConceptualNode(BaseModel):
     iri: str
     kind: ConceptualNodeKind
@@ -405,6 +557,22 @@ class ConceptualNode(BaseModel):
     # in the CatalogueOntology transcript) — None for every other kind.
     # Kept as optional attributes on the shared shape rather than a Field
     # subclass, since only these two properties are kind-specific.
+    #
+    # G9 (vendor_field_name vs UML Field.notation — UNRESOLVED, TODO(g9)):
+    # docs/architecture/catalogue-ontology-uml.mmd gives Field a ``notation``
+    # attribute, grounded by the transcript fixture's skos:notation as "the
+    # exact database table title, CSV file header, or column key". Two
+    # readings, undecidable from the images alone:
+    #   (a) ``vendor_field_name`` IS the Field-side notation equivalent —
+    #       enrichment.py defines it as "an actual key from the vendor's raw
+    #       row", i.e. the same physical-column-key semantics, sourced from
+    #       the vendor side; or
+    #   (b) they are DISTINCT — Field.notation is the customer catalogue's
+    #       own column key, while ``vendor_field_name`` is a vendor-side
+    #       alias mapped onto it during enrichment extraction.
+    # Until the ontology owner adjudicates, a FIELD node may carry both:
+    # ``notation`` (from a customer export) and ``vendor_field_name`` (from
+    # vendor-row extraction). Do not merge or rename either.
     vendor_field_name: Optional[str] = None
     data_type: Optional[str] = None
     primary_key: Optional[bool] = None
@@ -412,6 +580,80 @@ class ConceptualNode(BaseModel):
     # FieldGroup-only metadata (cat:databaseNotation / cat:schemaNotation).
     database_notation: Optional[str] = None
     schema_notation: Optional[str] = None
+    # ── Phase C catalogue-half attrs (CatalogueOntology-UML, 2026-07-13) ────
+    # ``sequence_number`` — UML Field.sequenceNumber AND
+    # FieldGroup.sequenceNumber (cat:sequenceNumber: "an ordering integer
+    # value ... deterministic sorting layer"). Meaningful for FIELD /
+    # FIELD_GROUP kinds; None elsewhere (documented, not validator-enforced —
+    # same discipline as vendor_field_name above). STRICT int: see
+    # ``_sequence_number_strict_int`` below.
+    sequence_number: Optional[int] = None
+    # ``notation`` — UML FieldGroup.notation (and, pending G9 above, possibly
+    # Field.notation): the structural identifier / physical name
+    # (skos:notation, csvw "PhysicalName"/"LexicalValue" in the transcript).
+    notation: Optional[str] = None
+    # ``group_type`` — maps UML FieldGroup.``type`` (String) from
+    # docs/architecture/catalogue-ontology-uml.mmd. Renamed at the model
+    # boundary because bare ``type`` collides with common vocabulary
+    # (dcterms:type, Field.data_type, the Python builtin); the UML attr name
+    # is preserved via this documented explicit mapping: UML FieldGroup.type
+    # → ConceptualNode.group_type.
+    group_type: Optional[str] = None
+    # Rights/structure attrs (MDSRights-UML Phase B).
+    subtype: Optional[ConceptualSubtype] = None
+    cdm: Optional[ContentDeliveryModel] = None
+    time_interval: Optional[str] = None
+    deadline: Optional[str] = None
+    party_scope: Optional[Literal["internal", "external"]] = None
+    description: Optional[str] = None
+    contract_terms: Optional[ContractTerms] = None
+    party_profile: Optional[PartyProfile] = None
+
+    @field_validator("sequence_number", mode="before")
+    @classmethod
+    def _sequence_number_strict_int(cls, v):
+        """STRICT ordering int — fail fast on corrupt data.
+
+        Pydantic's lax Optional[int] would coerce ``True``→1 and ``"3"``→3,
+        silently drifting from enrichment's strict ``_validated_fields``
+        contract (which coerces model-proposed junk to None — a DIFFERENT
+        trust boundary: the LLM's output is sanitised before node
+        construction, whereas a fixture / store property carrying ``true`` or
+        ``"3"`` is corrupt data and must fail loudly at ingest, not mutate).
+        Accepts None and true ints only (bool is an int subclass — excluded
+        explicitly).
+        """
+        if v is None:
+            return v
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(
+                f"sequence_number must be an int or None; got {v!r} "
+                f"({type(v).__name__})"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _validate_subtype_per_kind(self) -> "ConceptualNode":
+        """D1: subtype is legal only for DOCUMENT / OBLIGATION, and only
+        with the closed set for that kind. All other kinds require None."""
+        if self.kind == ConceptualNodeKind.DOCUMENT:
+            if self.subtype is None or self.subtype not in _DOCUMENT_SUBTYPES:
+                raise ValueError(
+                    f"DOCUMENT subtype must be one of {sorted(_DOCUMENT_SUBTYPES)}; "
+                    f"got {self.subtype!r}"
+                )
+        elif self.kind == ConceptualNodeKind.OBLIGATION:
+            if self.subtype is None or self.subtype not in _OBLIGATION_SUBTYPES:
+                raise ValueError(
+                    f"OBLIGATION subtype must be one of "
+                    f"{sorted(_OBLIGATION_SUBTYPES)}; got {self.subtype!r}"
+                )
+        elif self.subtype is not None:
+            raise ValueError(
+                f"subtype is not allowed for kind {self.kind.value!r}; "
+                f"got {self.subtype!r}"
+            )
+        return self
 
 
 class ConceptualEdge(BaseModel):
