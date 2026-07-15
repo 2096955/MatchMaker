@@ -160,6 +160,20 @@ class Settings:
     dense_backend: str  # SCUDO_DENSE_BACKEND — "opus" | "jaro_winkler"
     taxonomy_text_enabled: bool  # SCUDO_TAXONOMY_TEXT — inject SKOS text into matching
     taxonomy_text_shadow: bool  # SCUDO_TAXONOMY_TEXT_SHADOW — log text-on BM25 diff
+    # Phase E sub-flag: compose the UML matching signals (businessConcept /
+    # assetClass / superAssetClass) into the BM25 doc. Rides the ontology-text
+    # channel — it has no effect unless SCUDO_TAXONOMY_TEXT is also on — so
+    # its marginal impact is separately measurable and reversible. BM25-ONLY:
+    # dense text never sees these fields (floor neutrality vs 0.80/0.70).
+    taxonomy_uml_text: bool  # SCUDO_TAXONOMY_UML_TEXT — UML signals into BM25 doc
+    # Phase E step 4 flag: plumb the node's loaded asset_class into
+    # run_validations' node_data_class so vendor-vs-node asset-class
+    # disagreement is a deterministic required-fail. Default OFF (measured
+    # rollout: loading a UML-enriched catalogue must not change matching
+    # outcomes until this lever is flipped). Deliberately SEPARATE from
+    # SCUDO_TAXONOMY_UML_TEXT — the text channel and the validation seam
+    # are independent rollout levers.
+    asset_class_validation: bool  # SCUDO_ASSET_CLASS_VALIDATION — step 4 seam
     subsumption_depth: int  # SCUDO_SUBSUMPTION_DEPTH — load-time RDFS closure (0=off)
     subsumption_expand: (
         bool  # SCUDO_SUBSUMPTION_EXPAND — 1-hop BM25 candidate expansion
@@ -261,6 +275,14 @@ class Settings:
             os.getenv("SCUDO_TAXONOMY_TEXT_SHADOW", "").strip().lower() in _TRUTHY_ENV
         )
 
+        taxonomy_uml_text = (
+            os.getenv("SCUDO_TAXONOMY_UML_TEXT", "").strip().lower() in _TRUTHY_ENV
+        )
+
+        asset_class_validation = (
+            os.getenv("SCUDO_ASSET_CLASS_VALIDATION", "").strip().lower() in _TRUTHY_ENV
+        )
+
         subsumption_depth = int(os.getenv("SCUDO_SUBSUMPTION_DEPTH", "0"))
         subsumption_expand = (
             os.getenv("SCUDO_SUBSUMPTION_EXPAND", "").strip().lower() in _TRUTHY_ENV
@@ -288,6 +310,8 @@ class Settings:
             dense_backend=dense_backend,
             taxonomy_text_enabled=taxonomy_text_enabled,
             taxonomy_text_shadow=taxonomy_text_shadow,
+            taxonomy_uml_text=taxonomy_uml_text,
+            asset_class_validation=asset_class_validation,
             subsumption_depth=subsumption_depth,
             subsumption_expand=subsumption_expand,
             taxonomy_source=taxonomy_source,
@@ -322,6 +346,16 @@ def env_taxonomy_text_enabled() -> bool:
 def env_taxonomy_text_shadow_enabled() -> bool:
     """Live ``SCUDO_TAXONOMY_TEXT_SHADOW`` — re-reads env for smoke/tests."""
     return os.getenv("SCUDO_TAXONOMY_TEXT_SHADOW", "").strip().lower() in _TRUTHY_ENV
+
+
+def env_taxonomy_uml_text_enabled() -> bool:
+    """Live ``SCUDO_TAXONOMY_UML_TEXT`` — re-reads env for smoke/tests."""
+    return os.getenv("SCUDO_TAXONOMY_UML_TEXT", "").strip().lower() in _TRUTHY_ENV
+
+
+def env_asset_class_validation_enabled() -> bool:
+    """Live ``SCUDO_ASSET_CLASS_VALIDATION`` — re-reads env for smoke/tests."""
+    return os.getenv("SCUDO_ASSET_CLASS_VALIDATION", "").strip().lower() in _TRUTHY_ENV
 
 
 def env_subsumption_expand() -> bool:

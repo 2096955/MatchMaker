@@ -2,6 +2,12 @@
 
 TOTAL contract: never raises; any exception or unknown constraint => DENY.
 Missing policy falls back to the PRIORITY_VENDORS scope check.
+
+Conceptual-layer ↔ ODRL mapping note (MDSRights-UML Phase B; behavioural
+surface of this module is unchanged):
+  - UML Rule ≙ odrl:Rule (abstract; attrs live on Duty/Permission/Obligation)
+  - UML Obligation ≙ odrl:Duty (Obligation specialises Duty in the UML)
+  - UML ruleObject / ruleSubject ≙ odrl:target / odrl:assignee
 """
 
 from __future__ import annotations

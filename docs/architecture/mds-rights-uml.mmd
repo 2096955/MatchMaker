@@ -1,0 +1,106 @@
+%% MDSRights-UML — package MarketDataOntology
+%% Transcribed 2026-07-13 from the customer-supplied UML image.
+%% This is the rights-side refinement of CatalogueOntology: it introduces the
+%% Rule supertype (Duty/Permission specialise it), Obligation under Duty, a
+%% Pricelist document, and explicit ruleObject/ruleSubject links to Party.
+classDiagram
+    direction TB
+
+    class Party {
+        permID: String
+        supplyChainStatus: SupplyChainStatus
+        organizationType: OrganizationType
+        issuerOn: String
+        memberOf: String
+        exchange: String
+    }
+
+    class InternalParty
+    class ExternalParty
+
+    class Dataset {
+        spatial: String
+        temporal: String
+        publicationSchedule: String
+        updatePeriod: Duration
+        identifier: String
+    }
+
+    class Policy {
+        cdm: ContentDeliveryModel
+    }
+
+    class Rule {
+        timeInterval: String
+        deadline: DateTime
+    }
+
+    class Contract {
+        status: ContractStatus
+        legalBasis: LegalBasis
+        licensingModel: LicensingModel
+        renewalType: RenewalType
+        term: Duration
+        initialTerm: Duration
+        initialTermEnd: Date
+        renewalTerm: Duration
+        storePurpose: String
+        postTermStorePurpose: String
+        internalControls: String
+    }
+
+    class ContentDeliveryModel {
+        <<enumeration>>
+        distributionService
+        redistributionService
+        useService
+        displayService
+        directDisplayService
+        nonDisplayService
+        fullNonDisplayService
+        automatedTradingService
+        derivedDataService
+        internalDistributionService
+        directAccessService
+    }
+
+    class Duty
+    class Permission
+    class Obligation
+    class Document
+    class Schedule
+    class OrderForm
+    class Pricelist
+    class MasterAgreement
+    class DirectAccess
+    class InternalDistribution
+
+    %% ── Party hierarchy ──────────────────────────────────────────────
+    InternalParty --|> Party
+    ExternalParty --|> Party
+
+    %% ── Rule is the ODRL-style core ─────────────────────────────────
+    Rule "1" --> "1" Party : ruleObject (object)
+    Rule "1" --> "1" Party : ruleSubject (subject)
+    Duty --|> Rule
+    Permission --|> Rule
+
+    %% ── Policy aggregates rules ─────────────────────────────────────
+    Policy "1" --> "1..*" Duty : policyDuties
+    Policy "1" --> "1..*" Permission : policyPermissions
+
+    %% ── Contract & Dataset anchors ──────────────────────────────────
+    Contract --> Policy
+    Dataset --> Party
+    Contract "1" --> "1..*" Document : contractDocuments
+
+    %% ── Document taxonomy ───────────────────────────────────────────
+    Schedule --|> Document
+    OrderForm --|> Document
+    Pricelist --|> Document
+    MasterAgreement --|> Document
+
+    %% ── Obligation taxonomy (new in this package) ───────────────────
+    Obligation --|> Duty
+    DirectAccess --|> Obligation
+    InternalDistribution --|> Obligation

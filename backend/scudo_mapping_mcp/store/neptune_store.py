@@ -61,6 +61,7 @@ SPARQL_TAXONOMY_NODE = (
     _PREFIXES
     + """
 SELECT ?label ?definition ?parent ?kind
+       ?businessConcept ?assetClass ?superAssetClass
        (GROUP_CONCAT(DISTINCT ?child; SEPARATOR=",") AS ?children)
        (GROUP_CONCAT(DISTINCT ?alt; SEPARATOR="|") AS ?alts)
        (GROUP_CONCAT(DISTINCT ?super; SEPARATOR=",") AS ?superclasses)
@@ -76,7 +77,11 @@ WHERE {
   OPTIONAL { <%(iri)s> skos:altLabel ?alt }
   OPTIONAL { <%(iri)s> rdfs:subClassOf ?super }
   OPTIONAL { <%(iri)s> rdfs:subPropertyOf ?superp }
+  OPTIONAL { <%(iri)s> mds:businessConcept ?businessConcept }
+  OPTIONAL { <%(iri)s> mds:assetClass ?assetClass }
+  OPTIONAL { <%(iri)s> mds:superAssetClass ?superAssetClass }
 } GROUP BY ?label ?definition ?parent ?kind
+         ?businessConcept ?assetClass ?superAssetClass
 """
 )
 
@@ -105,6 +110,9 @@ DELETE {
   <%(iri)s> rdfs:subClassOf ?sc .
   <%(iri)s> rdfs:subPropertyOf ?sp .
   <%(iri)s> mds:nodeKind ?nk .
+  <%(iri)s> mds:businessConcept ?bc .
+  <%(iri)s> mds:assetClass ?ac .
+  <%(iri)s> mds:superAssetClass ?sac .
 }
 WHERE  {
   OPTIONAL { <%(iri)s> skos:prefLabel ?l }
@@ -114,6 +122,9 @@ WHERE  {
   OPTIONAL { <%(iri)s> rdfs:subClassOf ?sc }
   OPTIONAL { <%(iri)s> rdfs:subPropertyOf ?sp }
   OPTIONAL { <%(iri)s> mds:nodeKind ?nk }
+  OPTIONAL { <%(iri)s> mds:businessConcept ?bc }
+  OPTIONAL { <%(iri)s> mds:assetClass ?ac }
+  OPTIONAL { <%(iri)s> mds:superAssetClass ?sac }
 } ;
 INSERT DATA { GRAPH <%(graph)s> {
   <%(iri)s> a skos:Concept ;
@@ -124,6 +135,9 @@ INSERT DATA { GRAPH <%(graph)s> {
   %(subclass_triples)s
   %(subproperty_triples)s
   %(node_kind_triple)s
+  %(business_concept_triple)s
+  %(asset_class_triple)s
+  %(super_asset_class_triple)s
 } }
 """
 )
@@ -334,6 +348,7 @@ SPARQL_LIST_ALL_TAXONOMY = (
     _PREFIXES
     + """
 SELECT ?iri ?label ?parent ?definition ?kind
+       ?businessConcept ?assetClass ?superAssetClass
        (GROUP_CONCAT(DISTINCT ?alt; SEPARATOR="|") AS ?alts)
        (GROUP_CONCAT(DISTINCT ?super; SEPARATOR=",") AS ?superclasses)
        (GROUP_CONCAT(DISTINCT ?superp; SEPARATOR=",") AS ?superproperties)
@@ -348,7 +363,11 @@ WHERE {
   OPTIONAL { ?iri rdfs:subClassOf ?super }
   OPTIONAL { ?iri rdfs:subPropertyOf ?superp }
   OPTIONAL { ?iri mds:nodeKind ?kind }
+  OPTIONAL { ?iri mds:businessConcept ?businessConcept }
+  OPTIONAL { ?iri mds:assetClass ?assetClass }
+  OPTIONAL { ?iri mds:superAssetClass ?superAssetClass }
 } GROUP BY ?iri ?label ?parent ?definition ?kind
+         ?businessConcept ?assetClass ?superAssetClass
 ORDER BY ?iri
 """
 )
@@ -620,6 +639,18 @@ class NeptuneStore(RetrievalStore):
             "node_kind_triple": _opt_lit_triple(
                 node.iri, "mds:nodeKind", node.node_kind or "concept"
             ),
+            # Phase E structured matching signals — absent values emit no
+            # triple (same convention as definition/parent), so a legacy
+            # class-free catalogue writes exactly the triples it used to.
+            "business_concept_triple": _opt_lit_triple(
+                node.iri, "mds:businessConcept", node.business_concept
+            ),
+            "asset_class_triple": _opt_lit_triple(
+                node.iri, "mds:assetClass", node.asset_class
+            ),
+            "super_asset_class_triple": _opt_lit_triple(
+                node.iri, "mds:superAssetClass", node.super_asset_class
+            ),
         }
         client.query_update(sparql)
 
@@ -667,6 +698,9 @@ class NeptuneStore(RetrievalStore):
             node_kind=kind if kind in ("concept", "class", "property") else "concept",
             superclass_iris=super_cls,
             superproperty_iris=super_prop,
+            business_concept=_cell(row, "businessConcept"),
+            asset_class=_cell(row, "assetClass"),
+            super_asset_class=_cell(row, "superAssetClass"),
         )
 
     def find_similar_products(
@@ -935,6 +969,13 @@ class NeptuneStore(RetrievalStore):
                     else "concept",
                     superclass_iris=super_cls,
                     superproperty_iris=super_prop,
+                    # Phase E signals — same _cell pattern as the
+                    # single-node read; without these the BM25/rescore
+                    # paths that iterate the full store would silently
+                    # drop the enrichment after a Neptune round-trip.
+                    business_concept=_cell(row, "businessConcept"),
+                    asset_class=_cell(row, "assetClass"),
+                    super_asset_class=_cell(row, "superAssetClass"),
                 )
             )
         return out
@@ -945,6 +986,12 @@ class NeptuneStore(RetrievalStore):
     # cat:/dcat: enrichment terms yet, so writes are documented no-ops and
     # reads return an empty ConceptualGraph rather than silently pretending
     # to persist. Do not treat this as real on Neptune.
+    #
+    # Phase B rights fields (subtype, cdm, time_interval, deadline,
+    # party_scope, description, contract_terms, party_profile) are likewise
+    # NOT persisted here — they round-trip only on FakeStore / FalkorDB.
+    # Phase C catalogue attrs (sequence_number, notation, group_type) are
+    # equally NOT persisted on Neptune.
     # ----------------------------------------------------------------
     def upsert_conceptual_node(self, node: ConceptualNode) -> None:
         pass

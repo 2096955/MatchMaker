@@ -26,6 +26,7 @@ from typing import Optional
 from ..config import env_dense_backend
 from ..models import Candidate, VendorProductRef
 from ..taxonomy_text import (
+    maybe_log_taxonomy_text_shadow,
     taxonomy_bm25_doc,
     taxonomy_candidate_desc,
     taxonomy_dense_text,
@@ -92,6 +93,12 @@ class MemoryStore(FakeStore):
             [(iri, taxonomy_bm25_doc(self._nodes[iri])) for iri in labels],
         )
 
+        # Shadow rollout (Phase E step 2): the DEFAULT legacy sidecar now
+        # reports the text-on BM25 nomination diff too — previously only the
+        # multi-path route did, so shadow mode produced zero signal in
+        # default environments. Observation only; nominations unchanged.
+        self._maybe_log_bm25_shadow(query_text, bm25, limit)
+
         # RRF fuses the two RANKINGS into the sort score. Never similarity.
         fused_rank_score = self.reciprocal_rank_fusion([dense_scores, bm25])
 
@@ -121,3 +128,25 @@ class MemoryStore(FakeStore):
             scored.append((candidate, sort_key))
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return [c for c, _ in scored[:limit]]
+
+    def _maybe_log_bm25_shadow(
+        self, query_text: str, bm25: dict[str, float], top_n: int
+    ) -> None:
+        """Report the text-on BM25 nomination diff for the legacy sidecar.
+
+        Production nomination here is the BM25 arm's top-N under the LIVE
+        text flag (same (-score, iri) ordering as ``shadow_bm25_top_iris``).
+        Observation only — never touches scores, sort keys or results.
+        """
+        universe = [self._nodes[iri] for iri in bm25 if iri in self._nodes]
+        if not universe:
+            return
+        ranked = sorted(bm25.keys(), key=lambda iri: (-bm25.get(iri, 0.0), iri))
+        nominated = [
+            Candidate(node=self._nodes[iri], similarity=0.0)
+            for iri in ranked[:top_n]
+            if iri in self._nodes
+        ]
+        maybe_log_taxonomy_text_shadow(
+            query_text, universe, self, nominated, top_n=top_n
+        )

@@ -99,6 +99,7 @@ import logging
 from typing import Callable, Optional
 
 from .config import borderline_threshold as _borderline_threshold
+from .config import env_asset_class_validation_enabled
 from .config import pass_threshold as _pass_threshold
 from .config import settings
 from .frames import check_scope
@@ -291,12 +292,32 @@ def map_vendor_product(
     #    forces needs_review even at high similarity (Section 10c). Required
     #    failure is by definition outside the band model — the ladder treats
     #    it as a hard FAIL: NO specialist consultation, straight to review.
+    #
+    #    Phase E step 4 — deterministic assetClass seam, OPT-IN behind
+    #    SCUDO_ASSET_CLASS_VALIDATION (call-time env read, default off —
+    #    measured-rollout discipline: loading a UML-enriched catalogue must
+    #    not change any matching outcome until the operator flips this
+    #    lever; separate from SCUDO_TAXONOMY_UML_TEXT so validation can be
+    #    enabled without touching BM25 text). Flag on: the node's loaded
+    #    ``asset_class`` (UML Dataset.assetClass, customer-curated) plumbs
+    #    into ``node_data_class`` so vendor-vs-node asset-class disagreement
+    #    is an explainable deterministic failure, not probabilistic soup.
+    #    Both sides absent → pass-by-default (validations.py truth table).
+    #    Prefer the store's own copy of the node (survives (de)serialisation
+    #    drift); fall back to the candidate's when the store read missed.
+    #    Flag off: node_data_class=None — byte-for-byte pre-Phase-E.
     store_node = store.get_taxonomy_node(best.node.iri)
+    node_asset_class: Optional[str] = None
+    if env_asset_class_validation_enabled():
+        node_asset_class = (
+            store_node.asset_class if store_node is not None else None
+        ) or best.node.asset_class
     vresults = run_validations(
         ref,
         best.node,
         scope_allowed=True,
         has_store_node=store_node is not None,
+        node_data_class=node_asset_class,
     )
     req_fails = required_failures(vresults)
 

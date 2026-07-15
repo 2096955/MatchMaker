@@ -45,7 +45,15 @@ def test_system_context_text_mentions_zones_and_both_ontology_halves():
     # top half — already modelled, catalogue/DCAT
     assert "catalogue" in text.lower() or "dcat" in text.lower()
     # bottom half — new rights/contract kinds from this session's Part B
-    for term in ("party", "contract", "policy", "duty", "permission"):
+    for term in (
+        "party",
+        "contract",
+        "policy",
+        "duty",
+        "permission",
+        "obligation",
+        "document",
+    ):
         assert term in text.lower(), f"{term!r} missing from system context text"
 
 

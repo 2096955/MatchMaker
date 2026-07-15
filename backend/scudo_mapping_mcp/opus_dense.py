@@ -51,11 +51,11 @@ III.A failure in the Opus call surfaces as a ``RuntimeError`` unless
     runs silently. CI / smoke gates that don't touch AWS leave the
     backend on the default and never hit this branch.
 """
+
 from __future__ import annotations
 
 import json
 import os
-from typing import Optional
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -92,26 +92,40 @@ def opus_dense_score(
     backend = (os.getenv("SCUDO_DENSE_BACKEND") or "jaro_winkler").strip().lower()
 
     if backend == "jaro_winkler":
-        return _clamp01(_jaro_winkler_score(
-            query_label, query_desc, candidate_label, candidate_desc,
-        ))
+        return _clamp01(
+            _jaro_winkler_score(
+                query_label,
+                query_desc,
+                candidate_label,
+                candidate_desc,
+            )
+        )
 
     if backend != "opus":
         raise ValueError(
-            f"SCUDO_DENSE_BACKEND={backend!r} not in "
-            f"{{'opus', 'jaro_winkler'}}"
+            f"SCUDO_DENSE_BACKEND={backend!r} not in {{'opus', 'jaro_winkler'}}"
         )
 
     # Opus path — guarded by the explicit fallback env var.
     try:
-        return _clamp01(_opus_invoke_score(
-            query_label, query_desc, candidate_label, candidate_desc,
-        ))
+        return _clamp01(
+            _opus_invoke_score(
+                query_label,
+                query_desc,
+                candidate_label,
+                candidate_desc,
+            )
+        )
     except Exception as e:  # noqa: BLE001
         if _fallback_enabled():
-            return _clamp01(_jaro_winkler_score(
-                query_label, query_desc, candidate_label, candidate_desc,
-            ))
+            return _clamp01(
+                _jaro_winkler_score(
+                    query_label,
+                    query_desc,
+                    candidate_label,
+                    candidate_desc,
+                )
+            )
         raise RuntimeError(
             f"opus_dense_score failed and SCUDO_DENSE_FALLBACK is off: {e}"
         ) from e
@@ -150,12 +164,12 @@ _OPUS_SYSTEM_PROMPT = (
     "\n"
     "RULES (load-bearing):\n"
     "  1. Output MUST be a single JSON object with exactly two keys: "
-    "     \"score\" (a float in [0.0, 1.0]) and \"reason\" (a short "
+    '     "score" (a float in [0.0, 1.0]) and "reason" (a short '
     "     sentence). No prose around it, no markdown fences.\n"
-    "  2. \"score\" measures SEMANTIC alignment of the query to the "
+    '  2. "score" measures SEMANTIC alignment of the query to the '
     "     candidate, NOT string similarity. A vendor product named "
-    "     \"Equity Prices Real Time\" should score near 1.0 against a "
-    "     taxonomy node \"Equity Prices\" even though strings differ.\n"
+    '     "Equity Prices Real Time" should score near 1.0 against a '
+    '     taxonomy node "Equity Prices" even though strings differ.\n'
     "  3. Out-of-domain candidates score below 0.2 — there is no penalty "
     "     for being decisive.\n"
 )
@@ -177,14 +191,8 @@ def _opus_invoke_score(
     """
     import boto3  # type: ignore
 
-    model_id = (
-        os.getenv("SCUDO_BEDROCK_MODEL_ID") or DEFAULT_BEDROCK_MODEL_ID
-    )
-    region = (
-        os.getenv("AWS_REGION")
-        or os.getenv("AWS_DEFAULT_REGION")
-        or "eu-west-2"
-    )
+    model_id = os.getenv("SCUDO_BEDROCK_MODEL_ID") or DEFAULT_BEDROCK_MODEL_ID
+    region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "eu-west-2"
 
     client = boto3.client("bedrock-runtime", region_name=region)
 
@@ -200,14 +208,16 @@ def _opus_invoke_score(
         "Return the JSON object now."
     )
 
-    body = json.dumps({
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 256,
-        "system": _OPUS_SYSTEM_PROMPT,
-        "messages": [
-            {"role": "user", "content": user_message},
-        ],
-    })
+    body = json.dumps(
+        {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 256,
+            "system": _OPUS_SYSTEM_PROMPT,
+            "messages": [
+                {"role": "user", "content": user_message},
+            ],
+        }
+    )
 
     response = client.invoke_model(
         modelId=model_id,
@@ -249,12 +259,15 @@ def _parse_score_json(text: str) -> dict:
     end = s.rfind("}")
     if start == -1 or end == -1 or end <= start:
         raise RuntimeError(f"Opus output not JSON: {text!r}")
-    return json.loads(s[start:end + 1])
+    return json.loads(s[start : end + 1])
 
 
 def _fallback_enabled() -> bool:
     return (os.getenv("SCUDO_DENSE_FALLBACK") or "").strip().lower() in {
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 
 
@@ -280,8 +293,18 @@ def make_opus_dense_scorer(query_desc: str = ""):
     ``retrieval.multi_path_retrieve``. The query text the orchestrator
     passes is treated as the query label; the description is plumbed
     from the outer scope so the prompt carries both halves.
+
+    Phase E step 2 (measurement fix): candidate_desc is
+    ``taxonomy_candidate_desc(c.node)`` — flag-gated by SCUDO_TAXONOMY_TEXT
+    (returns "" while off, so behaviour is unchanged in default
+    environments; the node's SKOS/DCAT definition reaches the Opus prompt
+    when on). Previously hardcoded ``candidate_desc=""`` — definitions never
+    reached the dense prompt at all, so the flag measured nothing on this
+    route. The Phase E signal fields (business_concept / asset_class /
+    super_asset_class) stay BM25-only and are NOT part of this description.
     """
     from .models import Candidate
+    from .taxonomy_text import taxonomy_candidate_desc
 
     def scorer(query: str, survivors: list[Candidate]) -> list[Candidate]:
         out: list[Candidate] = []
@@ -290,7 +313,7 @@ def make_opus_dense_scorer(query_desc: str = ""):
                 query_label=query,
                 query_desc=query_desc,
                 candidate_label=c.node.label,
-                candidate_desc="",  # taxonomy nodes have no description today
+                candidate_desc=taxonomy_candidate_desc(c.node),
             )
             out.append(Candidate(node=c.node, similarity=score))
         return out

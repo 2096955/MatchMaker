@@ -46,6 +46,7 @@ real backend exercises this code path is at integration. This is a known gap.
 
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 from ..models import (
@@ -54,13 +55,112 @@ from ..models import (
     ConceptualGraph,
     ConceptualNode,
     ConceptualNodeKind,
+    ContentDeliveryModel,
+    ContractTerms,
     MappingResult,
     MappingStatus,
+    PartyProfile,
     Subgraph,
     TaxonomyNode,
     VendorProductRef,
 )
 from .base import RetrievalStore
+
+
+def _json_or_none(value) -> str | None:
+    """JSON-encode nested Pydantic models for Cypher string properties."""
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        return json.dumps(value.model_dump(mode="json"))
+    return json.dumps(value)
+
+
+def _parse_json_model(raw, model_cls):
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, model_cls):
+        return raw
+    data = json.loads(raw) if isinstance(raw, str) else raw
+    return model_cls.model_validate(data)
+
+
+def conceptual_node_props(node: ConceptualNode) -> dict:
+    """Property dict for ConceptualNode SET/RETURN — shared encode path."""
+    return {
+        "iri": node.iri,
+        "kind": node.kind.value,
+        "label": node.label,
+        "concept": node.attaches_to_concept_iri,
+        "vfn": node.vendor_field_name,
+        "dtype": node.data_type,
+        "pk": node.primary_key,
+        "nullable": node.nullable,
+        "dbnot": node.database_notation,
+        "schnot": node.schema_notation,
+        "sequence_number": node.sequence_number,
+        "notation": node.notation,
+        "group_type": node.group_type,
+        "subtype": node.subtype,
+        "cdm": node.cdm.value if node.cdm is not None else None,
+        "time_interval": node.time_interval,
+        "deadline": node.deadline,
+        "party_scope": node.party_scope,
+        "description": node.description,
+        "contract_terms": _json_or_none(node.contract_terms),
+        "party_profile": _json_or_none(node.party_profile),
+    }
+
+
+def conceptual_node_from_props(
+    *,
+    iri: str,
+    kind: str,
+    label: str,
+    attaches: str,
+    vfn=None,
+    dtype=None,
+    pk=None,
+    nullable=None,
+    dbnot=None,
+    schnot=None,
+    sequence_number=None,
+    notation=None,
+    group_type=None,
+    subtype=None,
+    cdm=None,
+    time_interval=None,
+    deadline=None,
+    party_scope=None,
+    description=None,
+    contract_terms=None,
+    party_profile=None,
+    concept_iri: str = "",
+) -> ConceptualNode:
+    """Rebuild a ConceptualNode from store property values."""
+    return ConceptualNode(
+        iri=iri,
+        kind=ConceptualNodeKind(kind),
+        label=label or "",
+        attaches_to_concept_iri=attaches or concept_iri,
+        vendor_field_name=vfn,
+        data_type=dtype,
+        primary_key=pk,
+        nullable=nullable,
+        database_notation=dbnot,
+        schema_notation=schnot,
+        sequence_number=sequence_number,
+        notation=notation,
+        group_type=group_type,
+        subtype=subtype,
+        cdm=ContentDeliveryModel(cdm) if cdm else None,
+        time_interval=time_interval,
+        deadline=deadline,
+        party_scope=party_scope,
+        description=description,
+        contract_terms=_parse_json_model(contract_terms, ContractTerms),
+        party_profile=_parse_json_model(party_profile, PartyProfile),
+    )
 
 
 def _jaro_winkler(s1: str, s2: str) -> float:
@@ -152,7 +252,14 @@ class FalkorDBStore(RetrievalStore):
         self._g.query(
             "MERGE (t:TaxonomyNode {iri:$iri}) "
             "SET t.label=$label, t.parent_iri=$parent, t.definition=$definition, "
-            "    t.alt_labels=$alt_labels, t.node_kind=$node_kind",
+            "    t.alt_labels=$alt_labels, t.node_kind=$node_kind, "
+            # Phase E structured matching signals — persisted as plain
+            # properties ("" = absent, same convention as parent_iri) so the
+            # deterministic assetClass validation (step 4) and the flag-gated
+            # BM25 composition survive the store round-trip.
+            "    t.business_concept=$business_concept, "
+            "    t.asset_class=$asset_class, "
+            "    t.super_asset_class=$super_asset_class",
             {
                 "iri": node.iri,
                 "label": node.label,
@@ -160,6 +267,9 @@ class FalkorDBStore(RetrievalStore):
                 "definition": node.definition or "",
                 "alt_labels": alt,
                 "node_kind": node.node_kind,
+                "business_concept": node.business_concept or "",
+                "asset_class": node.asset_class or "",
+                "super_asset_class": node.super_asset_class or "",
             },
         )
         # Drop stale hierarchy edges before re-wiring (re-seed / DCAT reload).
@@ -225,7 +335,8 @@ class FalkorDBStore(RetrievalStore):
             "OPTIONAL MATCH (t)-[:SUBPROPERTY_OF]->(sp:TaxonomyNode) "
             "RETURN t.iri, t.label, t.definition, t.alt_labels, t.node_kind, "
             "       p.iri, collect(DISTINCT c.iri), collect(DISTINCT sc.iri), "
-            "       collect(DISTINCT sp.iri)",
+            "       collect(DISTINCT sp.iri), "
+            "       t.business_concept, t.asset_class, t.super_asset_class",
             {"iri": node_iri},
         )
         if not rows:
@@ -240,6 +351,9 @@ class FalkorDBStore(RetrievalStore):
             children,
             super_cls,
             super_prop,
+            business_concept,
+            asset_class,
+            super_asset_class,
         ) = rows[0]
         alts = [a for a in (alt_raw or "").split("|") if a]
         return TaxonomyNode(
@@ -252,6 +366,9 @@ class FalkorDBStore(RetrievalStore):
             node_kind=(kind or "concept"),
             superclass_iris=[c for c in (super_cls or []) if c],
             superproperty_iris=[c for c in (super_prop or []) if c],
+            business_concept=business_concept or None,
+            asset_class=asset_class or None,
+            super_asset_class=super_asset_class or None,
         )
 
     def find_similar_products(
@@ -344,6 +461,7 @@ class FalkorDBStore(RetrievalStore):
         # Candidate.similarity unmodified — arb-review §5.2 invariant.
 
         from ..taxonomy_text import (
+            maybe_log_taxonomy_text_shadow,
             taxonomy_bm25_doc,
             taxonomy_candidate_desc,
             taxonomy_dense_text,
@@ -399,6 +517,25 @@ class FalkorDBStore(RetrievalStore):
         bm25_scores = self.bm25_scores(
             query_text,
             [(iri, taxonomy_bm25_doc(node_by_iri[iri])) for iri in labels],
+        )
+
+        # Shadow rollout (Phase E step 2): report the text-on BM25 nomination
+        # diff on the DEFAULT legacy sidecar too — previously only the
+        # multi-path route carried the shadow logger, so shadow mode produced
+        # zero signal in default environments. Observation only; never
+        # touches scores, sort keys or results.
+        _shadow_ranked = sorted(
+            bm25_scores.keys(), key=lambda i: (-bm25_scores.get(i, 0.0), i)
+        )
+        maybe_log_taxonomy_text_shadow(
+            query_text,
+            [node_by_iri[i] for i in labels],
+            self,
+            [
+                Candidate(node=node_by_iri[i], similarity=0.0)
+                for i in _shadow_ranked[:limit]
+            ],
+            top_n=limit,
         )
 
         # RRF fuses the two RANKINGS into a single ordering score. This
@@ -725,7 +862,8 @@ class FalkorDBStore(RetrievalStore):
             "OPTIONAL MATCH (t)-[:SUBCLASS_OF]->(sc:TaxonomyNode) "
             "OPTIONAL MATCH (t)-[:SUBPROPERTY_OF]->(sp:TaxonomyNode) "
             "RETURN t.iri, t.label, t.parent_iri, t.definition, t.alt_labels, "
-            "       t.node_kind, collect(DISTINCT sc.iri), collect(DISTINCT sp.iri) "
+            "       t.node_kind, collect(DISTINCT sc.iri), collect(DISTINCT sp.iri), "
+            "       t.business_concept, t.asset_class, t.super_asset_class "
             "ORDER BY t.iri"
         )
         out: list[TaxonomyNode] = []
@@ -738,6 +876,9 @@ class FalkorDBStore(RetrievalStore):
             kind,
             super_cls,
             super_prop,
+            business_concept,
+            asset_class,
+            super_asset_class,
         ) in rows:
             if not iri:
                 continue
@@ -752,30 +893,29 @@ class FalkorDBStore(RetrievalStore):
                     node_kind=(kind or "concept"),
                     superclass_iris=[c for c in (super_cls or []) if c],
                     superproperty_iris=[c for c in (super_prop or []) if c],
+                    business_concept=business_concept or None,
+                    asset_class=asset_class or None,
+                    super_asset_class=super_asset_class or None,
                 )
             )
         return out
 
     # --- M10 — conceptual enrichment layer --------------------------------
     def upsert_conceptual_node(self, node: ConceptualNode) -> None:
+        props = conceptual_node_props(node)
         self._g.query(
             "MERGE (n:ConceptualNode {iri:$iri}) "
             "SET n.kind=$kind, n.label=$label, n.attaches_to_concept_iri=$concept, "
             "    n.vendor_field_name=$vfn, n.data_type=$dtype, "
             "    n.primary_key=$pk, n.nullable=$nullable, "
-            "    n.database_notation=$dbnot, n.schema_notation=$schnot",
-            {
-                "iri": node.iri,
-                "kind": node.kind.value,
-                "label": node.label,
-                "concept": node.attaches_to_concept_iri,
-                "vfn": node.vendor_field_name,
-                "dtype": node.data_type,
-                "pk": node.primary_key,
-                "nullable": node.nullable,
-                "dbnot": node.database_notation,
-                "schnot": node.schema_notation,
-            },
+            "    n.database_notation=$dbnot, n.schema_notation=$schnot, "
+            "    n.sequence_number=$sequence_number, n.notation=$notation, "
+            "    n.group_type=$group_type, "
+            "    n.subtype=$subtype, n.cdm=$cdm, "
+            "    n.time_interval=$time_interval, n.deadline=$deadline, "
+            "    n.party_scope=$party_scope, n.description=$description, "
+            "    n.contract_terms=$contract_terms, n.party_profile=$party_profile",
+            props,
         )
 
     def upsert_conceptual_edge(self, edge: ConceptualEdge) -> None:
@@ -804,39 +944,67 @@ class FalkorDBStore(RetrievalStore):
             "MATCH (n:ConceptualNode {attaches_to_concept_iri:$concept}) "
             "RETURN n.iri, n.kind, n.label, n.attaches_to_concept_iri, "
             "       n.vendor_field_name, n.data_type, n.primary_key, "
-            "       n.nullable, n.database_notation, n.schema_notation "
+            "       n.nullable, n.database_notation, n.schema_notation, "
+            "       n.sequence_number, n.notation, n.group_type, "
+            "       n.subtype, n.cdm, n.time_interval, n.deadline, "
+            "       n.party_scope, n.description, "
+            "       n.contract_terms, n.party_profile "
             "ORDER BY n.iri LIMIT $cap",
             {"concept": concept_iri, "cap": cap},
         )
         nodes: list[ConceptualNode] = []
         node_iris: set[str] = set()
-        for (
-            iri,
-            kind,
-            label,
-            attaches,
-            vfn,
-            dtype,
-            pk,
-            nullable,
-            dbnot,
-            schnot,
-        ) in node_rows:
+        for row in node_rows:
+            (
+                iri,
+                kind,
+                label,
+                attaches,
+                vfn,
+                dtype,
+                pk,
+                nullable,
+                dbnot,
+                schnot,
+                sequence_number,
+                notation,
+                group_type,
+                subtype,
+                cdm,
+                time_interval,
+                deadline,
+                party_scope,
+                description,
+                contract_terms,
+                party_profile,
+            ) = row
             if not iri:
                 continue
             node_iris.add(iri)
             nodes.append(
-                ConceptualNode(
+                conceptual_node_from_props(
                     iri=iri,
-                    kind=ConceptualNodeKind(kind),
-                    label=label or "",
-                    attaches_to_concept_iri=attaches or concept_iri,
-                    vendor_field_name=vfn,
-                    data_type=dtype,
-                    primary_key=pk,
+                    kind=kind,
+                    label=label,
+                    attaches=attaches,
+                    vfn=vfn,
+                    dtype=dtype,
+                    pk=pk,
                     nullable=nullable,
-                    database_notation=dbnot,
-                    schema_notation=schnot,
+                    dbnot=dbnot,
+                    schnot=schnot,
+                    sequence_number=sequence_number,
+                    notation=notation,
+                    group_type=group_type,
+                    subtype=subtype,
+                    cdm=cdm,
+                    time_interval=time_interval,
+                    deadline=deadline,
+                    party_scope=party_scope,
+                    description=description,
+                    contract_terms=contract_terms,
+                    party_profile=party_profile,
+                    concept_iri=concept_iri,
                 )
             )
         edges: list[ConceptualEdge] = []

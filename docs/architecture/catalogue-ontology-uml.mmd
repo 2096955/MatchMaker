@@ -1,0 +1,168 @@
+%% CatalogueOntology-UML — "MDS DataCatalog and Digital Rights"
+%% Transcribed 2026-07-13 from the customer-supplied UML image (package CatalogueOntology).
+%% Multiplicities in member lines are from the source ([1], [0..*]); association
+%% cardinalities are on the edges. Ambiguous arrowheads are flagged with %% notes.
+classDiagram
+    direction TB
+
+    class Field {
+        notation: String
+        type: String
+        primaryKeyFlag: Boolean
+        nullableFlag: Boolean
+        sequenceNumber: Integer
+    }
+
+    class FieldGroup {
+        notation: String
+        databaseNotation: String
+        schemaNotation: String
+        type: String
+        sequenceNumber: Integer
+    }
+
+    class DataDictionary {
+        dataset_identifier: String
+        title: String
+    }
+
+    class DeliveryChannel {
+        title: String
+        distribution_type: String
+    }
+
+    class DataService {
+        dataset_identifier: String
+        type: String
+        deploymentType: String
+        apiType: String
+        accessURL: URI
+    }
+
+    class Distribution {
+        accessURL: URI
+        mediaType: String
+        conformsTo: String
+        distribution_type: String
+        dataset_identifier: String
+    }
+
+    class Dataset {
+        identifier: String
+        title: String
+        description: String
+        keyword: String 0..*
+        theme: String 0..*
+        businessConcept: String
+        featuresAndBenefitsDescription: String
+        landingPage: URI
+        extent: String
+        startDate: DateTime
+        endDate: DateTime
+        accrualPeriodicity: String
+        spatial: String
+        geographicCoverage: String
+        temporalCoverage: String
+        industryCoverage: String
+        contentTypeCoverage: String
+        assetClass: String
+        superAssetClass: String
+        temporal: String
+        publicationSchedule: String
+    }
+
+    class ProductPackage {
+        title: String
+        longName: String
+        description: String
+        dataset_identifier: ProdDataSetMap
+        ProductID: String
+    }
+
+    class DataTaxonomy {
+        title: String
+        description: String
+    }
+
+    class ContentDeliveryModel {
+        <<enumeration>>
+        distributionService
+        redistributionService
+        useService
+        displayService
+        directDisplayService
+        nonDisplayService
+        fullNonDisplayService
+        automatedTradingService
+        derivedDataService
+        internalDistributionService
+        directAccessService
+    }
+
+    class Party {
+        permID: String
+        supplyChainStatus: SupplyChainStatus
+        organizationType: OrganizationType
+        issuerOn: String
+        memberOf: String
+        exchange: String
+    }
+
+    class InternalParty
+    class ExternalParty
+
+    class Policy {
+        cdm: ContentDeliveryModel
+    }
+
+    class Contract {
+        status: ContractStatus
+        legalBasis: LegalBasis
+        licensingModel: LicensingModel
+        renewalType: RenewalType
+        term: Duration
+        initialTerm: Duration
+        initialTermEnd: Date
+        renewalTerm: Duration
+        storePurpose: String
+        postTermStorePurpose: String
+        internalControls: String
+    }
+
+    class Duty
+    class Permission
+    class Document
+    class OrderForm
+    class Schedule
+    class MasterAgreement
+
+    %% ── Catalogue half ────────────────────────────────────────────────
+    FieldGroup "1" --> "0..*" Field
+    DataDictionary "1" --> "1" FieldGroup
+    Distribution --> DataDictionary
+    DataService "1..*" --> "1" DeliveryChannel
+    Distribution --> DataService
+    Dataset --> "1..*" Distribution
+    ProductPackage --> "1..*" Dataset
+    Dataset --> "0..1" DataTaxonomy
+
+    %% ── Rights half ──────────────────────────────────────────────────
+    InternalParty --|> Party
+    ExternalParty --|> Party
+    Contract --> Policy
+    Policy "1" --> "1..*" Duty : policyDuties
+    Policy "1" --> "1..*" Permission : policyPermissions
+    %% Duty—Permission association: arrowhead direction in the source image
+    %% may be navigability-only (no role label / multiplicity shown). ODRL's
+    %% matching concept (odrl:duty, pre-condition) runs Permission->Duty.
+    %% Direction + survival under the MDSRights Rule refactor: ask ontology owner.
+    Duty --> Permission
+    %% The long vertical lines from Party down to Duty/Permission carry no
+    %% role labels in THIS diagram; MDSRights-UML refines them as
+    %% Rule.ruleObject / Rule.ruleSubject via the Rule supertype.
+    Duty --> Party
+    Permission --> Party
+    Contract "1" --> "1..*" Document : contractDocuments
+    OrderForm --|> Document
+    Schedule --|> Document
+    MasterAgreement --|> Document
