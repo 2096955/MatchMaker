@@ -69,6 +69,10 @@ log.setLevel(logging.INFO)
 
 _ONTOLOGY_SNAPSHOT = os.environ.get("SCUDO_ONTOLOGY_SNAPSHOT", "cdao-2026-05-19")
 _RUBRIC_VERSION = os.environ.get("SCUDO_RUBRIC_VERSION", "v1")
+_PROMPT_VERSION = os.environ.get("SCUDO_PROMPT_VERSION", "v1")
+_MATCHER_VERSION = os.environ.get(
+    "SCUDO_MATCHER_VERSION", "orchestrator-agent-v1"
+)
 
 
 def _resp(status: int, body: Any) -> dict:
@@ -246,6 +250,7 @@ def _build_bundle_assembler(payload: dict):
         # a candidate. mapping_prompt() surfaces this prominently when set.
         best_skill = aurora_memory.consult_best_skill()
         skill_hint = best_skill["skill_text"] if best_skill else None
+        skill_version = best_skill.get("version") if best_skill else None
         return BriefBundle(
             request=request,
             route=route,
@@ -260,6 +265,7 @@ def _build_bundle_assembler(payload: dict):
             precedent=precedent,
             conflicts=conflicts,
             skill_hint=skill_hint,
+            skill_version=skill_version,
             assembled_at=datetime.now(tz=timezone.utc),
             bundle_ref=f"lambda-{uuid4()}",
             ontology_snapshot=_ONTOLOGY_SNAPSHOT,
@@ -270,7 +276,13 @@ def _build_bundle_assembler(payload: dict):
 
 
 def _record_precedent_if_published(
-    obj: MappingObject, *, vendor: str, vendor_product_ref: str
+    obj: MappingObject,
+    *,
+    vendor: str,
+    vendor_product_ref: str,
+    source_content_hash: str | None = None,
+    source_file_audit_id: str | None = None,
+    input_snapshot: dict | None = None,
 ) -> None:
     """DISTILL — write a durable precedent on a verified auto-pass.
 
@@ -300,6 +312,33 @@ def _record_precedent_if_published(
         target_iri=obj.mapping_result.proposed_target_iri,
         confidence=obj.mapping_result.confidence,
         rationale=obj.mapping_result.rationale,
+        outcome=obj.outcome.value,
+        status="auto_mapped",
+        band=obj.mapping_result.band.value,
+        auto_pass=True,
+        verifier_score=(
+            obj.verifier_report.total_score if obj.verifier_report is not None else None
+        ),
+        matcher_version=_MATCHER_VERSION,
+        ontology_snapshot=obj.invocation_pins.get(
+            "ontology_snapshot", _ONTOLOGY_SNAPSHOT
+        ),
+        rubric_version=obj.invocation_pins.get("rubric_version", _RUBRIC_VERSION),
+        prompt_version=_PROMPT_VERSION,
+        skill_version=obj.invocation_pins.get("skill_version"),
+        source_content_hash=source_content_hash,
+        source_file_audit_id=source_file_audit_id,
+        surface="agent",
+        input_snapshot=input_snapshot or {},
+        decision_snapshot={
+            "mapping_result": obj.mapping_result.model_dump(mode="json"),
+            "verifier_report": (
+                obj.verifier_report.model_dump(mode="json")
+                if obj.verifier_report is not None
+                else None
+            ),
+            "invocation_pins": obj.invocation_pins,
+        },
     )
 
 
@@ -600,6 +639,13 @@ def handler(event: dict, context: Any) -> dict:
             obj,
             vendor=payload["vendor"],
             vendor_product_ref=payload["vendor_product_ref"],
+            source_content_hash=(payload.get("vendor_product") or {}).get(
+                "source_content_hash"
+            ),
+            source_file_audit_id=(payload.get("vendor_product") or {}).get(
+                "source_file_audit_id"
+            ),
+            input_snapshot=payload.get("vendor_product") or {},
         )
     if obj.hitl_ticket:
         put_review_record(ticket=obj.hitl_ticket, payload=audit_payload)

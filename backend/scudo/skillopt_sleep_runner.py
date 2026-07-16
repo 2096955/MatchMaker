@@ -44,8 +44,10 @@ from __future__ import annotations
 import math
 from typing import Any, Callable, Optional
 
+from .matching_self_improvement import EvaluationReport, PromotionApproval
+
 Optimizer = Callable[[list, Optional[str]], str]
-Evaluator = Callable[[str, list], float]
+Evaluator = Callable[[str, list], float | EvaluationReport]
 
 
 def default_held_out_split(
@@ -123,6 +125,7 @@ def run_sleep_cycle(
     optimizer: Optional[Optimizer] = None,
     evaluator: Optional[Evaluator] = None,
     held_out_ratio: float = 0.2,
+    approval: Optional[PromotionApproval | dict] = None,
 ) -> bool:
     """The offline SkillOpt-Sleep cycle: HARVEST -> split -> MINE -> EVALUATE
     -> GATE+PROMOTE. ``store`` needs ``harvest_trajectories()``,
@@ -158,8 +161,75 @@ def run_sleep_cycle(
     evaluate = evaluator or _lazy_skillopt_evaluator
     score = evaluate(candidate_text, held_out)
 
+    # A real evaluation report can cross the offline-to-live boundary. A
+    # legacy scalar remains useful for dry-run/test adapters, but
+    # aurora_memory.promote_skill deliberately refuses to make it live.
+    if isinstance(score, EvaluationReport):
+        return store.promote_skill(
+            skill_text=candidate_text,
+            validation_score=score.metrics.exact_match_rate,
+            version=current_version + 1,
+            evaluation=score,
+            approval=approval,
+            source_trajectory_refs=[
+                str(t.get("bundle_ref"))
+                for t in trajectories
+                if isinstance(t, dict) and t.get("bundle_ref")
+            ],
+        )
+
     return store.promote_skill(
         skill_text=candidate_text,
         validation_score=score,
         version=current_version + 1,
+    )
+
+
+def run_evaluated_sleep_cycle(
+    *,
+    store: Any,
+    optimizer: Optimizer,
+    evaluator: Callable[[str, list], EvaluationReport],
+    approval: PromotionApproval | dict,
+    held_out_ratio: float = 0.2,
+) -> bool:
+    """Run the strict offline cycle that is allowed to promote an artifact.
+
+    The evaluator must return a versioned holdout ``EvaluationReport`` and the
+    caller must provide a named approval. The store remains the final
+    enforcement point, so this helper is safe to use with a real
+    ``aurora_memory`` module or a test double that implements the same
+    contract.
+    """
+
+    trajectories = store.harvest_trajectories()
+    if not trajectories:
+        return False
+    train, held_out = default_held_out_split(
+        trajectories, held_out_ratio=held_out_ratio
+    )
+    if not train or not held_out:
+        return False
+
+    current = store.consult_best_skill()
+    current_skill_text = current["skill_text"] if current else None
+    current_version = current["version"] if current else 0
+    candidate_text = optimizer(train, current_skill_text)
+    report = evaluator(candidate_text, held_out)
+    if not isinstance(report, EvaluationReport):
+        raise TypeError(
+            "run_evaluated_sleep_cycle evaluator must return EvaluationReport"
+        )
+
+    return store.promote_skill(
+        skill_text=candidate_text,
+        validation_score=report.metrics.exact_match_rate,
+        version=current_version + 1,
+        evaluation=report,
+        approval=approval,
+        source_trajectory_refs=[
+            str(t.get("bundle_ref"))
+            for t in trajectories
+            if isinstance(t, dict) and t.get("bundle_ref")
+        ],
     )

@@ -57,6 +57,81 @@ def _memory_row(memory_key: str, memory_type: str, payload: dict) -> list[dict]:
     ]
 
 
+def _evaluation_payload(
+    *,
+    candidate_version: str,
+    exact_match_rate: float = 1.0,
+    brier_score: float = 0.01,
+    passed: bool = True,
+) -> dict:
+    return {
+        "candidate_version": candidate_version,
+        "golden_set_version": "golden-2026-07-16",
+        "split": "holdout",
+        "case_ids": ["case-1", "case-2"],
+        "metrics": {
+            "total_cases": 2,
+            "expected_match_cases": 1,
+            "expected_abstain_cases": 1,
+            "predicted_abstain_cases": 1,
+            "correct_target_cases": 1,
+            "correct_abstention_cases": 1,
+            "false_auto_pass_cases": 0,
+            "exact_match_rate": exact_match_rate,
+            "abstention_recall": 1.0,
+            "coverage": 0.5,
+            "false_auto_pass_rate": 0.0,
+            "calibration_mae": brier_score,
+            "brier_score": brier_score,
+        },
+        "policy": {
+            "min_cases": 1,
+            "min_exact_match_rate": 0.5,
+            "max_false_auto_pass_rate": 0.0,
+            "max_brier_score": 1.0,
+        },
+        "passed": passed,
+    }
+
+
+def _approval_payload(ref: str = "MR-2026-07-16-1") -> dict:
+    return {
+        "approved_by": "reviewer@example.com",
+        "approval_ref": ref,
+        "approved_at": "2026-07-16T00:00:00+00:00",
+        "rationale": "Reviewed against the versioned holdout report.",
+    }
+
+
+def _skill_payload(
+    *,
+    version: int,
+    skill_text: str,
+    candidate_version: str,
+    exact_match_rate: float = 1.0,
+    brier_score: float = 0.01,
+    approval_ref: str = "MR-2026-07-16-1",
+) -> dict:
+    return {
+        "status": "approved",
+        "artifact_id": f"matching-skill-{version}",
+        "artifact_kind": "matching_skill",
+        "skill_text": skill_text,
+        "version": version,
+        "validation_score": exact_match_rate,
+        "created_at": "2026-07-16T00:00:00+00:00",
+        "promoted_at": 1720000000.0,
+        "immutable": True,
+        "source_trajectory_refs": ["lambda-abc123"],
+        "evaluation": _evaluation_payload(
+            candidate_version=candidate_version,
+            exact_match_rate=exact_match_rate,
+            brier_score=brier_score,
+        ),
+        "approval": _approval_payload(approval_ref),
+    }
+
+
 def test_consult_priors_returns_real_precedent_when_one_exists(monkeypatch):
     payload = {
         "target_iri": "jpmorgan:data:cdao:EquityResearch",
@@ -195,12 +270,12 @@ def test_consult_best_skill_returns_none_on_miss(monkeypatch):
 
 
 def test_consult_best_skill_returns_real_text_when_promoted(monkeypatch):
-    payload = {
-        "skill_text": "# Matching Skill\nPrefer exact vendor-code matches...",
-        "version": 3,
-        "validation_score": 0.87,
-        "promoted_at": 1720000000.0,
-    }
+    payload = _skill_payload(
+        version=3,
+        skill_text="# Matching Skill\nPrefer exact vendor-code matches...",
+        candidate_version="candidate-3",
+        exact_match_rate=0.87,
+    )
     client = _FakeRdsData(
         records=[_memory_row("skill:matching:best", "skill_doc", payload)]
     )
@@ -215,6 +290,25 @@ def test_consult_best_skill_returns_real_text_when_promoted(monkeypatch):
     call = client.calls[0]
     key_param = next(p for p in call["parameters"] if p["name"] == "memory_key")
     assert key_param["value"]["stringValue"] == "skill:matching:best"
+
+
+def test_consult_best_skill_quarantines_legacy_scalar_payload(monkeypatch):
+    client = _FakeRdsData(
+        records=[
+            _memory_row(
+                "skill:matching:best",
+                "skill_doc",
+                {
+                    "skill_text": "legacy candidate",
+                    "version": 1,
+                    "validation_score": 0.99,
+                },
+            )
+        ]
+    )
+    aurora_memory = _wire(monkeypatch, client)
+
+    assert aurora_memory.consult_best_skill() is None
 
 
 def test_consult_best_skill_fails_open_on_read_error(monkeypatch):
@@ -255,6 +349,11 @@ def test_record_trajectory_issues_parameterised_insert(monkeypatch):
     payload = json.loads(payload_param["value"]["stringValue"])
     assert payload["target_iri"] == "jpmorgan:data:cdao:EquityResearch"
     assert payload["vendor"] == "lseg"
+    assert payload["outcome"] == "published"
+    assert payload["status"] == "auto_mapped"
+    assert payload["auto_pass"] is True
+    assert "matcher_version" in payload
+    assert "decision_snapshot" in payload
 
 
 def test_record_trajectory_is_fail_loud(monkeypatch):
@@ -274,6 +373,37 @@ def test_record_trajectory_is_fail_loud(monkeypatch):
         )
 
 
+def test_record_engine_trajectory_normalises_matcher_result(monkeypatch):
+    client = _FakeRdsData()
+    aurora_memory = _wire(monkeypatch, client)
+
+    aurora_memory.record_engine_trajectory(
+        bundle_ref="engine-abc123",
+        vendor="lseg",
+        vendor_product_ref="LSEG-EQ-1",
+        mapping_result={
+            "mapped_node_iri": "jpmorgan:data:cdao:EquityResearch",
+            "confidence": 0.91,
+            "status": "auto_mapped",
+            "band": "pass",
+            "rationale": "deterministic candidate match",
+        },
+        matcher_version="cost-ladder-v2",
+        ontology_snapshot="cdao-2026-07-16",
+    )
+
+    payload_param = next(
+        p for p in client.calls[0]["parameters"] if p["name"] == "payload"
+    )
+    payload = json.loads(payload_param["value"]["stringValue"])
+    assert payload["status"] == "auto_mapped"
+    assert payload["auto_pass"] is True
+    assert payload["matcher_version"] == "cost-ladder-v2"
+    assert payload["decision_snapshot"]["target_iri"] == (
+        "jpmorgan:data:cdao:EquityResearch"
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Part E1 — aurora_memory.promote_skill() (fail-loud write, fail-open read
 # of the current best via consult_best_skill) and harvest_trajectories()
@@ -287,37 +417,57 @@ def test_promote_skill_writes_when_no_current_best_exists(monkeypatch):
         skill_text="Prefer exact vendor-code matches.",
         validation_score=0.6,
         version=1,
+        evaluation=_evaluation_payload(candidate_version="candidate-1"),
+        approval=_approval_payload(),
     )
 
     assert promoted is True
     write_calls = [c for c in client.calls if "insert into" in c["sql"].lower()]
-    assert len(write_calls) == 1
-    key_param = next(
+    assert len(write_calls) == 2
+    artifact_key_param = next(
         p for p in write_calls[0]["parameters"] if p["name"] == "memory_key"
     )
-    assert key_param["value"]["stringValue"] == "skill:matching:best"
+    assert artifact_key_param["value"]["stringValue"] == "skill:matching:artifact:1"
+    assert "do nothing" in write_calls[0]["sql"].lower()
     type_param = next(
-        p for p in write_calls[0]["parameters"] if p["name"] == "memory_type"
+        p for p in write_calls[1]["parameters"] if p["name"] == "memory_type"
     )
     assert type_param["value"]["stringValue"] == "skill_doc"
     payload_param = next(
-        p for p in write_calls[0]["parameters"] if p["name"] == "payload"
+        p for p in write_calls[1]["parameters"] if p["name"] == "payload"
     )
     payload = json.loads(payload_param["value"]["stringValue"])
     assert payload["skill_text"] == "Prefer exact vendor-code matches."
     assert payload["validation_score"] == 0.6
     assert payload["version"] == 1
+    assert payload["status"] == "approved"
+    assert payload["immutable"] is True
+    assert payload["approval"]["approval_ref"] == "MR-2026-07-16-1"
 
 
 def test_promote_skill_writes_on_strict_improvement(monkeypatch):
-    current = {"skill_text": "old skill", "version": 1, "validation_score": 0.5}
+    current = _skill_payload(
+        version=1,
+        skill_text="old skill",
+        candidate_version="candidate-1",
+        exact_match_rate=0.5,
+        brier_score=0.5,
+    )
     client = _FakeRdsData(
         records=[_memory_row("skill:matching:best", "skill_doc", current)]
     )
     aurora_memory = _wire(monkeypatch, client)
 
     promoted = aurora_memory.promote_skill(
-        skill_text="new better skill", validation_score=0.7, version=2
+        skill_text="new better skill",
+        validation_score=0.7,
+        version=2,
+        evaluation=_evaluation_payload(
+            candidate_version="candidate-2",
+            exact_match_rate=0.7,
+            brier_score=0.2,
+        ),
+        approval=_approval_payload("MR-2026-07-16-2"),
     )
 
     assert promoted is True
@@ -326,14 +476,28 @@ def test_promote_skill_writes_on_strict_improvement(monkeypatch):
 def test_promote_skill_rejects_non_improvement(monkeypatch):
     """Same or worse than the current best -> no write at all, fail-loud
     write path must never even be attempted."""
-    current = {"skill_text": "old skill", "version": 1, "validation_score": 0.8}
+    current = _skill_payload(
+        version=1,
+        skill_text="old skill",
+        candidate_version="candidate-1",
+        exact_match_rate=0.8,
+        brier_score=0.01,
+    )
     client = _FakeRdsData(
         records=[_memory_row("skill:matching:best", "skill_doc", current)]
     )
     aurora_memory = _wire(monkeypatch, client)
 
     promoted = aurora_memory.promote_skill(
-        skill_text="not better", validation_score=0.8, version=2
+        skill_text="not better",
+        validation_score=0.8,
+        version=2,
+        evaluation=_evaluation_payload(
+            candidate_version="candidate-2",
+            exact_match_rate=0.8,
+            brier_score=0.01,
+        ),
+        approval=_approval_payload("MR-2026-07-16-3"),
     )
 
     assert promoted is False
@@ -361,7 +525,11 @@ def test_promote_skill_read_of_current_best_fails_open(monkeypatch):
     aurora_memory = _wire(monkeypatch, _FlakyThenOkClient())
 
     promoted = aurora_memory.promote_skill(
-        skill_text="candidate", validation_score=0.5, version=1
+        skill_text="candidate",
+        validation_score=0.5,
+        version=1,
+        evaluation=_evaluation_payload(candidate_version="candidate-1"),
+        approval=_approval_payload("MR-2026-07-16-4"),
     )
 
     assert promoted is True
@@ -386,7 +554,11 @@ def test_promote_skill_write_is_fail_loud(monkeypatch):
 
     with pytest.raises(RuntimeError):
         aurora_memory.promote_skill(
-            skill_text="candidate", validation_score=0.5, version=1
+            skill_text="candidate",
+            validation_score=0.5,
+            version=1,
+            evaluation=_evaluation_payload(candidate_version="candidate-1"),
+            approval=_approval_payload("MR-2026-07-16-5"),
         )
 
 
