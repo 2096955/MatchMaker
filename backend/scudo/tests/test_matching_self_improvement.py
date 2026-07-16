@@ -147,8 +147,155 @@ def test_false_auto_pass_fails_policy_even_when_mapping_accuracy_is_high():
     )
 
     assert report.metrics.false_auto_pass_cases == 1
-    assert report.metrics.false_auto_pass_rate == 1.0
+    assert report.metrics.false_auto_pass_rate == 0.5
     assert report.passed is False
+
+
+def test_wrong_auto_pass_on_positive_case_fails_false_auto_pass_policy():
+    cases = [
+        _positive(f"case-{index}", vendor="lseg")
+        for index in range(20)
+    ]
+    golden = GoldenSet(version="golden-1", cases=cases)
+
+    def predictor(case):
+        target = (
+            "jpmorgan:data:cdao:Wrong"
+            if case.case_id == "case-0"
+            else case.expected_target_iri
+        )
+        return {
+            "mapped_node_iri": target,
+            "confidence": 0.99,
+            "status": "auto_mapped",
+            "auto_pass": True,
+        }
+
+    report = evaluate_golden_set(
+        golden,
+        predictor,
+        candidate_version="unsafe-candidate",
+        policy=EvaluationPolicy(
+            min_exact_match_rate=0.95,
+            max_false_auto_pass_rate=0.0,
+            max_brier_score=0.10,
+        ),
+    )
+
+    assert report.metrics.correct_target_cases == 19
+    assert report.metrics.false_auto_pass_cases == 1
+    assert report.metrics.false_auto_pass_rate == pytest.approx(0.05)
+    assert report.passed is False
+
+
+def test_correct_abstention_is_not_scored_as_high_match_confidence():
+    golden = GoldenSet(version="golden-1", cases=[_abstain("one")])
+
+    report = evaluate_golden_set(
+        golden,
+        lambda case: {
+            "confidence": 0.05,
+            "status": "needs_review",
+            "requires_human_review": True,
+        },
+        candidate_version="careful-candidate",
+        policy=EvaluationPolicy(
+            min_exact_match_rate=0.0,
+            max_false_auto_pass_rate=0.0,
+            max_brier_score=0.10,
+        ),
+    )
+
+    assert report.metrics.correct_abstention_cases == 1
+    assert report.metrics.calibration_mae == 0.0
+    assert report.metrics.brier_score == 0.0
+    assert report.passed is True
+
+
+def test_all_abstain_split_is_not_an_exact_match_failure():
+    golden = GoldenSet(version="golden-1", cases=[_abstain("one")])
+
+    report = evaluate_golden_set(
+        golden,
+        lambda case: {"status": "needs_review", "requires_human_review": True},
+        candidate_version="abstain-candidate",
+        policy=EvaluationPolicy(
+            min_exact_match_rate=0.95,
+            max_brier_score=0.10,
+        ),
+    )
+
+    assert report.metrics.expected_match_cases == 0
+    assert report.metrics.exact_match_rate == 1.0
+    assert report.passed is True
+
+
+def test_all_abstain_split_requires_correct_abstentions():
+    golden = GoldenSet(version="golden-1", cases=[_abstain("one")])
+
+    report = evaluate_golden_set(
+        golden,
+        lambda case: {
+            "mapped_node_iri": "jpmorgan:data:cdao:EquityPrices",
+            "confidence": 0.40,
+            "status": "mapped",
+            "auto_pass": False,
+        },
+        candidate_version="unsafe-candidate",
+        policy=EvaluationPolicy(
+            min_exact_match_rate=0.95,
+            max_false_auto_pass_rate=0.0,
+            max_brier_score=0.10,
+        ),
+    )
+
+    assert report.metrics.exact_match_rate == 1.0
+    assert report.metrics.abstention_recall == 0.0
+    assert report.passed is False
+
+
+def test_golden_identity_is_case_insensitive_for_product_reference():
+    first = _positive("one", split="train")
+    duplicate = first.model_copy(
+        update={
+            "case_id": "two",
+            "vendor_product_ref": first.vendor_product_ref.lower(),
+            "split": "holdout",
+        }
+    )
+
+    with pytest.raises(ValueError, match="duplicate vendor/vendor_product_ref"):
+        GoldenSet(version="golden-1", cases=[first, duplicate])
+
+
+def test_evaluator_only_calls_the_requested_split():
+    golden = GoldenSet(
+        version="golden-1",
+        cases=[
+            _positive("train", split="train"),
+            _positive("holdout", split="holdout", vendor="ice"),
+            _positive("adversarial", split="adversarial", vendor="spglobal"),
+        ],
+    )
+    evaluated_case_ids = []
+
+    report = evaluate_golden_set(
+        golden,
+        lambda case: (
+            evaluated_case_ids.append(case.case_id)
+            or {
+                "mapped_node_iri": case.expected_target_iri,
+                "confidence": 0.99,
+                "status": "auto_mapped",
+            }
+        ),
+        candidate_version="candidate-1",
+        split="adversarial",
+        policy=EvaluationPolicy(min_exact_match_rate=1.0, max_brier_score=1.0),
+    )
+
+    assert evaluated_case_ids == ["adversarial"]
+    assert report.case_ids == ["adversarial"]
 
 
 def test_abstaining_positive_prediction_is_not_an_exact_match():
@@ -191,6 +338,7 @@ def _report(
             "expected_match_cases": 1,
             "expected_abstain_cases": 1,
             "predicted_abstain_cases": 1,
+            "auto_pass_cases": 1,
             "correct_target_cases": 1,
             "correct_abstention_cases": 1,
             "false_auto_pass_cases": 0,

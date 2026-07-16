@@ -83,9 +83,9 @@ def trajectory_to_task_record(trajectory: dict) -> dict:
       intent              natural-language restatement of the REAL fields
       attempted_solution  the REAL target_iri that was mapped to
       context_excerpt      the REAL rationale
-      outcome             "success" - record_trajectory is only ever called
-                          on a verified Outcome.PUBLISHED result, so every
-                          recorded trajectory IS a successful outcome
+      outcome             "success" only for an explicitly auto-passed,
+                          published/auto-mapped decision; all review,
+                          abstention, and rejected decisions are failures
       reference_kind      "none" - no rubric/exact-answer is recorded
                           alongside a trajectory today (see module docstring
                           for why this may limit skillopt-sleep's scoring)
@@ -98,6 +98,13 @@ def trajectory_to_task_record(trajectory: dict) -> dict:
     vendor = trajectory["vendor"]
     vendor_product_ref = trajectory["vendor_product_ref"]
     task_id = str(uuid.uuid5(_TASK_ID_NAMESPACE, f"{vendor}::{vendor_product_ref}"))
+    decision_outcome = str(trajectory.get("outcome", "")).strip().lower()
+    mined_outcome = (
+        "success"
+        if trajectory.get("auto_pass") is True
+        and decision_outcome in {"published", "auto_mapped", "approved"}
+        else "failure"
+    )
     return {
         "id": task_id,
         "project": "scudo-matching",
@@ -108,7 +115,7 @@ def trajectory_to_task_record(trajectory: dict) -> dict:
         "context_excerpt": trajectory.get("rationale", ""),
         "system": "",
         "attempted_solution": trajectory.get("target_iri", ""),
-        "outcome": "success",
+        "outcome": mined_outcome,
         "reference_kind": "none",
         "reference": "",
         "judge": {},

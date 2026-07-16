@@ -85,3 +85,40 @@ def test_golden_evaluation_cli_accepts_engine_and_agent_rows(tmp_path, capsys):
     assert output["passed"] is True
     assert output["metrics"]["false_auto_pass_rate"] == 0.0
     assert output["by_vendor"]["ice"]["abstention_recall"] == 1.0
+
+
+def test_golden_evaluation_cli_returns_distinct_code_for_invalid_input(
+    tmp_path, capsys
+):
+    golden = tmp_path / "golden.jsonl"
+    golden.write_text(
+        json.dumps(
+            {
+                "case_id": "case-1",
+                "vendor": "lseg",
+                "vendor_product_ref": "LSEG-1",
+                "expected_target_iri": "jpmorgan:data:cdao:EquityPrices",
+                "split": "holdout",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    predictions = tmp_path / "predictions.jsonl"
+    predictions.write_text("{}\n", encoding="utf-8")
+
+    exit_code = main(
+        [
+            "--golden-set",
+            str(golden),
+            "--golden-version",
+            "golden-1",
+            "--predictions",
+            str(predictions),
+            "--candidate-version",
+            "candidate-1",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "ERROR" in capsys.readouterr().err

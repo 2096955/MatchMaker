@@ -91,8 +91,9 @@ matching-engine quality.
    holdout, and adversarial cases. Duplicate vendor/product identities across
    splits are rejected.
 3. **Evaluate offline.** Candidate changes are measured for exact matching,
-   abstention, false auto-pass, calibration, Brier score, vendor coverage, and
-   taxonomy coverage.
+   abstention recall, false auto-pass, calibration, Brier score, vendor
+   coverage, and taxonomy coverage. A product identity cannot appear in both the mined
+   training trajectories and the held-out evaluation partition.
 4. **Require approval.** A candidate must pass the holdout policy and receive
    named approval before it can influence live prompts or skills.
 5. **Promote immutably.** The approved artifact is stored under a versioned
@@ -120,10 +121,11 @@ PYTHONPATH=. python -m scudo.scripts.evaluate_matching_golden \
 The evaluator is report-only. It does not write Aurora, change thresholds, or
 promote an artifact.
 
-The strict offline promotion entry point is
-`scudo.skillopt_sleep_runner.run_evaluated_sleep_cycle`. It requires a
-structured holdout report and named approval. A curated business golden set
-and a scheduled evaluation job are still deployment inputs.
+The offline promotion entry points require a structured holdout report and
+named approval; scalar scores fail closed. The scheduler's dry-run invokes the
+same promotion preflight as an apply run, but never writes an artifact or live
+pointer. A curated business golden set and a scheduled evaluation job are
+still deployment inputs.
 
 ## Current experience
 

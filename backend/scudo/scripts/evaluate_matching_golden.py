@@ -56,6 +56,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--split", choices=("holdout", "adversarial"), default="holdout")
     parser.add_argument("--min-cases", type=int, default=1)
     parser.add_argument("--min-exact-match-rate", type=float, default=0.95)
+    parser.add_argument("--min-abstention-recall", type=float, default=1.0)
     parser.add_argument("--max-false-auto-pass-rate", type=float, default=0.0)
     parser.add_argument("--max-brier-score", type=float, default=0.10)
     return parser.parse_args(argv)
@@ -63,27 +64,32 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(list(sys.argv[1:] if argv is None else argv))
-    golden = load_golden_set(args.golden_set, version=args.golden_version)
-    predictions = _load_predictions(args.predictions)
-    selected = golden.cases_for_split(args.split)
-    missing = [case.case_id for case in selected if case.case_id not in predictions]
-    if missing:
-        raise ValueError(
-            f"predictions are missing {args.split} case(s): {', '.join(missing)}"
-        )
+    try:
+        golden = load_golden_set(args.golden_set, version=args.golden_version)
+        predictions = _load_predictions(args.predictions)
+        selected = golden.cases_for_split(args.split)
+        missing = [case.case_id for case in selected if case.case_id not in predictions]
+        if missing:
+            raise ValueError(
+                f"predictions are missing {args.split} case(s): {', '.join(missing)}"
+            )
 
-    report = evaluate_golden_set(
-        golden,
-        lambda case: predictions[case.case_id],
-        candidate_version=args.candidate_version,
-        split=args.split,
-        policy=EvaluationPolicy(
-            min_cases=args.min_cases,
-            min_exact_match_rate=args.min_exact_match_rate,
-            max_false_auto_pass_rate=args.max_false_auto_pass_rate,
-            max_brier_score=args.max_brier_score,
-        ),
-    )
+        report = evaluate_golden_set(
+            golden,
+            lambda case: predictions[case.case_id],
+            candidate_version=args.candidate_version,
+            split=args.split,
+            policy=EvaluationPolicy(
+                min_cases=args.min_cases,
+                min_exact_match_rate=args.min_exact_match_rate,
+                min_abstention_recall=args.min_abstention_recall,
+                max_false_auto_pass_rate=args.max_false_auto_pass_rate,
+                max_brier_score=args.max_brier_score,
+            ),
+        )
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
     return 0 if report.passed else 1
 

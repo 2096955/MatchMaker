@@ -161,6 +161,25 @@ def record_verified_precedent(
 _BEST_SKILL_KEY = "skill:matching:best"
 
 
+def _read_memory_payload(memory_key: str) -> Optional[dict]:
+    result = aurora_store._execute(
+        "select memory_key, memory_type, payload from scudo.agent_memory "
+        "where memory_key = :memory_key",
+        [aurora_store._str_param("memory_key", memory_key)],
+    )
+    for rec in result.get("records", []):
+        record_key = (rec[0] or {}).get("stringValue") if rec else None
+        if record_key != memory_key:
+            continue
+        raw_payload = (rec[2] or {}).get("stringValue") if len(rec) > 2 else None
+        try:
+            payload = json.loads(raw_payload) if raw_payload else None
+        except (ValueError, TypeError):
+            return None
+        return payload if isinstance(payload, dict) else None
+    return None
+
+
 def consult_best_skill() -> Optional[dict]:
     """Read the current approved matching skill doc, if one exists.
 
@@ -174,51 +193,29 @@ def consult_best_skill() -> Optional[dict]:
     quarantined skill doc is a normal state.
     """
     try:
-        result = aurora_store._execute(
-            "select memory_key, memory_type, payload from scudo.agent_memory "
-            "where memory_key = :memory_key",
-            [aurora_store._str_param("memory_key", _BEST_SKILL_KEY)],
-        )
+        payload = _read_memory_payload(_BEST_SKILL_KEY)
     except Exception as e:  # noqa: BLE001 — advisory, never blocks a mapping run
         log.warning(
-            "consult_best_skill failed, proceeding with no skill doc: %s: %s",
+            "consult_best_skill failed, proceeding with no skill doc: %s",
             type(e).__name__,
-            e,
         )
         return None
 
-    for rec in result.get("records", []):
-        raw_payload = (rec[2] or {}).get("stringValue") if len(rec) > 2 else None
-        try:
-            payload = json.loads(raw_payload) if raw_payload else None
-        except (ValueError, TypeError):
-            return None
-        if not isinstance(payload, dict):
-            return None
-        try:
-            artifact_payload = {
-                "artifact_id": payload["artifact_id"],
-                "artifact_kind": payload.get("artifact_kind", "matching_skill"),
-                "version": payload["version"],
-                "content": payload.get("skill_text") or payload.get("content", ""),
-                "source_trajectory_refs": payload.get("source_trajectory_refs", []),
-                "evaluation": payload["evaluation"],
-                "approval": payload["approval"],
-            }
-            if payload.get("created_at"):
-                artifact_payload["created_at"] = payload["created_at"]
-            artifact = LearningArtifact.model_validate(artifact_payload)
-        except Exception as exc:  # noqa: BLE001 — malformed memory is quarantined
-            log.warning("quarantining malformed best matching skill: %s", exc)
-            return None
-        if (
-            payload.get("status") != "approved"
-            or payload.get("immutable") is not True
-            or not artifact.live_eligible
-        ):
-            return None
-        return payload
-    return None
+    if not payload:
+        return None
+    artifact = _artifact_from_skill_payload(payload)
+    if artifact is None:
+        log.warning(
+            "quarantining malformed best matching skill payload"
+        )
+        return None
+    if (
+        payload.get("status") != "approved"
+        or payload.get("immutable") is not True
+        or not artifact.live_eligible
+    ):
+        return None
+    return payload
 
 
 def _trajectory_key(bundle_ref: str) -> str:
@@ -387,6 +384,155 @@ def _artifact_from_skill_payload(payload: dict) -> Optional[LearningArtifact]:
         return None
 
 
+def _artifact_payload_matches(existing: dict, candidate: dict) -> bool:
+    if any(
+        existing.get(key) != candidate.get(key)
+        for key in (
+            "artifact_id",
+            "artifact_kind",
+            "skill_text",
+            "version",
+            "source_trajectory_refs",
+        )
+    ):
+        return False
+    existing_evaluation = existing.get("evaluation")
+    candidate_evaluation = candidate.get("evaluation")
+    existing_approval = existing.get("approval")
+    candidate_approval = candidate.get("approval")
+    if not all(
+        isinstance(value, dict)
+        for value in (
+            existing_evaluation,
+            candidate_evaluation,
+            existing_approval,
+            candidate_approval,
+        )
+    ):
+        return False
+    existing_evaluation = dict(existing_evaluation)
+    candidate_evaluation = dict(candidate_evaluation)
+    existing_approval = dict(existing_approval)
+    candidate_approval = dict(candidate_approval)
+    # A caller supplying an evaluation dict without evaluated_at receives a
+    # model default on each retry. The same applies to approval.approved_at.
+    # Those generated timestamps are not substantive retry differences.
+    existing_evaluation.pop("evaluated_at", None)
+    candidate_evaluation.pop("evaluated_at", None)
+    existing_approval.pop("approved_at", None)
+    candidate_approval.pop("approved_at", None)
+    return (
+        existing_evaluation == candidate_evaluation
+        and existing_approval == candidate_approval
+    )
+
+
+def _artifact_comparison_payload(candidate: LearningArtifact) -> dict:
+    return {
+        "artifact_id": candidate.artifact_id,
+        "artifact_kind": candidate.artifact_kind,
+        "skill_text": candidate.content,
+        "version": candidate.version,
+        "source_trajectory_refs": candidate.source_trajectory_refs,
+        "evaluation": candidate.evaluation.model_dump(mode="json"),
+        "approval": candidate.approval.model_dump(mode="json"),
+    }
+
+
+def next_skill_version(*, minimum: int = 1) -> int:
+    """Allocate a version beyond every immutable matching-skill artifact.
+
+    The live pointer can be absent or quarantined while prior immutable
+    artifacts still exist. Those artifacts remain the authoritative version
+    history, so version allocation must not rely on the pointer alone.
+    """
+    result = aurora_store._execute(
+        "select memory_key, memory_type, payload from scudo.agent_memory "
+        "where memory_type = :memory_type",
+        [aurora_store._str_param("memory_type", "skill_artifact")],
+    )
+    highest_version = 0
+    for rec in result.get("records", []):
+        raw_payload = (rec[2] or {}).get("stringValue") if len(rec) > 2 else None
+        try:
+            payload = json.loads(raw_payload) if raw_payload else None
+            version = payload.get("version") if isinstance(payload, dict) else None
+            if isinstance(version, int) and not isinstance(version, bool):
+                highest_version = max(highest_version, version)
+        except (ValueError, TypeError):
+            continue
+    return max(highest_version + 1, max(int(minimum), 1))
+
+
+def preflight_skill_promotion(
+    *,
+    skill_text: str,
+    version: int,
+    evaluation: EvaluationReport | dict | None,
+    approval: PromotionApproval | dict | None,
+    source_trajectory_refs: Optional[list[str]] = None,
+    artifact_id: Optional[str] = None,
+) -> Optional[LearningArtifact]:
+    """Validate a candidate against the live promotion boundary without writes.
+
+    The scheduler dry-run uses this exact preflight so its decision stays
+    aligned with a real promotion while leaving both immutable artifacts and
+    the live pointer untouched.
+    """
+    if evaluation is None or approval is None:
+        log.warning(
+            "refusing skill promotion without holdout evaluation and named approval"
+        )
+        return None
+    try:
+        evaluation_model = (
+            evaluation
+            if isinstance(evaluation, EvaluationReport)
+            else EvaluationReport.model_validate(evaluation)
+        )
+        approval_model = (
+            approval
+            if isinstance(approval, PromotionApproval)
+            else PromotionApproval.model_validate(approval)
+        )
+        candidate = LearningArtifact(
+            artifact_id=artifact_id or f"matching-skill-{version}",
+            artifact_kind="matching_skill",
+            version=version,
+            content=skill_text,
+            source_trajectory_refs=source_trajectory_refs or [],
+            evaluation=evaluation_model,
+            approval=approval_model,
+        )
+    except Exception as exc:  # noqa: BLE001 — invalid candidate is not live
+        log.warning(
+            "refusing malformed skill promotion candidate: %s",
+            type(exc).__name__,
+        )
+        return None
+
+    current = consult_best_skill()
+    current_artifact = _artifact_from_skill_payload(current) if current else None
+    try:
+        validate_promotion(candidate, current=current_artifact)
+    except PromotionRejected as exc:
+        log.info("skill promotion rejected: %s", exc)
+        return None
+
+    artifact_key = f"skill:matching:artifact:{candidate.version}"
+    existing = _read_memory_payload(artifact_key)
+    if existing and not _artifact_payload_matches(
+        existing, _artifact_comparison_payload(candidate)
+    ):
+        log.warning(
+            "refusing skill promotion because immutable artifact version %s "
+            "already belongs to a different candidate",
+            candidate.version,
+        )
+        return None
+    return candidate
+
+
 def promote_skill(
     *,
     skill_text: str,
@@ -410,41 +556,15 @@ def promote_skill(
     errors. Newly recorded candidates therefore cannot influence live prompts
     without a complete, approved artifact.
     """
-    if evaluation is None or approval is None:
-        log.warning(
-            "refusing skill promotion without holdout evaluation and named approval"
-        )
-        return False
-    try:
-        evaluation_model = (
-            evaluation
-            if isinstance(evaluation, EvaluationReport)
-            else EvaluationReport.model_validate(evaluation)
-        )
-        approval_model = (
-            approval
-            if isinstance(approval, PromotionApproval)
-            else PromotionApproval.model_validate(approval)
-        )
-        candidate = LearningArtifact(
-            artifact_id=artifact_id or f"matching-skill-{version}",
-            artifact_kind="matching_skill",
-            version=version,
-            content=skill_text,
-            source_trajectory_refs=source_trajectory_refs or [],
-            evaluation=evaluation_model,
-            approval=approval_model,
-        )
-    except Exception as exc:  # noqa: BLE001 — invalid candidate is not live
-        log.warning("refusing malformed skill promotion candidate: %s", exc)
-        return False
-
-    current = consult_best_skill()
-    current_artifact = _artifact_from_skill_payload(current) if current else None
-    try:
-        validate_promotion(candidate, current=current_artifact)
-    except PromotionRejected as exc:
-        log.info("skill promotion rejected: %s", exc)
+    candidate = preflight_skill_promotion(
+        skill_text=skill_text,
+        version=version,
+        evaluation=evaluation,
+        approval=approval,
+        source_trajectory_refs=source_trajectory_refs,
+        artifact_id=artifact_id,
+    )
+    if candidate is None:
         return False
 
     payload: dict[str, Any] = {
@@ -478,7 +598,14 @@ def promote_skill(
         ],
     )
     if artifact_write.get("numberOfRecordsUpdated") == 0:
-        return False
+        existing = _read_memory_payload(artifact_key)
+        if not existing or not _artifact_payload_matches(existing, artifact_payload):
+            log.warning(
+                "refusing skill promotion because immutable artifact version %s "
+                "already belongs to a different candidate",
+                version,
+            )
+            return False
 
     aurora_store._execute(
         "insert into scudo.agent_memory (memory_key, memory_type, updated_at_ms, payload) "

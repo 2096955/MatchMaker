@@ -31,6 +31,10 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _canonical_identity(vendor: str, vendor_product_ref: str) -> tuple[str, str]:
+    return (vendor.strip().lower(), vendor_product_ref.strip().lower())
+
+
 class GoldenCase(BaseModel):
     """One labelled matching example.
 
@@ -69,7 +73,7 @@ class GoldenCase(BaseModel):
 
     @property
     def identity(self) -> tuple[str, str]:
-        return (self.vendor.strip().lower(), self.vendor_product_ref.strip())
+        return _canonical_identity(self.vendor, self.vendor_product_ref)
 
 
 class GoldenSet(BaseModel):
@@ -225,6 +229,7 @@ class EvaluationPolicy(BaseModel):
 
     min_cases: int = Field(default=1, ge=1)
     min_exact_match_rate: float = Field(default=0.95, ge=0.0, le=1.0)
+    min_abstention_recall: float = Field(default=1.0, ge=0.0, le=1.0)
     max_false_auto_pass_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     max_brier_score: float = Field(default=0.10, ge=0.0, le=1.0)
 
@@ -238,6 +243,7 @@ class EvaluationMetrics(BaseModel):
     expected_match_cases: int = Field(..., ge=0)
     expected_abstain_cases: int = Field(..., ge=0)
     predicted_abstain_cases: int = Field(..., ge=0)
+    auto_pass_cases: int = Field(..., ge=0)
     correct_target_cases: int = Field(..., ge=0)
     correct_abstention_cases: int = Field(..., ge=0)
     false_auto_pass_cases: int = Field(..., ge=0)
@@ -310,11 +316,13 @@ def _strictly_improves(
 
     no_regression = (
         candidate.exact_match_rate >= baseline.exact_match_rate
+        and candidate.abstention_recall >= baseline.abstention_recall
         and candidate.false_auto_pass_rate <= baseline.false_auto_pass_rate
         and candidate.brier_score <= baseline.brier_score
     )
     strict = (
         candidate.exact_match_rate > baseline.exact_match_rate
+        or candidate.abstention_recall > baseline.abstention_recall
         or candidate.false_auto_pass_rate < baseline.false_auto_pass_rate
         or candidate.brier_score < baseline.brier_score
     )
@@ -360,6 +368,7 @@ def _metrics_for(
     expected_matches = sum(not case.expected_abstain for case in selected)
     expected_abstains = len(selected) - expected_matches
     predicted_abstains = 0
+    auto_passes = 0
     correct_targets = 0
     correct_abstentions = 0
     false_auto_passes = 0
@@ -370,16 +379,9 @@ def _metrics_for(
         prediction = predictions[case.case_id]
         if prediction.abstained:
             predicted_abstains += 1
+        if prediction.auto_pass:
+            auto_passes += 1
 
-        target_correct = (
-            case.expected_abstain
-            and prediction.abstained
-            or (
-                not case.expected_abstain
-                and not prediction.abstained
-                and prediction.target_iri == case.expected_target_iri
-            )
-        )
         if (
             not case.expected_abstain
             and not prediction.abstained
@@ -388,25 +390,40 @@ def _metrics_for(
             correct_targets += 1
         if case.expected_abstain and prediction.abstained:
             correct_abstentions += 1
-        if case.expected_abstain and prediction.auto_pass:
+        if prediction.auto_pass and (
+            case.expected_abstain
+            or prediction.target_iri != case.expected_target_iri
+        ):
             false_auto_passes += 1
 
-        expected_confidence = 1.0 if target_correct else 0.0
-        calibration_errors.append(abs(prediction.confidence - expected_confidence))
-        brier_scores.append((prediction.confidence - expected_confidence) ** 2)
+        if not case.expected_abstain:
+            target_correct = (
+                not prediction.abstained
+                and prediction.target_iri == case.expected_target_iri
+            )
+            expected_confidence = 1.0 if target_correct else 0.0
+            calibration_errors.append(
+                abs(prediction.confidence - expected_confidence)
+            )
+            brier_scores.append((prediction.confidence - expected_confidence) ** 2)
 
     return EvaluationMetrics(
         total_cases=len(selected),
         expected_match_cases=expected_matches,
         expected_abstain_cases=expected_abstains,
         predicted_abstain_cases=predicted_abstains,
+        auto_pass_cases=auto_passes,
         correct_target_cases=correct_targets,
         correct_abstention_cases=correct_abstentions,
         false_auto_pass_cases=false_auto_passes,
-        exact_match_rate=_safe_rate(correct_targets, expected_matches),
+        exact_match_rate=(
+            1.0
+            if expected_matches == 0
+            else _safe_rate(correct_targets, expected_matches)
+        ),
         abstention_recall=_safe_rate(correct_abstentions, expected_abstains),
         coverage=_safe_rate(len(selected) - predicted_abstains, len(selected)),
-        false_auto_pass_rate=_safe_rate(false_auto_passes, expected_abstains),
+        false_auto_pass_rate=_safe_rate(false_auto_passes, auto_passes),
         calibration_mae=_safe_rate(
             int(round(sum(calibration_errors) * 1_000_000)), len(calibration_errors)
         )
@@ -458,6 +475,10 @@ def evaluate_golden_set(
     passed = (
         metrics.total_cases >= selected_policy.min_cases
         and metrics.exact_match_rate >= selected_policy.min_exact_match_rate
+        and (
+            metrics.expected_abstain_cases == 0
+            or metrics.abstention_recall >= selected_policy.min_abstention_recall
+        )
         and metrics.false_auto_pass_rate
         <= selected_policy.max_false_auto_pass_rate
         and metrics.brier_score <= selected_policy.max_brier_score

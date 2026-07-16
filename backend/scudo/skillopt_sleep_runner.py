@@ -47,7 +47,29 @@ from typing import Any, Callable, Optional
 from .matching_self_improvement import EvaluationReport, PromotionApproval
 
 Optimizer = Callable[[list, Optional[str]], str]
-Evaluator = Callable[[str, list], float | EvaluationReport]
+Evaluator = Callable[[str, list], EvaluationReport]
+
+
+def _trajectory_identity(trajectory: object) -> Optional[tuple[str, str]]:
+    if not isinstance(trajectory, dict):
+        return None
+    vendor = trajectory.get("vendor")
+    vendor_product_ref = trajectory.get("vendor_product_ref")
+    if not isinstance(vendor, str) or not isinstance(vendor_product_ref, str):
+        return None
+    vendor = vendor.strip().lower()
+    vendor_product_ref = vendor_product_ref.strip().lower()
+    if not vendor or not vendor_product_ref:
+        return None
+    return vendor, vendor_product_ref
+
+
+def _next_skill_version(store: Any, current_version: int) -> int:
+    minimum = current_version + 1
+    allocator = getattr(store, "next_skill_version", None)
+    if not callable(allocator):
+        return minimum
+    return max(int(allocator(minimum=minimum)), minimum)
 
 
 def default_held_out_split(
@@ -65,7 +87,25 @@ def default_held_out_split(
         return [], []
     held_out_count = min(math.ceil(n * held_out_ratio), n)
     split_index = n - held_out_count
-    return trajectories[:split_index], trajectories[split_index:]
+    train = trajectories[:split_index]
+    held_out = trajectories[split_index:]
+    train_identities = {
+        identity
+        for trajectory in train
+        if (identity := _trajectory_identity(trajectory)) is not None
+    }
+    held_out_identities = {
+        identity
+        for trajectory in held_out
+        if (identity := _trajectory_identity(trajectory)) is not None
+    }
+    overlapping_identities = train_identities & held_out_identities
+    if overlapping_identities:
+        raise ValueError(
+            "held-out split has vendor/vendor_product_ref identity overlap "
+            "between train and holdout"
+        )
+    return train, held_out
 
 
 def _lazy_skillopt_optimizer(
@@ -97,7 +137,7 @@ def _lazy_skillopt_optimizer(
     )
 
 
-def _lazy_skillopt_evaluator(candidate_text: str, held_out: list) -> float:
+def _lazy_skillopt_evaluator(candidate_text: str, held_out: list) -> EvaluationReport:
     """The default evaluator, mirroring ``_lazy_skillopt_optimizer``: lazy
     import, clear ``RuntimeError`` if ``skillopt`` isn't installed, otherwise
     a documented stub (the held-out scoring call is unverified API surface,
@@ -130,11 +170,12 @@ def run_sleep_cycle(
     """The offline SkillOpt-Sleep cycle: HARVEST -> split -> MINE -> EVALUATE
     -> GATE+PROMOTE. ``store`` needs ``harvest_trajectories()``,
     ``consult_best_skill()``, and ``promote_skill(*, skill_text,
-    validation_score, version)`` — ``aurora_memory`` already provides all
-    three. ``optimizer``/``evaluator`` are injectable so tests never touch
-    real Aurora, the network, or the unvendored ``skillopt`` package; the
-    default optimizer (used only when the caller supplies none) requires
-    ``skillopt`` to be installed and raises a clear error otherwise.
+    validation_score, version, evaluation, approval, source_trajectory_refs)``.
+    ``aurora_memory`` provides this interface. ``optimizer``/``evaluator``
+    are injectable so tests never touch real Aurora, the network, or the
+    unvendored ``skillopt`` package; the default optimizer (used only when a
+    caller supplies none) requires ``skillopt`` to be installed and raises a
+    clear error otherwise.
 
     Returns whether a new skill doc was actually promoted. The gate itself
     (``should_promote``) is NOT re-checked here — ``store.promote_skill``
@@ -154,34 +195,29 @@ def run_sleep_cycle(
     current = store.consult_best_skill()
     current_skill_text = current["skill_text"] if current else None
     current_version = current["version"] if current else 0
+    candidate_version = _next_skill_version(store, current_version)
 
     mine = optimizer or _lazy_skillopt_optimizer
     candidate_text = mine(train, current_skill_text)
 
     evaluate = evaluator or _lazy_skillopt_evaluator
-    score = evaluate(candidate_text, held_out)
-
-    # A real evaluation report can cross the offline-to-live boundary. A
-    # legacy scalar remains useful for dry-run/test adapters, but
-    # aurora_memory.promote_skill deliberately refuses to make it live.
-    if isinstance(score, EvaluationReport):
-        return store.promote_skill(
-            skill_text=candidate_text,
-            validation_score=score.metrics.exact_match_rate,
-            version=current_version + 1,
-            evaluation=score,
-            approval=approval,
-            source_trajectory_refs=[
-                str(t.get("bundle_ref"))
-                for t in trajectories
-                if isinstance(t, dict) and t.get("bundle_ref")
-            ],
+    report = evaluate(candidate_text, held_out)
+    if not isinstance(report, EvaluationReport):
+        raise TypeError(
+            "run_sleep_cycle evaluator must return EvaluationReport"
         )
 
     return store.promote_skill(
         skill_text=candidate_text,
-        validation_score=score,
-        version=current_version + 1,
+        validation_score=report.metrics.exact_match_rate,
+        version=candidate_version,
+        evaluation=report,
+        approval=approval,
+        source_trajectory_refs=[
+            str(t.get("bundle_ref"))
+            for t in trajectories
+            if isinstance(t, dict) and t.get("bundle_ref")
+        ],
     )
 
 
@@ -214,6 +250,7 @@ def run_evaluated_sleep_cycle(
     current = store.consult_best_skill()
     current_skill_text = current["skill_text"] if current else None
     current_version = current["version"] if current else 0
+    candidate_version = _next_skill_version(store, current_version)
     candidate_text = optimizer(train, current_skill_text)
     report = evaluator(candidate_text, held_out)
     if not isinstance(report, EvaluationReport):
@@ -224,7 +261,7 @@ def run_evaluated_sleep_cycle(
     return store.promote_skill(
         skill_text=candidate_text,
         validation_score=report.metrics.exact_match_rate,
-        version=current_version + 1,
+        version=candidate_version,
         evaluation=report,
         approval=approval,
         source_trajectory_refs=[

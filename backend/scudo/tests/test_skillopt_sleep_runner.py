@@ -27,6 +27,54 @@ from __future__ import annotations
 import pytest
 
 
+def _passing_evaluation_report():
+    from scudo.matching_self_improvement import (
+        EvaluationMetrics,
+        EvaluationPolicy,
+        EvaluationReport,
+    )
+
+    policy = EvaluationPolicy(
+        min_exact_match_rate=0.95,
+        max_false_auto_pass_rate=0.0,
+        max_brier_score=0.10,
+    )
+    return EvaluationReport(
+        candidate_version="candidate-1",
+        golden_set_version="golden-1",
+        split="holdout",
+        case_ids=["case-1"],
+        metrics=EvaluationMetrics(
+            total_cases=1,
+            expected_match_cases=1,
+            expected_abstain_cases=0,
+            predicted_abstain_cases=0,
+            auto_pass_cases=1,
+            correct_target_cases=1,
+            correct_abstention_cases=0,
+            false_auto_pass_cases=0,
+            exact_match_rate=1.0,
+            abstention_recall=0.0,
+            coverage=1.0,
+            false_auto_pass_rate=0.0,
+            calibration_mae=0.05,
+            brier_score=0.0025,
+        ),
+        policy=policy,
+        passed=True,
+    )
+
+
+def _approval():
+    from scudo.matching_self_improvement import PromotionApproval
+
+    return PromotionApproval(
+        approved_by="reviewer@example.com",
+        approval_ref="MR-1",
+        rationale="reviewed",
+    )
+
+
 def test_runner_module_is_never_imported_by_lambda_handler():
     """The live Lambda hot path must not depend on the offline runner (which
     would, when fully implemented, depend on the unvendored skillopt
@@ -110,10 +158,18 @@ class _FakeSleepStore:
     consult current best, gate+promote. Records promote_skill calls so tests
     can assert the exact arguments the orchestrator computed."""
 
-    def __init__(self, *, trajectories=None, current_best=None, promote_result=True):
+    def __init__(
+        self,
+        *,
+        trajectories=None,
+        current_best=None,
+        promote_result=True,
+        next_version=None,
+    ):
         self.trajectories = list(trajectories) if trajectories is not None else []
         self.current_best = current_best
         self.promote_result = promote_result
+        self.next_version = next_version
         self.promote_calls = []
 
     def harvest_trajectories(self):
@@ -122,12 +178,27 @@ class _FakeSleepStore:
     def consult_best_skill(self):
         return self.current_best
 
-    def promote_skill(self, *, skill_text, validation_score, version):
+    def next_skill_version(self, *, minimum=1):
+        return max(self.next_version or 1, minimum)
+
+    def promote_skill(
+        self,
+        *,
+        skill_text,
+        validation_score,
+        version,
+        evaluation,
+        approval,
+        source_trajectory_refs,
+    ):
         self.promote_calls.append(
             {
                 "skill_text": skill_text,
                 "validation_score": validation_score,
                 "version": version,
+                "evaluation": evaluation,
+                "approval": approval,
+                "source_trajectory_refs": source_trajectory_refs,
             }
         )
         return self.promote_result
@@ -158,6 +229,19 @@ def test_default_held_out_split_returns_empty_lists_for_empty_input():
     assert default_held_out_split([], held_out_ratio=0.2) == ([], [])
 
 
+def test_default_held_out_split_rejects_case_insensitive_identity_overlap():
+    from scudo.skillopt_sleep_runner import default_held_out_split
+
+    trajectories = [
+        {"vendor": "LSEG", "vendor_product_ref": "EQ-PX-1"},
+        {"vendor": "ICE", "vendor_product_ref": "FX-1"},
+        {"vendor": " lseg ", "vendor_product_ref": "eq-px-1"},
+    ]
+
+    with pytest.raises(ValueError, match="identity overlap"):
+        default_held_out_split(trajectories, held_out_ratio=0.2)
+
+
 def test_run_sleep_cycle_promotes_on_happy_path_with_no_current_best():
     from scudo.skillopt_sleep_runner import run_sleep_cycle
 
@@ -166,6 +250,8 @@ def test_run_sleep_cycle_promotes_on_happy_path_with_no_current_best():
     )
     seen_mine_args = {}
     seen_eval_args = {}
+    report = _passing_evaluation_report()
+    approval = _approval()
 
     def fake_optimizer(train, current_skill_text):
         seen_mine_args["train"] = train
@@ -175,10 +261,13 @@ def test_run_sleep_cycle_promotes_on_happy_path_with_no_current_best():
     def fake_evaluator(candidate_text, held_out):
         seen_eval_args["candidate_text"] = candidate_text
         seen_eval_args["held_out"] = held_out
-        return 0.95
+        return report
 
     result = run_sleep_cycle(
-        store=store, optimizer=fake_optimizer, evaluator=fake_evaluator
+        store=store,
+        optimizer=fake_optimizer,
+        evaluator=fake_evaluator,
+        approval=approval,
     )
 
     assert result is True
@@ -186,8 +275,50 @@ def test_run_sleep_cycle_promotes_on_happy_path_with_no_current_best():
     assert seen_mine_args["current_skill_text"] is None
     assert len(seen_eval_args["held_out"]) == 2
     assert store.promote_calls == [
-        {"skill_text": "candidate-skill-text", "validation_score": 0.95, "version": 1}
+        {
+            "skill_text": "candidate-skill-text",
+            "validation_score": 1.0,
+            "version": 1,
+            "evaluation": report,
+            "approval": approval,
+            "source_trajectory_refs": [],
+        }
     ]
+
+
+def test_run_sleep_cycle_rejects_scalar_evaluator_output():
+    from scudo.skillopt_sleep_runner import run_sleep_cycle
+
+    store = _FakeSleepStore(trajectories=[f"t{i}" for i in range(10)])
+
+    with pytest.raises(TypeError, match="EvaluationReport"):
+        run_sleep_cycle(
+            store=store,
+            optimizer=lambda train, current: "candidate",
+            evaluator=lambda candidate, held_out: 0.95,
+        )
+
+    assert store.promote_calls == []
+
+
+def test_run_sleep_cycle_allocates_past_immutable_artifacts_without_live_pointer():
+    from scudo.skillopt_sleep_runner import run_sleep_cycle
+
+    store = _FakeSleepStore(
+        trajectories=[f"t{i}" for i in range(10)],
+        current_best=None,
+        next_version=4,
+    )
+
+    result = run_sleep_cycle(
+        store=store,
+        optimizer=lambda train, current: "candidate",
+        evaluator=lambda candidate, held_out: _passing_evaluation_report(),
+        approval=_approval(),
+    )
+
+    assert result is True
+    assert store.promote_calls[0]["version"] == 4
 
 
 def test_run_sleep_cycle_passes_current_skill_text_and_increments_version():
@@ -208,9 +339,14 @@ def test_run_sleep_cycle_passes_current_skill_text_and_increments_version():
         return "candidate-skill-text"
 
     def fake_evaluator(candidate_text, held_out):
-        return 0.9
+        return _passing_evaluation_report()
 
-    run_sleep_cycle(store=store, optimizer=fake_optimizer, evaluator=fake_evaluator)
+    run_sleep_cycle(
+        store=store,
+        optimizer=fake_optimizer,
+        evaluator=fake_evaluator,
+        approval=_approval(),
+    )
 
     assert seen_mine_args["current_skill_text"] == "current text"
     assert store.promote_calls[0]["version"] == 4
@@ -287,7 +423,8 @@ def test_run_sleep_cycle_returns_false_when_store_rejects_promotion():
     result = run_sleep_cycle(
         store=store,
         optimizer=lambda train, current_skill_text: "weaker-candidate",
-        evaluator=lambda candidate_text, held_out: 0.1,
+        evaluator=lambda candidate_text, held_out: _passing_evaluation_report(),
+        approval=_approval(),
     )
 
     assert result is False

@@ -32,6 +32,8 @@ _SAMPLE_TRAJECTORY = {
     "confidence": 0.93,
     "rationale": "Field names and description match the CDAO Equity Prices concept.",
     "decided_at": 1751900000.0,
+    "outcome": "published",
+    "auto_pass": True,
 }
 
 
@@ -47,7 +49,7 @@ def test_trajectory_to_task_record_maps_verified_fields():
     assert record["attempted_solution"] == "jpmorgan:data:cdao:concept:equity-prices"
     assert (
         record["outcome"] == "success"
-    )  # only PUBLISHED/verified outcomes are ever recorded
+    )  # only explicitly auto-passed published decisions are successes
     assert record["reference_kind"] == "none"
     assert (
         record["split"] == "train"
@@ -64,6 +66,18 @@ def test_trajectory_to_task_record_is_deterministic():
 
     other = dict(_SAMPLE_TRAJECTORY, vendor_product_ref="SPG-FX")
     assert trajectory_to_task_record(other)["id"] != r1["id"]
+
+
+def test_trajectory_to_task_record_preserves_needs_review_as_failure():
+    record = trajectory_to_task_record(
+        {
+            **_SAMPLE_TRAJECTORY,
+            "outcome": "needs_review",
+            "auto_pass": False,
+        }
+    )
+
+    assert record["outcome"] == "failure"
 
 
 def test_write_tasks_file_produces_verified_payload_shape(tmp_path):

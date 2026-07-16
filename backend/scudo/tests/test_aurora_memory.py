@@ -74,6 +74,7 @@ def _evaluation_payload(
             "expected_match_cases": 1,
             "expected_abstain_cases": 1,
             "predicted_abstain_cases": 1,
+            "auto_pass_cases": 1,
             "correct_target_cases": 1,
             "correct_abstention_cases": 1,
             "false_auto_pass_cases": 0,
@@ -110,6 +111,7 @@ def _skill_payload(
     candidate_version: str,
     exact_match_rate: float = 1.0,
     brier_score: float = 0.01,
+    passed: bool = True,
     approval_ref: str = "MR-2026-07-16-1",
 ) -> dict:
     return {
@@ -127,6 +129,7 @@ def _skill_payload(
             candidate_version=candidate_version,
             exact_match_rate=exact_match_rate,
             brier_score=brier_score,
+            passed=passed,
         ),
         "approval": _approval_payload(approval_ref),
     }
@@ -311,6 +314,21 @@ def test_consult_best_skill_quarantines_legacy_scalar_payload(monkeypatch):
     assert aurora_memory.consult_best_skill() is None
 
 
+def test_consult_best_skill_quarantines_failed_evaluation(monkeypatch):
+    payload = _skill_payload(
+        version=1,
+        skill_text="failed candidate",
+        candidate_version="candidate-1",
+        passed=False,
+    )
+    client = _FakeRdsData(
+        records=[_memory_row("skill:matching:best", "skill_doc", payload)]
+    )
+    aurora_memory = _wire(monkeypatch, client)
+
+    assert aurora_memory.consult_best_skill() is None
+
+
 def test_consult_best_skill_fails_open_on_read_error(monkeypatch):
     client = _FakeRdsData(fail=True)
     aurora_memory = _wire(monkeypatch, client)
@@ -445,6 +463,115 @@ def test_promote_skill_writes_when_no_current_best_exists(monkeypatch):
     assert payload["approval"]["approval_ref"] == "MR-2026-07-16-1"
 
 
+def test_preflight_skill_promotion_requires_evaluation_and_named_approval(monkeypatch):
+    client = _FakeRdsData(records=[])
+    aurora_memory = _wire(monkeypatch, client)
+
+    assert (
+        aurora_memory.preflight_skill_promotion(
+            skill_text="candidate",
+            version=1,
+            evaluation=None,
+            approval=_approval_payload(),
+        )
+        is None
+    )
+    assert (
+        aurora_memory.preflight_skill_promotion(
+            skill_text="candidate",
+            version=1,
+            evaluation=_evaluation_payload(candidate_version="candidate-1"),
+            approval=None,
+        )
+        is None
+    )
+    assert not [c for c in client.calls if "insert into" in c["sql"].lower()]
+
+
+def test_preflight_skill_promotion_rejects_a_conflicting_immutable_version(monkeypatch):
+    existing = _skill_payload(
+        version=1,
+        skill_text="other candidate",
+        candidate_version="candidate-1",
+    )
+
+    class _ArtifactConflictRdsData:
+        def execute_statement(self, **kwargs):
+            params = {
+                param["name"]: param["value"]
+                for param in kwargs.get("parameters", [])
+            }
+            key = params.get("memory_key", {}).get("stringValue")
+            if key == "skill:matching:artifact:1":
+                return {
+                    "records": [
+                        _memory_row(
+                            "skill:matching:artifact:1",
+                            "skill_artifact",
+                            existing,
+                        )
+                    ],
+                    "numberOfRecordsUpdated": 0,
+                }
+            return {"records": [], "numberOfRecordsUpdated": 0}
+
+    aurora_memory = _wire(monkeypatch, _ArtifactConflictRdsData())
+
+    assert (
+        aurora_memory.preflight_skill_promotion(
+            skill_text="candidate",
+            version=1,
+            evaluation=_evaluation_payload(candidate_version="candidate-1"),
+            approval=_approval_payload(),
+        )
+        is None
+    )
+
+
+def test_promote_skill_refuses_missing_evaluation_or_approval(monkeypatch):
+    client = _FakeRdsData(records=[])
+    aurora_memory = _wire(monkeypatch, client)
+
+    assert (
+        aurora_memory.promote_skill(
+            skill_text="candidate",
+            validation_score=1.0,
+            version=1,
+            evaluation=None,
+            approval=_approval_payload(),
+        )
+        is False
+    )
+    assert (
+        aurora_memory.promote_skill(
+            skill_text="candidate",
+            validation_score=1.0,
+            version=1,
+            evaluation=_evaluation_payload(candidate_version="candidate-1"),
+            approval=None,
+        )
+        is False
+    )
+    assert not [c for c in client.calls if "insert into" in c["sql"].lower()]
+
+
+def test_next_skill_version_advances_past_existing_immutable_artifacts(monkeypatch):
+    existing = _skill_payload(
+        version=3,
+        skill_text="old skill",
+        candidate_version="candidate-3",
+    )
+    client = _FakeRdsData(
+        records=[
+            _memory_row("skill:matching:artifact:3", "skill_artifact", existing)
+        ]
+    )
+    aurora_memory = _wire(monkeypatch, client)
+
+    assert aurora_memory.next_skill_version() == 4
+    assert aurora_memory.next_skill_version(minimum=7) == 7
+
+
 def test_promote_skill_writes_on_strict_improvement(monkeypatch):
     current = _skill_payload(
         version=1,
@@ -560,6 +687,62 @@ def test_promote_skill_write_is_fail_loud(monkeypatch):
             evaluation=_evaluation_payload(candidate_version="candidate-1"),
             approval=_approval_payload("MR-2026-07-16-5"),
         )
+
+
+def test_promote_skill_retries_after_artifact_write_pointer_failure(monkeypatch):
+    class _RecoveringRdsData:
+        def __init__(self):
+            self.calls = []
+            self.artifact = None
+            self.best = None
+            self.fail_pointer_once = True
+
+        def execute_statement(self, **kwargs):
+            self.calls.append(kwargs)
+            sql = kwargs["sql"].lower()
+            params = {
+                param["name"]: param["value"]
+                for param in kwargs.get("parameters", [])
+            }
+            key = params.get("memory_key", {}).get("stringValue")
+
+            if sql.startswith("select"):
+                payload = self.best if key == "skill:matching:best" else self.artifact
+                records = (
+                    [_memory_row(key, "skill_doc", payload)] if payload else []
+                )
+                return {"records": records, "numberOfRecordsUpdated": 0}
+
+            payload = json.loads(params["payload"]["stringValue"])
+            if "do nothing" in sql:
+                if self.artifact is not None:
+                    return {"records": [], "numberOfRecordsUpdated": 0}
+                self.artifact = payload
+                return {"records": [], "numberOfRecordsUpdated": 1}
+
+            if self.fail_pointer_once:
+                self.fail_pointer_once = False
+                raise RuntimeError("pointer write failed")
+            self.best = payload
+            return {"records": [], "numberOfRecordsUpdated": 1}
+
+    client = _RecoveringRdsData()
+    aurora_memory = _wire(monkeypatch, client)
+    approval = _approval_payload("MR-2026-07-16-retry")
+    approval.pop("approved_at")
+    kwargs = {
+        "skill_text": "candidate",
+        "validation_score": 0.8,
+        "version": 1,
+        "evaluation": _evaluation_payload(candidate_version="candidate-1"),
+        "approval": approval,
+    }
+
+    with pytest.raises(RuntimeError, match="pointer write failed"):
+        aurora_memory.promote_skill(**kwargs)
+
+    assert aurora_memory.promote_skill(**kwargs) is True
+    assert client.best["skill_text"] == "candidate"
 
 
 def test_harvest_trajectories_returns_recorded_rows(monkeypatch):

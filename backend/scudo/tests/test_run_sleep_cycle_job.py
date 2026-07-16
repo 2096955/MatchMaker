@@ -76,12 +76,18 @@ class _FakeRealStore:
         self._current_best = current_best
         self._harvested = harvested or []
         self.promote_skill_calls = []  # must stay empty in dry-run mode
+        self.preflight_calls = []
+        self.would_promote = True
+        self.next_version = 1
 
     def harvest_trajectories(self):
         return self._harvested
 
     def consult_best_skill(self):
         return self._current_best
+
+    def next_skill_version(self, *, minimum=1):
+        return max(self.next_version, minimum)
 
     def promote_skill(self, *, skill_text, validation_score, version):
         self.promote_skill_calls.append(
@@ -93,6 +99,10 @@ class _FakeRealStore:
         )
         return True
 
+    def preflight_skill_promotion(self, **kwargs):
+        self.preflight_calls.append(kwargs)
+        return object() if self.would_promote else None
+
 
 def test_dry_run_store_never_calls_real_promote_skill():
     """The whole point of dry-run: reads pass through, the write never
@@ -101,7 +111,12 @@ def test_dry_run_store_never_calls_real_promote_skill():
     dry_store = _make_dry_run_store(real_store)
 
     result = dry_store.promote_skill(
-        skill_text="candidate", validation_score=0.9, version=1
+        skill_text="candidate",
+        validation_score=0.9,
+        version=1,
+        evaluation=object(),
+        approval=object(),
+        source_trajectory_refs=[],
     )
 
     assert result is True  # reports "would have promoted"
@@ -110,14 +125,56 @@ def test_dry_run_store_never_calls_real_promote_skill():
 
 def test_dry_run_store_reports_false_when_gate_would_reject():
     real_store = _FakeRealStore(current_best={"validation_score": 0.95, "version": 3})
+    real_store.would_promote = False
     dry_store = _make_dry_run_store(real_store)
 
     result = dry_store.promote_skill(
-        skill_text="weaker", validation_score=0.5, version=4
+        skill_text="weaker",
+        validation_score=0.5,
+        version=4,
+        evaluation=object(),
+        approval=object(),
+        source_trajectory_refs=[],
     )
 
     assert result is False
     assert real_store.promote_skill_calls == []
+
+
+def test_dry_run_store_uses_structured_preflight_without_writing():
+    real_store = _FakeRealStore()
+    dry_store = _make_dry_run_store(real_store)
+    evaluation = object()
+    approval = object()
+
+    result = dry_store.promote_skill(
+        skill_text="candidate",
+        validation_score=0.9,
+        version=1,
+        evaluation=evaluation,
+        approval=approval,
+        source_trajectory_refs=["bundle-1"],
+    )
+
+    assert result is True
+    assert real_store.promote_skill_calls == []
+    assert real_store.preflight_calls == [
+        {
+            "skill_text": "candidate",
+            "version": 1,
+            "evaluation": evaluation,
+            "approval": approval,
+            "source_trajectory_refs": ["bundle-1"],
+        }
+    ]
+
+
+def test_dry_run_store_forwards_immutable_artifact_version_allocation():
+    real_store = _FakeRealStore()
+    real_store.next_version = 4
+    dry_store = _make_dry_run_store(real_store)
+
+    assert dry_store.next_skill_version(minimum=1) == 4
 
 
 def test_dry_run_store_passes_through_reads():

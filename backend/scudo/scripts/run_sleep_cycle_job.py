@@ -49,9 +49,9 @@ def _env_validation_errors() -> list[str]:
 def _make_dry_run_store(real_store: Any):
     """Wrap a real store (module or object exposing harvest_trajectories/
     consult_best_skill/promote_skill): reads pass through unchanged (already
-    fail-open, read-only), but promote_skill reports the gate decision via
-    scudo.skill_gate.should_promote — the SAME decision rule
-    aurora_memory.promote_skill() uses — WITHOUT writing anything."""
+    fail-open, read-only), but ``promote_skill`` invokes Aurora's structured
+    promotion preflight — the same evaluation, approval, and no-regression
+    validation used by a real promotion — WITHOUT writing anything."""
 
     class _DryRunStore:
         def harvest_trajectories(self):
@@ -60,15 +60,31 @@ def _make_dry_run_store(real_store: Any):
         def consult_best_skill(self):
             return real_store.consult_best_skill()
 
-        def promote_skill(self, *, skill_text, validation_score, version):
-            from scudo.skill_gate import should_promote
+        def next_skill_version(self, *, minimum=1):
+            return real_store.next_skill_version(minimum=minimum)
 
-            current = real_store.consult_best_skill()
-            current_score = current["validation_score"] if current else None
-            would_promote = should_promote(validation_score, current_score)
+        def promote_skill(
+            self,
+            *,
+            skill_text,
+            validation_score,
+            version,
+            evaluation,
+            approval,
+            source_trajectory_refs,
+        ):
+            would_promote = bool(
+                real_store.preflight_skill_promotion(
+                    skill_text=skill_text,
+                    version=version,
+                    evaluation=evaluation,
+                    approval=approval,
+                    source_trajectory_refs=source_trajectory_refs,
+                )
+            )
             print(
                 f"[run_sleep_cycle_job] DRY-RUN: candidate v{version} "
-                f"score={validation_score:.4f} vs current={current_score} "
+                f"score={validation_score:.4f} "
                 f"-> would_promote={would_promote} (NOT written to Aurora)"
             )
             return would_promote
