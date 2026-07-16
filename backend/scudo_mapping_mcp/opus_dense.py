@@ -172,6 +172,22 @@ _OPUS_SYSTEM_PROMPT = (
     '     taxonomy node "Equity Prices" even though strings differ.\n'
     "  3. Out-of-domain candidates score below 0.2 — there is no penalty "
     "     for being decisive.\n"
+    "  4. DEGRADED INPUT: if the query has an empty/whitespace "
+    "     description, OR its label looks like a bare identifier (e.g. "
+    '     "EQUITY-PRICES", uppercase/digits/dashes, no natural-language '
+    "     words), OR the label is a single generic word (e.g. "
+    '     "Prices", "Data", "Feed"), there is not enough evidence for a '
+    "     confident match — score AT MOST 0.5 and say why in "
+    '     "reason".\n'
+    "  5. AMBIGUITY: if the query could plausibly align with several "
+    "     sibling taxonomy nodes equally well, score below the level you "
+    "     would give a uniquely-determined match and name the ambiguity "
+    '     in "reason".\n'
+    "  6. FIELD SANITY: if the query description looks like it is "
+    "     actually a product name/identifier (or vice versa — fields "
+    "     swapped or concatenated wrongly), do not reward the string "
+    '     overlap; score at most 0.4 and flag "possible field mix-up" '
+    '     in "reason".\n'
 )
 
 

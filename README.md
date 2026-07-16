@@ -497,6 +497,66 @@ The PASS / BORDERLINE / FAIL cuts above are the **defaults** (`confidence_floor 
 `confidence_floor` + `borderline_half_width` to `/api/mapping/map` (and
 `/agent/run`), which re-band the same dense score live.
 
+### Degraded-input reasoning gap — three levers (2026-07-16)
+
+An audit found the deployed scoring path rewards **thin input over complete
+input**: a name-only record ("Equity Prices Real Time", empty description)
+scored 0.913 where the same record with its full description scored 0.822 —
+removing evidence *raised* confidence, because Jaro-Winkler string overlap is
+diluted by extra text. An identifier-only record scored 0.969. A one-word
+generic name ("Prices") scored 0.8476 — above the 0.80 floor, so it
+auto-mapped with no human review. Full trace and rationale live in
+`docs/superpowers/specs/2026-07-16-matching-reasoning-gap-closure.md`.
+
+Three levers close the gap, wired as stack parameters on both
+`infra/scudo-dev-deploy.yaml` and `infra/scudo-poc-app.yaml`. **Levers 1 and
+2 default OFF** — matcher decisions and published outcomes are unchanged
+until a deploy explicitly flips their flag. Lever 3's prompt-text edits ship
+unconditionally (advisory narration only — the authoritative matcher score is
+untouched; see the spec's "Why the prompt hardening is unconditional"
+section), but its `DenseBackend` / `AgentBackend` template parameters
+governing whether an LLM runs at all remain flag-gated.
+
+1. **Input-completeness validation** — `SCUDO_INPUT_COMPLETENESS_VALIDATION`
+   / stack parameter `InputCompletenessValidation` (default `"0"`). When on,
+   a missing/whitespace/too-short name, a bare-identifier name (e.g.
+   `"EQUITY-PRICES"`), or a missing description fails a required validation
+   and routes to review instead of auto-mapping on string overlap alone. A
+   single ordinary or generic word ("Prices", "FX") deliberately does **not**
+   fail here — that ambiguity is the margin gate's job, not this
+   validation's.
+2. **Margin gate** — `SCUDO_MARGIN_GATE` / stack parameter `MarginGate`
+   (default `"0"`), threshold `SCUDO_MARGIN_MIN` / `MarginMin` (default
+   `"0.02"`, malformed values fall back to the default rather than failing
+   the matcher). When on, a top-1 candidate whose lead over its **strongest
+   challenger** (the highest-similarity candidate among the rest — not the
+   positional second entry; RRF fusion order is not similarity order) is
+   below the margin is demoted out of the auto-map band: near-ties go to
+   review instead of an arbitrary winner.
+3. **Prompt hardening + dense/specialist backend parameters.** The Opus
+   dense-scorer prompt (`opus_dense.py`) and the Bedrock agent prompt
+   (`agent.py`) both gain degraded-input discipline (score caps on thin
+   input, sibling-ambiguity and field-mixup discounting, recommend
+   `needs_review` on suspect fields). `DenseBackend` (default
+   `jaro_winkler`, the current deployed behaviour — no LLM in the scoring
+   path) and `SpecialistBackend` (default empty) parameters make the LLM
+   arms a one-parameter deploy-time flip instead of a template edit.
+   `SpecialistBackend`'s empty default is **not one behaviour**: the REST
+   `/map` endpoint's `resolve_specialist()` falls through empty to
+   `"local"` (the specialist **does** run), while the agent-run endpoints
+   and the MCP tiers use `specialist_from_env()`, whose empty default means
+   **no specialist at all** — a pre-existing asymmetry in `specialist.py`
+   this parameter surfaces rather than fixes. Set it explicitly to `local`
+   if the same backend is wanted on every code path.
+
+Rollout order: flip input-completeness validation first (cheapest,
+deterministic); then the margin gate with a conservative `MarginMin`, tuned
+against review-queue volume; then `DenseBackend=opus` per environment once
+the `SCUDO_DENSE_FALLBACK` posture is decided (raise-on-outage vs.
+degrade-silently) — the 0.80 floor was calibrated against Jaro-Winkler's
+deterministic scores, and Opus is non-deterministic where that was
+reproducible.
+
 ---
 
 ## How the front end supports the agents

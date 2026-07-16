@@ -43,6 +43,30 @@ Parameters:
     Default: scripted
     AllowedValues: [ scripted, bedrock ]
     Description: SCUDO_AGENT_BACKEND for the Flask service. 'scripted' = deterministic walk over the 4 MCP tools; 'bedrock' = live Opus 4.8 via Strands.
+  DenseBackend:
+    Type: String
+    Default: jaro_winkler
+    AllowedValues: [ jaro_winkler, opus ]
+    Description: SCUDO_DENSE_BACKEND for the matcher's dense arm. 'jaro_winkler' = the deterministic Jaro-Winkler string stand-in (current deployed behaviour, no LLM in the scoring path); 'opus' = Claude-as-dense-scorer (semantic Bedrock invoke per candidate; pair with SCUDO_DENSE_FALLBACK considerations before flipping).
+  SpecialistBackend:
+    Type: String
+    Default: ''
+    AllowedValues: [ '', local, strands, rest ]
+    Description: SCUDO_SPECIALIST_BACKEND for the borderline-band specialist — same value, DIFFERENT default meaning depending on which code path resolves it (pre-existing code asymmetry, specialist.py resolve_specialist() vs specialist_from_env()), and the split is ENDPOINT-specific within the Flask container, not container-wide. routes/mapping.py's REST /map endpoint calls resolve_specialist(), whose empty falls through to its 'local' default, so opus_dense specialist DOES run. The same container's agent.py (both scripted and Bedrock agent-run paths, POST /mapping/agent/run) calls specialist_from_env(), whose empty explicitly means NO specialist — matching Match-Verify/Persistence's behaviour, not the REST-map endpoint's. 'local' = in-process opus_dense re-scorer (timeout-guarded, abstains on error); 'strands' = in-process Strands specialist+verifier reserve (abstains until the bridge lands); 'rest' = HTTP delegate at SCUDO_SPECIALIST_URL. Set explicitly to 'local' rather than relying on empty if you want the same backend on every code path.
+  InputCompletenessValidation:
+    Type: String
+    Default: '0'
+    AllowedValues: [ '0', '1' ]
+    Description: SCUDO_INPUT_COMPLETENESS_VALIDATION — required validation that fails thin vendor records (empty/short/bare-identifier name, empty description) instead of letting them auto-map on string overlap alone. Default off = current deployed behaviour.
+  MarginGate:
+    Type: String
+    Default: '0'
+    AllowedValues: [ '0', '1' ]
+    Description: SCUDO_MARGIN_GATE — demotes an auto-map verdict to needs_review when the top candidate's lead over the strongest runner-up is below SCUDO_MARGIN_MIN (near-tie ambiguity). Default off = current deployed behaviour.
+  MarginMin:
+    Type: String
+    Default: '0.02'
+    Description: SCUDO_MARGIN_MIN — minimum top1-vs-strongest-challenger similarity lead required for an unassisted auto-map when MarginGate is '1'. Malformed/out-of-band values fall back to the code default (0.02) rather than failing the matcher.
   TaskCpu:
     Type: String
     Default: '256'
@@ -403,6 +427,19 @@ Resources:
             - { Name: S3_WORKING_SET_BUCKET, Value: !ImportValue scudo-dev-frames-bucket }
             - { Name: SCUDO_CANONICAL_BUNDLE_KEY, Value: canonical/bundle-latest.json }
             - { Name: SCUDO_AGENT_BACKEND, Value: !Ref AgentBackend }
+            # Flask calls map_vendor_product directly (routes/mapping.py) via
+            # the /map REST endpoint and the agent SSE endpoint — it needs the
+            # same dense/specialist backend selection as Match-Verify so a
+            # stack-parameter flip takes effect on every code path that scores,
+            # not just the MCP tier.
+            - { Name: SCUDO_DENSE_BACKEND, Value: !Ref DenseBackend }
+            - { Name: SCUDO_SPECIALIST_BACKEND, Value: !Ref SpecialistBackend }
+            # Reasoning-gap-closure levers (2026-07-16 spec). Default OFF —
+            # each is an explicit deploy-time decision, current behaviour
+            # unchanged until flipped.
+            - { Name: SCUDO_INPUT_COMPLETENESS_VALIDATION, Value: !Ref InputCompletenessValidation }
+            - { Name: SCUDO_MARGIN_GATE, Value: !Ref MarginGate }
+            - { Name: SCUDO_MARGIN_MIN, Value: !Ref MarginMin }
             - { Name: SCUDO_AUTH_ALLOW_DEV, Value: '1' }
             - { Name: SCUDO_AUTH_DEV_PRINCIPAL, Value: !Ref OwnerTag }
             # Three seams (#18) - env-driven, code reads them when they land.
@@ -496,6 +533,11 @@ Resources:
             - { Name: SCUDO_CANONICAL_BUNDLE_KEY, Value: canonical/bundle-latest.json }
             - { Name: SCUDO_BEDROCK_MODEL_ID, Value: !Ref BedrockModelId }
             - { Name: BEDROCK_REGION, Value: !Ref AWS::Region }
+            - { Name: SCUDO_DENSE_BACKEND, Value: !Ref DenseBackend }
+            - { Name: SCUDO_SPECIALIST_BACKEND, Value: !Ref SpecialistBackend }
+            - { Name: SCUDO_INPUT_COMPLETENESS_VALIDATION, Value: !Ref InputCompletenessValidation }
+            - { Name: SCUDO_MARGIN_GATE, Value: !Ref MarginGate }
+            - { Name: SCUDO_MARGIN_MIN, Value: !Ref MarginMin }
             - { Name: SCUDO_REVIEWER_QUEUE_TABLE, Value: !ImportValue scudo-dev-reviewer-queue-table-name }
           # SIGNING KEY: M-V signs result.band into the seal (v=2). Pulled by
           # the execution role from Secrets Manager, injected as env var into
@@ -548,6 +590,11 @@ Resources:
             - { Name: SCUDO_CANONICAL_BUNDLE_KEY, Value: canonical/bundle-latest.json }
             - { Name: SCUDO_BEDROCK_MODEL_ID, Value: !Ref BedrockModelId }
             - { Name: BEDROCK_REGION, Value: !Ref AWS::Region }
+            - { Name: SCUDO_DENSE_BACKEND, Value: !Ref DenseBackend }
+            - { Name: SCUDO_SPECIALIST_BACKEND, Value: !Ref SpecialistBackend }
+            - { Name: SCUDO_INPUT_COMPLETENESS_VALIDATION, Value: !Ref InputCompletenessValidation }
+            - { Name: SCUDO_MARGIN_GATE, Value: !Ref MarginGate }
+            - { Name: SCUDO_MARGIN_MIN, Value: !Ref MarginMin }
             - { Name: SCUDO_REVIEWER_QUEUE_TABLE, Value: !ImportValue scudo-dev-reviewer-queue-table-name }
           # SIGNING KEY: Persistence verifies the seal before the I5 gate runs.
           # Same secret as M-V, different role doing the read.
