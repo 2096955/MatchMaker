@@ -1072,6 +1072,42 @@ def _safe_put(q, item) -> None:
         pass
 
 
+def _sse_heartbeat_seconds() -> float:
+    """Seconds between SSE comment heartbeats while a producer is quiet."""
+    try:
+        return max(1.0, float(os.getenv("SCUDO_SSE_HEARTBEAT_SECONDS", "15")))
+    except ValueError:
+        return 15.0
+
+
+def _sse_queue_frames(
+    q,
+    *,
+    encode,
+    done_frame: str | None = None,
+    heartbeat_seconds: float | None = None,
+):
+    """Yield SSE frames from a queue, sending comment heartbeats during gaps."""
+    import queue as _q
+
+    timeout = (
+        _sse_heartbeat_seconds()
+        if heartbeat_seconds is None
+        else max(0.001, heartbeat_seconds)
+    )
+    while True:
+        try:
+            item = q.get(timeout=timeout)
+        except _q.Empty:
+            yield ": ping\n\n"
+            continue
+        if item is None:
+            break
+        yield encode(item)
+    if done_frame is not None:
+        yield done_frame
+
+
 @mapping_bp.post("/mapping/ingest/stream")
 def ingest_vendor_file_stream():
     """Ingest a vendor file and stream REAL ETL stage events over SSE.
@@ -1184,12 +1220,11 @@ def ingest_vendor_file_stream():
         t = threading.Thread(target=worker, name="ingest-stream", daemon=False)
         t.start()
         try:
-            while True:
-                item = q.get()
-                if item is None:
-                    break
-                yield f"data: {_json.dumps(item)}\n\n"
-            yield f"data: {_json.dumps({'type': 'done'})}\n\n"
+            yield from _sse_queue_frames(
+                q,
+                encode=lambda item: f"data: {_json.dumps(item)}\n\n",
+                done_frame=f"data: {_json.dumps({'type': 'done'})}\n\n",
+            )
         except GeneratorExit:
             # Client disconnected (Flask closes the generator). Signal the worker
             # to stop and let it unwind; do not keep parsing/upserting.
@@ -1430,44 +1465,74 @@ def run_agent():
     # agent threads them as explicit kwargs into every authoritative
     # map_vendor_product call (no contextvar). None → matcher defaults.
     def event_stream():
-        try:
-            for event in agent.run(
-                ref,
-                confidence_floor=floor,
-                borderline_half_width=half,
-            ):
-                yield f"data: {event.to_json()}\n\n"
-        except (ConnectionError, TimeoutError, OSError) as e:
-            ui_logger.error(
-                "Mapping store unavailable",
-                op="agent_run",
-                error=f"{type(e).__name__}: {e}",
-            )
-            yield (
-                "data: "
-                + __import__("json").dumps(
+        import json as _json
+        import queue
+        import threading
+
+        q: "queue.Queue[object | None]" = queue.Queue(maxsize=64)
+        cancel = threading.Event()
+
+        def worker() -> None:
+            try:
+                for event in agent.run(
+                    ref,
+                    confidence_floor=floor,
+                    borderline_half_width=half,
+                ):
+                    if cancel.is_set():
+                        return
+                    try:
+                        q.put(event, timeout=30)
+                    except queue.Full:
+                        cancel.set()
+                        return
+            except (ConnectionError, TimeoutError, OSError) as e:
+                ui_logger.error(
+                    "Mapping store unavailable",
+                    op="agent_run",
+                    error=f"{type(e).__name__}: {e}",
+                )
+                _safe_put(
+                    q,
                     {
                         "type": "error",
                         "error": "mapping store unavailable",
                         "detail": f"{type(e).__name__}: {e}",
-                    }
+                    },
                 )
-                + "\n\n"
-            )
-        except Exception as e:  # noqa: BLE001 — surface in stream, don't 500
-            ui_logger.error(
-                "Agent run failed", op="agent_run", error=f"{type(e).__name__}: {e}"
-            )
-            yield (
-                "data: "
-                + __import__("json").dumps(
+            except Exception as e:  # noqa: BLE001 — surface in stream, don't 500
+                ui_logger.error(
+                    "Agent run failed",
+                    op="agent_run",
+                    error=f"{type(e).__name__}: {e}",
+                )
+                _safe_put(
+                    q,
                     {
                         "type": "error",
                         "error": f"{type(e).__name__}: {e}",
-                    }
+                    },
                 )
-                + "\n\n"
-            )
+            finally:
+                _safe_put(q, None)
+
+        def encode(item: object) -> str:
+            if hasattr(item, "to_json"):
+                return f"data: {item.to_json()}\n\n"
+            return f"data: {_json.dumps(item)}\n\n"
+
+        # Non-daemon so a graceful shutdown can join it; same lifecycle as
+        # ingest-stream above.
+        t = threading.Thread(target=worker, name="agent-run-stream", daemon=False)
+        t.start()
+        try:
+            yield from _sse_queue_frames(q, encode=encode)
+        except GeneratorExit:
+            cancel.set()
+            raise
+        finally:
+            cancel.set()
+            t.join(timeout=5)
 
     return Response(
         stream_with_context(event_stream()),
