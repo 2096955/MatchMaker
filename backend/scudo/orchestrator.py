@@ -136,6 +136,7 @@ class Orchestrator:
             "rubric_version": self.rubric_version,
             "schema_version": SCHEMA_VERSION,
             "route": route.value,
+            "skill_version": bundle.skill_version,
         }
 
         if route is Route.RESEARCH:

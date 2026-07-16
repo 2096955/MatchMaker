@@ -94,6 +94,7 @@ def test_assemble_populates_skill_hint_from_aurora_when_promoted(monkeypatch):
     bundle = assemble(request, Route.NEW_MAPPING)
 
     assert bundle.skill_hint == "Prefer exact vendor-code matches."
+    assert bundle.skill_version == 2
 
 
 def test_assemble_skill_hint_is_none_when_nothing_promoted_yet(monkeypatch):
@@ -219,3 +220,16 @@ def test_record_precedent_if_published_also_records_trajectory(monkeypatch):
     assert trajectory_calls[0]["vendor"] == "lseg"
     assert trajectory_calls[0]["target_iri"] == "jpmorgan:data:cdao:EquityResearch"
     assert trajectory_calls[0]["confidence"] == 0.9
+    assert trajectory_calls[0]["outcome"] == "published"
+    assert trajectory_calls[0]["status"] == "auto_mapped"
+    assert trajectory_calls[0]["auto_pass"] is True
+    assert trajectory_calls[0]["verifier_score"] is None
+    assert trajectory_calls[0]["matcher_version"] == "orchestrator-agent-v1"
+    assert trajectory_calls[0]["surface"] == "agent"
+    assert trajectory_calls[0]["input_snapshot"] == {}
+    assert (
+        trajectory_calls[0]["decision_snapshot"]["mapping_result"][
+            "proposed_target_iri"
+        ]
+        == "jpmorgan:data:cdao:EquityResearch"
+    )

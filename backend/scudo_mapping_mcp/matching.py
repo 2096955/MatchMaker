@@ -100,6 +100,8 @@ from typing import Callable, Optional
 
 from .config import borderline_threshold as _borderline_threshold
 from .config import env_asset_class_validation_enabled
+from .config import env_margin_gate_enabled
+from .config import env_margin_min
 from .config import pass_threshold as _pass_threshold
 from .config import settings
 from .frames import check_scope
@@ -530,6 +532,40 @@ def map_vendor_product(
             f"{borderline_threshold:.2f}. Specialist not consulted "
             "(below the resolvable window)."
         )
+
+    # MARGIN GATE (opt-in, SCUDO_MARGIN_GATE) — top1-vs-top2 ambiguity
+    # invariant, applied AFTER the band logic has settled and ONLY to
+    # AUTO_MAPPED verdicts. Same family as the required validations: a
+    # deterministic invariant the specialist is deliberately NOT consulted
+    # on (ladder discipline — an LLM does not get a vote on whether a
+    # near-tie is a near-tie). Candidates arrive in RRF fusion order, NOT
+    # similarity order, so the margin can be NEGATIVE (top-2 outscoring
+    # top-1) — that is the strongest possible ambiguity signal and trips
+    # the gate too. Effect is a status flip ONLY: band, confidence and
+    # mapped_node_* stay truthful (the demotion is about ambiguity, not
+    # score); the rationale gains an explainable MARGIN GATE sentence.
+    # The comparator is the STRONGEST similarity among the remaining
+    # candidates, not candidates[1] — RRF order is not similarity order,
+    # so the real challenger can sit anywhere in the tail.
+    # Flag off (default): this block is inert — byte-identical behaviour.
+    if (
+        status == MappingStatus.AUTO_MAPPED
+        and env_margin_gate_enabled()
+        and len(candidates) >= 2
+    ):
+        challenger = max(candidates[1:], key=lambda c: c.similarity)
+        margin = candidates[0].similarity - challenger.similarity
+        margin_min = env_margin_min()
+        if margin < margin_min:
+            status = MappingStatus.NEEDS_REVIEW
+            rationale += (
+                f" MARGIN GATE: top-1 '{candidates[0].node.label}' at "
+                f"{candidates[0].similarity:.2f} leads the strongest "
+                f"challenger '{challenger.node.label}' at "
+                f"{challenger.similarity:.2f} by only {margin:.3f} < "
+                f"required {margin_min:.3f} — near-tie the string scorer "
+                "cannot adjudicate; routed to human review."
+            )
 
     _emit_band_metric(band)
     return MappingResult(

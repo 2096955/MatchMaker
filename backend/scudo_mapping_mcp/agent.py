@@ -423,7 +423,20 @@ class BedrockMappingAgent:
         "     neighbourhood, then call map_vendor_product to commit.\n"
         "  4. End your turn with a one-paragraph rationale citing the "
         "     winning node's IRI, the similarity score, and any validations "
-        "     you considered."
+        "     you considered.\n\n"
+        "DEGRADED INPUT DISCIPLINE:\n"
+        "  a. If the vendor record is missing a name or description, or the "
+        "     name is a bare identifier (uppercase/digits/dashes, no "
+        "     natural-language words) or a single generic word (e.g. "
+        '     "Prices", "Data", "Feed"), recommend needs_review and state '
+        "     which field is missing or suspect.\n"
+        "  b. If field contents look swapped or commingled (the description "
+        "     contains an identifier, the name contains a sentence), "
+        "     recommend needs_review with a note — never let string overlap "
+        "     on a mis-filed value justify a mapping.\n"
+        "  c. If several candidates are near-indistinguishable, recommend "
+        "     needs_review and name the tied candidates rather than picking "
+        "     one."
     )
 
     def __init__(

@@ -73,6 +73,61 @@ Parameters:
   BedrockModelId:
     Type: String
     Default: us.anthropic.claude-sonnet-5
+  DenseBackend:
+    Type: String
+    Default: jaro_winkler
+    AllowedValues: [ jaro_winkler, opus ]
+    Description: >-
+      SCUDO_DENSE_BACKEND for the matcher's dense arm. 'jaro_winkler' = the
+      deterministic Jaro-Winkler string stand-in (current deployed behaviour,
+      no LLM in the scoring path); 'opus' = Claude-as-dense-scorer (semantic
+      Bedrock invoke per candidate; consider SCUDO_DENSE_FALLBACK before
+      flipping).
+  SpecialistBackend:
+    Type: String
+    Default: ""
+    AllowedValues: [ "", local, strands, rest ]
+    Description: >-
+      SCUDO_SPECIALIST_BACKEND for the borderline-band specialist. This
+      single-container stack runs both Flask's REST /map endpoint AND its
+      agent-run endpoints (POST /mapping/agent/run, scripted + Bedrock), and
+      they resolve this parameter DIFFERENTLY (pre-existing code asymmetry,
+      specialist.py resolve_specialist() vs specialist_from_env() — endpoint-
+      specific, not container-wide). REST /map calls resolve_specialist():
+      empty falls through to 'local' -> the opus_dense re-scorer DOES run
+      even when this parameter is left empty. The agent-run endpoints call
+      specialist_from_env(): empty explicitly means NO specialist — matching
+      the MCP-tier behaviour in scudo-dev-deploy.yaml, not the REST-map
+      behaviour in this same container. 'local' = in-process opus_dense
+      re-scorer (timeout-guarded, abstains on error); 'strands' = in-process
+      Strands reserve (abstains until the bridge lands); 'rest' = HTTP
+      delegate at SCUDO_SPECIALIST_URL.
+  InputCompletenessValidation:
+    Type: String
+    Default: "0"
+    AllowedValues: [ "0", "1" ]
+    Description: >-
+      SCUDO_INPUT_COMPLETENESS_VALIDATION — required validation that fails
+      thin vendor records (empty/short/bare-identifier name, empty
+      description) instead of letting them auto-map on string overlap alone.
+      Default off = current deployed behaviour.
+  MarginGate:
+    Type: String
+    Default: "0"
+    AllowedValues: [ "0", "1" ]
+    Description: >-
+      SCUDO_MARGIN_GATE — demotes an auto-map verdict to needs_review when
+      the top candidate's lead over the strongest runner-up is below
+      SCUDO_MARGIN_MIN (near-tie ambiguity). Default off = current deployed
+      behaviour.
+  MarginMin:
+    Type: String
+    Default: "0.02"
+    Description: >-
+      SCUDO_MARGIN_MIN — minimum top1-vs-strongest-challenger similarity
+      lead required for an unassisted auto-map when MarginGate is "1".
+      Malformed/out-of-band values fall back to the code default (0.02)
+      rather than failing the matcher.
 
 Resources:
   EcsCluster:
@@ -218,6 +273,14 @@ Resources:
             - { Name: SCUDO_AGENT_BACKEND, Value: !Ref AgentBackend }
             - { Name: SCUDO_BEDROCK_MODEL_ID, Value: !Ref BedrockModelId }
             - { Name: BEDROCK_REGION, Value: !Ref AWS::Region }
+            - { Name: SCUDO_DENSE_BACKEND, Value: !Ref DenseBackend }
+            - { Name: SCUDO_SPECIALIST_BACKEND, Value: !Ref SpecialistBackend }
+            # Reasoning-gap-closure levers (2026-07-16 spec). Default OFF —
+            # each is an explicit deploy-time decision, current behaviour
+            # unchanged until flipped.
+            - { Name: SCUDO_INPUT_COMPLETENESS_VALIDATION, Value: !Ref InputCompletenessValidation }
+            - { Name: SCUDO_MARGIN_GATE, Value: !Ref MarginGate }
+            - { Name: SCUDO_MARGIN_MIN, Value: !Ref MarginMin }
             # Default OFF (Codex B1). resolve_principal only honors the dev
             # principal when SCUDO_AUTH_ALLOW_DEV is truthy; "0" → real auth.
             - { Name: SCUDO_AUTH_ALLOW_DEV, Value: !Ref AllowDevAuth }

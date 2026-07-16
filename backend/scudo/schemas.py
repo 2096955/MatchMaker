@@ -105,6 +105,13 @@ class BriefBundle(BaseModel):
             "until a skill has been validated and promoted."
         ),
     )
+    skill_version: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Version of the approved matching skill used for this bundle, if any."
+        ),
+    )
     assembled_at: datetime
     bundle_ref: str = Field(
         ..., description="Replay-safe handle for the assembled bundle."

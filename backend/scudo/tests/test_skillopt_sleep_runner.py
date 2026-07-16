@@ -294,6 +294,92 @@ def test_run_sleep_cycle_returns_false_when_store_rejects_promotion():
     assert len(store.promote_calls) == 1
 
 
+def test_run_evaluated_sleep_cycle_requires_a_structured_holdout_report():
+    from scudo.matching_self_improvement import (
+        EvaluationPolicy,
+        GoldenCase,
+        GoldenSet,
+        PromotionApproval,
+        evaluate_golden_set,
+    )
+    from scudo.skillopt_sleep_runner import run_evaluated_sleep_cycle
+
+    class _StrictStore(_FakeSleepStore):
+        def promote_skill(
+            self,
+            *,
+            skill_text,
+            validation_score,
+            version,
+            evaluation,
+            approval,
+            source_trajectory_refs,
+        ):
+            self.promote_calls.append(
+                {
+                    "skill_text": skill_text,
+                    "validation_score": validation_score,
+                    "version": version,
+                    "evaluation": evaluation,
+                    "approval": approval,
+                    "source_trajectory_refs": source_trajectory_refs,
+                }
+            )
+            return True
+
+    golden = GoldenSet(
+        version="golden-1",
+        cases=[
+            GoldenCase(
+                case_id="case-1",
+                vendor="lseg",
+                vendor_product_ref="LSEG-1",
+                expected_target_iri="jpmorgan:data:cdao:EquityPrices",
+                split="holdout",
+            )
+        ],
+    )
+    store = _StrictStore(
+        trajectories=[
+            {"bundle_ref": f"bundle-{i}"}
+            for i in range(5)
+        ],
+        current_best=None,
+    )
+    approval = PromotionApproval(
+        approved_by="reviewer@example.com",
+        approval_ref="MR-1",
+        rationale="reviewed",
+    )
+
+    result = run_evaluated_sleep_cycle(
+        store=store,
+        optimizer=lambda train, current: "candidate",
+        evaluator=lambda candidate, held_out: evaluate_golden_set(
+            golden,
+            lambda case: {
+                "mapped_node_iri": "jpmorgan:data:cdao:EquityPrices",
+                "confidence": 0.95,
+                "status": "auto_mapped",
+            },
+            candidate_version="candidate-1",
+            policy=EvaluationPolicy(
+                min_exact_match_rate=1.0,
+                max_false_auto_pass_rate=0.0,
+                max_brier_score=1.0,
+            ),
+        ),
+        approval=approval,
+    )
+
+    assert result is True
+    assert store.promote_calls[0]["evaluation"].passed is True
+    assert store.promote_calls[0]["approval"] == approval
+    assert store.promote_calls[0]["source_trajectory_refs"] == [
+        f"bundle-{i}" for i in range(5)
+    ]
+
+
 def test_lazy_skillopt_optimizer_raises_runtime_error_when_package_not_installed():
     """The skillopt package is confirmed not installed/vendored in this repo
     this session — calling the default optimizer directly (bypassing

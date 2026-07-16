@@ -363,4 +363,51 @@ def env_subsumption_expand() -> bool:
     return os.getenv("SCUDO_SUBSUMPTION_EXPAND", "").strip().lower() in _TRUTHY_ENV
 
 
+def env_input_completeness_validation_enabled() -> bool:
+    """Live ``SCUDO_INPUT_COMPLETENESS_VALIDATION`` — re-reads env.
+
+    Gates the input-thinness validation (validations.py). Default off so
+    existing artifacts stay byte-identical; env-only by design (no Settings
+    snapshot field — call-time read like the other measured-rollout flags).
+    """
+    return (
+        os.getenv("SCUDO_INPUT_COMPLETENESS_VALIDATION", "").strip().lower()
+        in _TRUTHY_ENV
+    )
+
+
+def env_margin_gate_enabled() -> bool:
+    """Live ``SCUDO_MARGIN_GATE`` — re-reads env.
+
+    Gates the top1-vs-top2 margin demotion at Rung 5 (matching.py). Default
+    off; env-only by design (no Settings snapshot field).
+    """
+    return os.getenv("SCUDO_MARGIN_GATE", "").strip().lower() in _TRUTHY_ENV
+
+
+# Minimum top1−top2 similarity lead required for an unassisted auto-map when
+# SCUDO_MARGIN_GATE is on. Below this, the case is a near-tie the string
+# scorer cannot adjudicate — route to review.
+MARGIN_MIN_DEFAULT: float = 0.02
+
+
+def env_margin_min() -> float:
+    """Live ``SCUDO_MARGIN_MIN`` — re-reads env; clamped to [0.0, 1.0).
+
+    A malformed value falls back to ``MARGIN_MIN_DEFAULT`` rather than
+    raising — the margin gate is a tightening lever, and a config typo must
+    not take the matcher down.
+    """
+    raw = os.getenv("SCUDO_MARGIN_MIN", "").strip()
+    if not raw:
+        return MARGIN_MIN_DEFAULT
+    try:
+        v = float(raw)
+    except ValueError:
+        return MARGIN_MIN_DEFAULT
+    if v != v or v < 0.0 or v >= 1.0:  # NaN / out of band
+        return MARGIN_MIN_DEFAULT
+    return v
+
+
 settings = Settings.from_env()
