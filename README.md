@@ -88,7 +88,9 @@ matching-engine quality.
 1. **Capture evidence.** Agent and deterministic-engine outcomes are stored as
    structured trajectories with input, decision, provenance, and version data.
 2. **Curate a golden set.** Human-labelled examples are divided into training,
-   holdout, and adversarial cases. Duplicate vendor/product identities across
+   holdout, and adversarial cases. A holdout *evaluation* requires at least one
+   positive mapping example; abstention-only scenarios still load and remain
+   valuable adversarial evidence. Duplicate vendor/product identities across
    splits are rejected.
 3. **Evaluate offline.** Candidate changes are measured for exact matching,
    abstention recall, false auto-pass, calibration, Brier score, vendor
@@ -124,7 +126,9 @@ promote an artifact.
 The offline promotion entry points require a structured holdout report and
 named approval; scalar scores fail closed. The scheduler's dry-run invokes the
 same promotion preflight as an apply run, but never writes an artifact or live
-pointer. A curated business golden set and a scheduled evaluation job are
+pointer. A holdout *evaluation* with no positive mapping examples is rejected:
+correctly abstaining is important, but it does not demonstrate matching
+capability. A curated business golden set and a scheduled evaluation job are
 still deployment inputs.
 
 ## Current experience
@@ -373,8 +377,8 @@ PYTHONPATH=. pytest scudo/tests scudo_mapping_mcp/tests -q \
   --disable-warnings --maxfail=10
 ```
 
-The focused suite currently passes 49 tests. The full SCUDO and matching-engine
-run currently passes 463 tests and has two known failures in
+On July 16, 2026, the focused suite passed 76 tests. The broader SCUDO and
+matching-engine run passed 494 tests and had two known failures in
 `scudo/tests/test_provenance.py` caused by pre-existing forbidden Marketing
 content in the generated conceptual graph. Those failures are unrelated to the
 self-improvement implementation.

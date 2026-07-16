@@ -314,6 +314,24 @@ def test_consult_best_skill_quarantines_legacy_scalar_payload(monkeypatch):
     assert aurora_memory.consult_best_skill() is None
 
 
+def test_consult_best_skill_accepts_pre_auto_pass_artifact_payload(monkeypatch):
+    payload = _skill_payload(
+        version=3,
+        skill_text="established skill",
+        candidate_version="candidate-3",
+    )
+    del payload["evaluation"]["metrics"]["auto_pass_cases"]
+    client = _FakeRdsData(
+        records=[_memory_row("skill:matching:best", "skill_doc", payload)]
+    )
+    aurora_memory = _wire(monkeypatch, client)
+
+    skill = aurora_memory.consult_best_skill()
+
+    assert skill is not None
+    assert skill["version"] == 3
+
+
 def test_consult_best_skill_quarantines_failed_evaluation(monkeypatch):
     payload = _skill_payload(
         version=1,
@@ -570,6 +588,33 @@ def test_next_skill_version_advances_past_existing_immutable_artifacts(monkeypat
 
     assert aurora_memory.next_skill_version() == 4
     assert aurora_memory.next_skill_version(minimum=7) == 7
+
+
+def test_next_skill_version_advances_past_quarantined_legacy_best_pointer(monkeypatch):
+    legacy_pointer = _memory_row(
+        "skill:matching:best",
+        "skill_doc",
+        {
+            "skill_text": "legacy candidate",
+            "version": 7,
+            "validation_score": 0.99,
+        },
+    )
+
+    class _VersionQueryClient(_FakeRdsData):
+        def execute_statement(self, **kwargs):
+            self.calls.append(kwargs)
+            records = (
+                [legacy_pointer]
+                if "memory_key = :best_skill_key" in kwargs["sql"]
+                else []
+            )
+            return {"records": records, "numberOfRecordsUpdated": 1}
+
+    client = _VersionQueryClient()
+    aurora_memory = _wire(monkeypatch, client)
+
+    assert aurora_memory.next_skill_version() == 8
 
 
 def test_promote_skill_writes_on_strict_improvement(monkeypatch):

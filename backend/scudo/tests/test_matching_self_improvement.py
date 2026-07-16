@@ -52,6 +52,45 @@ def test_golden_set_rejects_duplicate_identity_across_splits():
         GoldenSet(version="golden-1", cases=[first, duplicate])
 
 
+def test_golden_set_allows_abstention_only_holdout():
+    # An abstention-only holdout set must still LOAD: the positive-holdout
+    # requirement is scoped to the holdout evaluation path, not construction, so
+    # such a set remains usable as --split adversarial evidence.
+    golden = GoldenSet(
+        version="golden-1",
+        cases=[_abstain("one"), _abstain("two", vendor="lseg", split="adversarial")],
+    )
+    assert [c.case_id for c in golden.cases_for_split("holdout")] == ["one"]
+
+
+def test_holdout_evaluation_requires_a_positive_case():
+    golden = GoldenSet(version="golden-1", cases=[_abstain("one")])
+
+    def predictor(case):
+        return {"status": "needs_review", "requires_human_review": True}
+
+    with pytest.raises(ValueError, match="positive mapping"):
+        evaluate_golden_set(
+            golden, predictor, candidate_version="cand-1", split="holdout"
+        )
+
+
+def test_adversarial_evaluation_allows_abstention_only_holdout():
+    golden = GoldenSet(
+        version="golden-1",
+        cases=[_abstain("one"), _abstain("adv", vendor="lseg", split="adversarial")],
+    )
+
+    def predictor(case):
+        return {"status": "needs_review", "requires_human_review": True}
+
+    report = evaluate_golden_set(
+        golden, predictor, candidate_version="cand-1", split="adversarial"
+    )
+    assert report.split == "adversarial"
+    assert report.case_ids == ["adv"]
+
+
 def test_jsonl_loader_validates_rows_and_version(tmp_path):
     path = tmp_path / "golden.jsonl"
     path.write_text(
@@ -152,10 +191,7 @@ def test_false_auto_pass_fails_policy_even_when_mapping_accuracy_is_high():
 
 
 def test_wrong_auto_pass_on_positive_case_fails_false_auto_pass_policy():
-    cases = [
-        _positive(f"case-{index}", vendor="lseg")
-        for index in range(20)
-    ]
+    cases = [_positive(f"case-{index}", vendor="lseg") for index in range(20)]
     golden = GoldenSet(version="golden-1", cases=cases)
 
     def predictor(case):
@@ -189,7 +225,13 @@ def test_wrong_auto_pass_on_positive_case_fails_false_auto_pass_policy():
 
 
 def test_correct_abstention_is_not_scored_as_high_match_confidence():
-    golden = GoldenSet(version="golden-1", cases=[_abstain("one")])
+    golden = GoldenSet(
+        version="golden-1",
+        cases=[
+            _positive("holdout-positive", split="holdout"),
+            _abstain("one", split="adversarial"),
+        ],
+    )
 
     report = evaluate_golden_set(
         golden,
@@ -199,6 +241,7 @@ def test_correct_abstention_is_not_scored_as_high_match_confidence():
             "requires_human_review": True,
         },
         candidate_version="careful-candidate",
+        split="adversarial",
         policy=EvaluationPolicy(
             min_exact_match_rate=0.0,
             max_false_auto_pass_rate=0.0,
@@ -213,12 +256,19 @@ def test_correct_abstention_is_not_scored_as_high_match_confidence():
 
 
 def test_all_abstain_split_is_not_an_exact_match_failure():
-    golden = GoldenSet(version="golden-1", cases=[_abstain("one")])
+    golden = GoldenSet(
+        version="golden-1",
+        cases=[
+            _positive("holdout-positive", split="holdout"),
+            _abstain("one", split="adversarial"),
+        ],
+    )
 
     report = evaluate_golden_set(
         golden,
         lambda case: {"status": "needs_review", "requires_human_review": True},
         candidate_version="abstain-candidate",
+        split="adversarial",
         policy=EvaluationPolicy(
             min_exact_match_rate=0.95,
             max_brier_score=0.10,
@@ -231,7 +281,13 @@ def test_all_abstain_split_is_not_an_exact_match_failure():
 
 
 def test_all_abstain_split_requires_correct_abstentions():
-    golden = GoldenSet(version="golden-1", cases=[_abstain("one")])
+    golden = GoldenSet(
+        version="golden-1",
+        cases=[
+            _positive("holdout-positive", split="holdout"),
+            _abstain("one", split="adversarial"),
+        ],
+    )
 
     report = evaluate_golden_set(
         golden,
@@ -242,6 +298,7 @@ def test_all_abstain_split_requires_correct_abstentions():
             "auto_pass": False,
         },
         candidate_version="unsafe-candidate",
+        split="adversarial",
         policy=EvaluationPolicy(
             min_exact_match_rate=0.95,
             max_false_auto_pass_rate=0.0,
@@ -252,6 +309,85 @@ def test_all_abstain_split_requires_correct_abstentions():
     assert report.metrics.exact_match_rate == 1.0
     assert report.metrics.abstention_recall == 0.0
     assert report.passed is False
+
+
+def test_abstention_recall_uses_expected_abstentions_as_its_denominator():
+    golden = GoldenSet(
+        version="golden-1",
+        cases=[
+            _positive("positive"),
+            _abstain("correct-abstention"),
+            _abstain("missed-abstention", vendor="lseg"),
+        ],
+    )
+
+    report = evaluate_golden_set(
+        golden,
+        lambda case: {
+            "mapped_node_iri": (
+                case.expected_target_iri
+                if not case.expected_abstain
+                else "jpmorgan:data:cdao:EquityPrices"
+            ),
+            "confidence": 0.9,
+            "status": (
+                "needs_review"
+                if case.case_id == "correct-abstention"
+                else "auto_mapped"
+            ),
+            "auto_pass": not case.expected_abstain,
+        },
+        candidate_version="candidate-1",
+        policy=EvaluationPolicy(min_exact_match_rate=1.0, max_brier_score=1.0),
+    )
+
+    assert report.metrics.correct_abstention_cases == 1
+    assert report.metrics.predicted_abstain_cases == 1
+    assert report.metrics.expected_abstain_cases == 2
+    assert report.metrics.abstention_recall == 0.5
+
+
+def test_match_confidence_calibration_uses_positive_cases_and_skips_abstentions():
+    golden = GoldenSet(
+        version="golden-1",
+        cases=[
+            _positive("correct"),
+            _positive("incorrect", vendor="ice"),
+            _abstain("abstain", vendor="spglobal"),
+        ],
+    )
+
+    def predictor(case):
+        if case.case_id == "correct":
+            return {
+                "mapped_node_iri": case.expected_target_iri,
+                "confidence": 0.8,
+                "status": "auto_mapped",
+            }
+        if case.case_id == "incorrect":
+            return {
+                "mapped_node_iri": "jpmorgan:data:cdao:Wrong",
+                "confidence": 0.3,
+                "status": "mapped",
+            }
+        return {
+            "confidence": 0.99,
+            "status": "needs_review",
+            "requires_human_review": True,
+        }
+
+    report = evaluate_golden_set(
+        golden,
+        predictor,
+        candidate_version="candidate-1",
+        policy=EvaluationPolicy(
+            min_exact_match_rate=0.0,
+            max_brier_score=1.0,
+        ),
+    )
+
+    assert report.metrics.calibration_mae == pytest.approx(0.25)
+    assert report.metrics.brier_score == pytest.approx(0.065)
 
 
 def test_golden_identity_is_case_insensitive_for_product_reference():
@@ -359,6 +495,20 @@ def _report(
     }
 
 
+def test_evaluation_metrics_accepts_pre_auto_pass_artifacts():
+    payload = _report(
+        version="candidate-1",
+        exact=1.0,
+        false_auto_pass=0.0,
+        brier=0.01,
+    )
+    del payload["metrics"]["auto_pass_cases"]
+
+    metrics = EvaluationMetrics.model_validate(payload["metrics"])
+
+    assert metrics.auto_pass_cases == 0
+
+
 def _artifact(
     *,
     version: int,
@@ -395,6 +545,21 @@ def test_promotion_requires_holdout_pass_and_named_approval():
         validate_promotion(unapproved)
 
 
+def test_promotion_rejects_abstention_only_holdout_report():
+    # Defence in depth: a forged/replayed holdout report that never went through
+    # evaluate_golden_set (so its positive-case guard never fired) must still be
+    # rejected at the promotion boundary. expected_match_cases==0 means the
+    # holdout proved abstention only, not matching capability.
+    report = _report(version="candidate-1", exact=1.0, false_auto_pass=0.0, brier=0.0)
+    report["metrics"]["expected_match_cases"] = 0
+    report["metrics"]["correct_target_cases"] = 0
+    report["metrics"]["auto_pass_cases"] = 0
+    artifact = _artifact(version=1, report=report, approval_ref="MR-1")
+
+    with pytest.raises(PromotionRejected, match="no positive mapping case"):
+        validate_promotion(artifact)
+
+
 def test_promotion_rejects_failed_evaluation_and_non_improvement():
     failed = _artifact(
         version=1,
@@ -412,12 +577,16 @@ def test_promotion_rejects_failed_evaluation_and_non_improvement():
 
     current = _artifact(
         version=1,
-        report=_report(version="candidate-1", exact=1.0, false_auto_pass=0.0, brier=0.01),
+        report=_report(
+            version="candidate-1", exact=1.0, false_auto_pass=0.0, brier=0.01
+        ),
         approval_ref="MR-3",
     )
     candidate = _artifact(
         version=2,
-        report=_report(version="candidate-2", exact=1.0, false_auto_pass=0.0, brier=0.01),
+        report=_report(
+            version="candidate-2", exact=1.0, false_auto_pass=0.0, brier=0.01
+        ),
         approval_ref="MR-4",
     )
     with pytest.raises(PromotionRejected, match="strictly improve"):

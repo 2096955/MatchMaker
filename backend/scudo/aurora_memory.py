@@ -440,16 +440,21 @@ def _artifact_comparison_payload(candidate: LearningArtifact) -> dict:
 
 
 def next_skill_version(*, minimum: int = 1) -> int:
-    """Allocate a version beyond every immutable matching-skill artifact.
+    """Allocate a version beyond immutable artifacts and the historic pointer.
 
     The live pointer can be absent or quarantined while prior immutable
-    artifacts still exist. Those artifacts remain the authoritative version
-    history, so version allocation must not rely on the pointer alone.
+    artifacts still exist. Conversely, an older best pointer can predate
+    immutable artifacts. Both sources must contribute to version allocation
+    so a new artifact never reuses or regresses a known version.
     """
     result = aurora_store._execute(
         "select memory_key, memory_type, payload from scudo.agent_memory "
-        "where memory_type = :memory_type",
-        [aurora_store._str_param("memory_type", "skill_artifact")],
+        "where memory_type = :artifact_memory_type "
+        "or memory_key = :best_skill_key",
+        [
+            aurora_store._str_param("artifact_memory_type", "skill_artifact"),
+            aurora_store._str_param("best_skill_key", _BEST_SKILL_KEY),
+        ],
     )
     highest_version = 0
     for rec in result.get("records", []):

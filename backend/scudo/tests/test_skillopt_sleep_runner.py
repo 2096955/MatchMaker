@@ -517,6 +517,44 @@ def test_run_evaluated_sleep_cycle_requires_a_structured_holdout_report():
     ]
 
 
+def test_run_evaluated_sleep_cycle_rejects_scalar_evaluator_output():
+    from scudo.skillopt_sleep_runner import run_evaluated_sleep_cycle
+
+    store = _FakeSleepStore(trajectories=[f"t{i}" for i in range(10)])
+
+    with pytest.raises(TypeError, match="EvaluationReport"):
+        run_evaluated_sleep_cycle(
+            store=store,
+            optimizer=lambda train, current: "candidate",
+            evaluator=lambda candidate, held_out: 0.95,
+            approval=_approval(),
+        )
+
+    assert store.promote_calls == []
+
+
+@pytest.mark.parametrize("trajectories", [[], ["only-one"]])
+def test_run_evaluated_sleep_cycle_short_circuits_without_viable_partitions(
+    trajectories,
+):
+    from scudo.skillopt_sleep_runner import run_evaluated_sleep_cycle
+
+    store = _FakeSleepStore(trajectories=trajectories)
+    calls = []
+
+    result = run_evaluated_sleep_cycle(
+        store=store,
+        optimizer=lambda train, current: calls.append("optimizer") or "candidate",
+        evaluator=lambda candidate, held_out: calls.append("evaluator")
+        or _passing_evaluation_report(),
+        approval=_approval(),
+    )
+
+    assert result is False
+    assert calls == []
+    assert store.promote_calls == []
+
+
 def test_lazy_skillopt_optimizer_raises_runtime_error_when_package_not_installed():
     """The skillopt package is confirmed not installed/vendored in this repo
     this session — calling the default optimizer directly (bypassing

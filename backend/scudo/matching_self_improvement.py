@@ -168,8 +168,7 @@ class MatchingPrediction(BaseModel):
             payload = dict(result)
         else:
             raise TypeError(
-                "matching result must be a Pydantic model, dict, or "
-                "MatchingPrediction"
+                "matching result must be a Pydantic model, dict, or MatchingPrediction"
             )
 
         target = payload.get("mapped_node_iri")
@@ -243,7 +242,7 @@ class EvaluationMetrics(BaseModel):
     expected_match_cases: int = Field(..., ge=0)
     expected_abstain_cases: int = Field(..., ge=0)
     predicted_abstain_cases: int = Field(..., ge=0)
-    auto_pass_cases: int = Field(..., ge=0)
+    auto_pass_cases: int = Field(default=0, ge=0)
     correct_target_cases: int = Field(..., ge=0)
     correct_abstention_cases: int = Field(..., ge=0)
     false_auto_pass_cases: int = Field(..., ge=0)
@@ -342,6 +341,15 @@ def validate_promotion(
         raise PromotionRejected("candidate evaluation did not pass its policy")
     if candidate.evaluation.split != "holdout":
         raise PromotionRejected("promotion requires a holdout evaluation")
+    # Defence in depth: the promotion boundary must not trust a passed=True
+    # report it did not compute. An abstention-only holdout cannot demonstrate
+    # matching capability, so reject it here regardless of how the report was
+    # produced (a forged or replayed report bypasses evaluate_golden_set).
+    if candidate.evaluation.metrics.expected_match_cases < 1:
+        raise PromotionRejected(
+            "holdout evaluation has no positive mapping case; an abstention-only "
+            "holdout cannot demonstrate matching capability"
+        )
     if current is None:
         return
     if candidate.version <= current.version:
@@ -391,8 +399,7 @@ def _metrics_for(
         if case.expected_abstain and prediction.abstained:
             correct_abstentions += 1
         if prediction.auto_pass and (
-            case.expected_abstain
-            or prediction.target_iri != case.expected_target_iri
+            case.expected_abstain or prediction.target_iri != case.expected_target_iri
         ):
             false_auto_passes += 1
 
@@ -402,9 +409,7 @@ def _metrics_for(
                 and prediction.target_iri == case.expected_target_iri
             )
             expected_confidence = 1.0 if target_correct else 0.0
-            calibration_errors.append(
-                abs(prediction.confidence - expected_confidence)
-            )
+            calibration_errors.append(abs(prediction.confidence - expected_confidence))
             brier_scores.append((prediction.confidence - expected_confidence) ** 2)
 
     return EvaluationMetrics(
@@ -455,6 +460,14 @@ def evaluate_golden_set(
             f"{split} evaluation has {len(cases)} cases but policy requires "
             f"{selected_policy.min_cases}"
         )
+    # A holdout run gates promotion, so it must prove matching capability, not
+    # only correct abstention. Scoped here (not at GoldenSet construction) so an
+    # abstention-only holdout set can still load and run --split adversarial.
+    if split == "holdout" and not any(not case.expected_abstain for case in cases):
+        raise ValueError(
+            "holdout evaluation must include at least one positive mapping case; "
+            "an abstention-only holdout cannot demonstrate matching capability"
+        )
 
     predictions: dict[str, MatchingPrediction] = {}
     for case in cases:
@@ -479,8 +492,7 @@ def evaluate_golden_set(
             metrics.expected_abstain_cases == 0
             or metrics.abstention_recall >= selected_policy.min_abstention_recall
         )
-        and metrics.false_auto_pass_rate
-        <= selected_policy.max_false_auto_pass_rate
+        and metrics.false_auto_pass_rate <= selected_policy.max_false_auto_pass_rate
         and metrics.brier_score <= selected_policy.max_brier_score
     )
     return EvaluationReport(
