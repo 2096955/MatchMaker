@@ -179,6 +179,51 @@ class FalkorDBStore(RetrievalStore):
             children_iris=[c for c in (children or []) if c],
         )
 
+    def find_similar_products_batch(
+        self,
+        refs,
+        max_results: int = 10,
+        min_similarity: float = 0.0,
+        *,
+        candidate_filter=None,
+    ) -> list[list[Candidate]]:
+        """Batch retrieval with the BM25 corpus hoisted out of the loop.
+
+        Declaring the whole workload lets the corpus half of BM25 be built
+        ONCE for the taxonomy instead of once per vendor product (see
+        ``RetrievalStore.find_similar_products_batch`` for why the eager
+        per-ref call cannot do this).
+
+        The shared index covers the FULL node set, so it is passed down
+        only for refs with NO negative precedents: a rejected node is
+        dropped from the corpus before scoring, which shifts idf and avgdl
+        and therefore the BM25 ranking. Refs carrying rejections build
+        their own index, exactly as before. Result: identical output to the
+        per-ref loop, fewer corpus builds.
+
+        One taxonomy read is shared across the batch as well — the eager
+        path issues the same MATCH once per product.
+        """
+        rows = self._ro(
+            "MATCH (t:TaxonomyNode) RETURN t.iri, t.label, t.parent_iri"
+        )
+        shared = self.build_bm25_index(
+            [(iri, label or "") for iri, label, _ in rows]
+        ) if rows else None
+        out: list[list[Candidate]] = []
+        for ref in refs:
+            has_rejects = bool(
+                self.get_negative_precedents(ref.vendor, ref.product_id)
+            )
+            out.append(self.find_similar_products(
+                ref,
+                max_results=max_results,
+                min_similarity=min_similarity,
+                candidate_filter=candidate_filter,
+                _shared_index=None if has_rejects else shared,
+            ))
+        return out
+
     def find_similar_products(
         self,
         ref: VendorProductRef,
@@ -186,6 +231,7 @@ class FalkorDBStore(RetrievalStore):
         min_similarity: float = 0.0,
         *,
         candidate_filter=None,
+        _shared_index=None,
     ) -> list[Candidate]:
         """Falkor match-and-check: dense (Jaro-Winkler) + lexical (BM25) +
         structural (negative-precedent drop, optional candidate_filter,
@@ -298,9 +344,18 @@ class FalkorDBStore(RetrievalStore):
 
         # Arm 2 — BM25 (lexical sidecar). Recovers exact-token hits the
         # dense arm misses on tickers / RICs / acronyms. SORT-only.
-        bm25_scores = self.bm25_scores(
-            query_text,
-            [(iri, labels[iri]) for iri in labels],
+        # Reuse the batch-hoisted corpus when one was supplied (see
+        # find_similar_products_batch); otherwise build it for this ref
+        # alone — the eager path. Both branches run the SAME arithmetic via
+        # Bm25Index.score, so the only difference is how many times the
+        # corpus half was computed.
+        bm25_scores = (
+            _shared_index.score(query_text)
+            if _shared_index is not None
+            else self.bm25_scores(
+                query_text,
+                [(iri, labels[iri]) for iri in labels],
+            )
         )
 
         # RRF fuses the two RANKINGS into a single ordering score. This

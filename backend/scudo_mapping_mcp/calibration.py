@@ -124,7 +124,21 @@ def replay_golden(
     floor = settings.confidence_floor
     half = settings.borderline_half_width
 
+    # DECLARE THE WHOLE WORKLOAD, don't dribble it out one pair at a time.
+    #
+    # This harness is the one caller that knows its ENTIRE workload before
+    # it starts — every golden pair is in hand at entry. Scoring them with
+    # a per-pair loop threw that away: each call rebuilt the BM25 corpus
+    # over the full taxonomy, so a 500-pair replay did ~499 redundant
+    # corpus builds. Handing the batch to the store lets it hoist that work
+    # once (see RetrievalStore.find_similar_products_batch).
+    #
+    # Scope is filtered FIRST so out-of-scope pairs never reach retrieval —
+    # they are a data problem to surface, not work to schedule. Positions
+    # in ``scored_pairs`` line up with ``batch_results`` by construction.
     outcomes: list[PairOutcome] = []
+    scored_pairs: list[GoldenPair] = []
+    refs: list[VendorProductRef] = []
     for pair in pairs:
         scope = check_scope(VendorProductRef(
             vendor=pair.vendor, product_id=pair.product_id,
@@ -136,11 +150,17 @@ def replay_golden(
                 skipped=True, skip_reason=scope.reason,
             ))
             continue
-        ref = VendorProductRef(
+        scored_pairs.append(pair)
+        refs.append(VendorProductRef(
             vendor=pair.vendor, product_id=pair.product_id,
             name=pair.name, description=pair.description,
-        )
-        candidates = s.find_similar_products(ref, max_results=max_candidates)
+        ))
+
+    batch_results = s.find_similar_products_batch(
+        refs, max_results=max_candidates,
+    ) if refs else []
+
+    for pair, candidates in zip(scored_pairs, batch_results):
         rank: Optional[int] = None
         expected_sim: Optional[float] = None
         for i, c in enumerate(candidates, start=1):

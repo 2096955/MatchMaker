@@ -696,6 +696,126 @@ def _():
     assert summary.taxonomy_version_source != summary.taxonomy_version_local
 
 
+@case("BATCH_bm25_index_scores_identically_to_eager_wrapper")
+def _():
+    """The corpus hoist is a PURE refactor: build-once-score-many must
+    return exactly what the per-call wrapper returns. bm25_scores now
+    delegates to Bm25Index, so this pins the two entry points together."""
+    docs = [
+        ("a", "Equity Prices Real Time"),
+        ("b", "Equity Reference Data"),
+        ("c", "FX Spot Rates"),
+        ("d", ""),                      # empty doc — zero-length branch
+        ("e", "AAPL.O ticker RIC feed"),  # dotted identifier tokenisation
+    ]
+    index = RetrievalStore.build_bm25_index(docs)
+    for query in ("equity prices", "FX", "AAPL.O", "", "no matching term"):
+        eager = RetrievalStore.bm25_scores(query, docs)
+        hoisted = index.score(query)
+        assert eager == hoisted, (query, eager, hoisted)
+    # Empty corpus is still empty, not an exception.
+    assert RetrievalStore.build_bm25_index([]).score("anything") == {}
+
+
+@case("BATCH_matches_per_ref_loop_exactly")
+def _():
+    """The declarative path must not change results — only how many times
+    the corpus half is computed. Batch output is compared candidate-for-
+    candidate against the eager per-ref loop, INCLUDING order.
+
+    Uses MemoryStore (a real backend override), not FakeStore (which
+    inherits the default looping implementation)."""
+    from scudo_mapping_mcp.store.memory_store import MemoryStore
+
+    store = MemoryStore()
+    for iri, label, parent in [
+        (EQUITIES_IRI, "Equities", None),
+        (EQ_PRICES_IRI, "Equity Prices", EQUITIES_IRI),
+        (FX_IRI, "Foreign Exchange", None),
+        ("cdao:fx-spot", "FX Spot Rates", FX_IRI),
+        ("cdao:eq-ref", "Equity Reference Data", EQUITIES_IRI),
+    ]:
+        store.upsert_taxonomy_node(
+            TaxonomyNode(iri=iri, label=label, parent_iri=parent)
+        )
+
+    refs = [
+        VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="P1",
+                         name="Equity Prices Real Time"),
+        VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="P2",
+                         name="FX Spot"),
+        VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="P3",
+                         name="Equity Reference"),
+    ]
+
+    eager = [store.find_similar_products(r, max_results=5) for r in refs]
+    batched = store.find_similar_products_batch(refs, max_results=5)
+
+    assert len(batched) == len(eager) == 3
+    for i, (want, got) in enumerate(zip(eager, batched)):
+        assert [c.node.iri for c in want] == [c.node.iri for c in got], (
+            f"ref {i}: ordering diverged {[c.node.iri for c in want]} "
+            f"vs {[c.node.iri for c in got]}"
+        )
+        assert [c.similarity for c in want] == [c.similarity for c in got], i
+
+
+@case("BATCH_negative_precedent_ref_falls_back_to_own_corpus")
+def _():
+    """A rejected node is dropped from the corpus BEFORE scoring, which
+    shifts idf/avgdl. So a ref carrying negative precedents must NOT reuse
+    the full-taxonomy shared index — it builds its own. This gate proves
+    the batch path still matches the eager path for such a ref, which is
+    the case a naive hoist would silently get wrong."""
+    from scudo_mapping_mcp.store.memory_store import MemoryStore
+
+    store = MemoryStore()
+    for iri, label in [
+        (EQ_PRICES_IRI, "Equity Prices"),
+        (EQUITIES_IRI, "Equities"),
+        (FX_IRI, "Foreign Exchange"),
+    ]:
+        store.upsert_taxonomy_node(TaxonomyNode(iri=iri, label=label))
+
+    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="P-REJ",
+                           name="Equity Prices Real Time")
+    store.upsert_vendor_product(ref)
+    # Human rejected the obvious node for this product.
+    store.upsert_precedent(
+        ref=ref, node=TaxonomyNode(iri=EQ_PRICES_IRI, label="Equity Prices"),
+        decision="reject", decided_by="reviewer@jpmc", confidence=0.0,
+    )
+    assert EQ_PRICES_IRI in store.get_negative_precedents(
+        IN_SCOPE_VENDOR, "P-REJ"
+    )
+
+    eager = store.find_similar_products(ref, max_results=5)
+    batched = store.find_similar_products_batch([ref], max_results=5)[0]
+    assert [c.node.iri for c in eager] == [c.node.iri for c in batched]
+    assert [c.similarity for c in eager] == [c.similarity for c in batched]
+    # And the rejected node really is absent from both.
+    assert EQ_PRICES_IRI not in [c.node.iri for c in batched]
+
+
+@case("BATCH_default_seam_implementation_loops_for_unaware_backends")
+def _():
+    """A backend that does NOT override the batch method still works — the
+    base class default loops. FakeStore never implemented it, so this pins
+    that adding the seam method broke no existing backend."""
+    fake = _fresh_store()
+    fake.set_score(EQ_PRICES_IRI, 0.90)
+    fake.set_score(FX_IRI, 0.20)
+    refs = [
+        VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="B1", name="Equity"),
+        VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="B2", name="FX"),
+    ]
+    out = fake.find_similar_products_batch(refs, max_results=5)
+    assert len(out) == 2, out
+    # Positional contract: out[i] corresponds to refs[i].
+    for ref, cands in zip(refs, out):
+        assert cands == fake.find_similar_products(ref, max_results=5)
+
+
 @case("MERGE_conflicting_import_is_refused_not_silently_applied")
 def _():
     """THE MERGE CASE. Two independent decision streams disagree about the

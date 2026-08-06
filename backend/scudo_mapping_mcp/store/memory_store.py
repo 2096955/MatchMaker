@@ -31,6 +31,40 @@ from .falkordb_store import _jaro_winkler
 class MemoryStore(FakeStore):
     """FakeStore write surfaces + FalkorDBStore scoring composition."""
 
+    def find_similar_products_batch(
+        self,
+        refs,
+        max_results: int = 10,
+        min_similarity: float = 0.0,
+        *,
+        candidate_filter=None,
+    ) -> list[list[Candidate]]:
+        """Batch retrieval with the BM25 corpus hoisted out of the loop.
+
+        The shared index covers the FULL node set. It is passed down only
+        for refs with NO negative precedents, because a rejected node is
+        dropped from the corpus before scoring — which changes idf and
+        avgdl, and therefore the BM25 ranking. Those refs fall back to a
+        per-ref index so the batch path returns byte-identical results to
+        the per-ref loop. See ``_shared_index`` on find_similar_products.
+        """
+        shared = self.build_bm25_index(
+            [(iri, node.label or "") for iri, node in self._nodes.items()]
+        ) if self._nodes else None
+        out: list[list[Candidate]] = []
+        for ref in refs:
+            has_rejects = bool(
+                self.get_negative_precedents(ref.vendor, ref.product_id)
+            )
+            out.append(self.find_similar_products(
+                ref,
+                max_results=max_results,
+                min_similarity=min_similarity,
+                candidate_filter=candidate_filter,
+                _shared_index=None if has_rejects else shared,
+            ))
+        return out
+
     def find_similar_products(
         self,
         ref: VendorProductRef,
@@ -38,7 +72,16 @@ class MemoryStore(FakeStore):
         min_similarity: float = 0.0,
         *,
         candidate_filter=None,
+        _shared_index=None,
     ) -> list[Candidate]:
+        """Single-ref retrieval.
+
+        ``_shared_index`` is a private hoist hook, NOT part of the store
+        seam contract — the seam stays free of backend specifics like BM25
+        (see base.py's opening note). Only ``find_similar_products_batch``
+        passes it, and only when the corpus it was built from matches the
+        one this ref would have built for itself.
+        """
         limit = self.clamp_results(max_results)
         if not self._nodes:
             return []
@@ -79,9 +122,17 @@ class MemoryStore(FakeStore):
                 dense_scores[iri] = _jaro_winkler(query_text, node.label or "")
 
         # Arm 2 — BM25 lexical sidecar. SORT-only, same as FalkorDBStore.
-        bm25 = self.bm25_scores(
-            query_text,
-            [(iri, labels[iri]) for iri in labels],
+        # Reuse the batch-hoisted corpus when one was supplied; otherwise
+        # build it for this ref alone (the eager path). Both branches run
+        # the SAME arithmetic — Bm25Index.score — so the only difference is
+        # how many times the corpus half was computed.
+        bm25 = (
+            _shared_index.score(query_text)
+            if _shared_index is not None
+            else self.bm25_scores(
+                query_text,
+                [(iri, labels[iri]) for iri in labels],
+            )
         )
 
         # RRF fuses the two RANKINGS into the sort score. Never similarity.
