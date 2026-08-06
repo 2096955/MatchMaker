@@ -66,6 +66,13 @@ class HydrationResult:
 
     ``skipped_no_bundle`` is True when the canonical S3 key didn't exist
     (cold start). Every other field is zero in that case.
+
+    ``conflicted`` is non-zero only on a WARM store whose local canon
+    disagrees with the canonical bundle. Hydration imports with the default
+    ``on_conflict="refuse"``, so those patterns are NOT applied — local
+    decisions stand and the disagreement is logged at WARNING. A cold start
+    (the normal rolling-deploy case) has an empty store and cannot conflict,
+    so this stays 0 and hydration remains idempotent.
     """
     skipped_no_bundle: bool
     bundle_version: Optional[str]
@@ -75,6 +82,7 @@ class HydrationResult:
     skipped_unknown_node: int
     skipped_out_of_scope: int
     total: int
+    conflicted: int = 0
 
 
 class HydrationError(RuntimeError):
@@ -230,10 +238,22 @@ def hydrate(strict: bool = True) -> HydrationResult:
 
     _log.info(
         "hydrate: applied=%d skipped_unknown_node=%d "
-        "skipped_out_of_scope=%d total=%d",
+        "skipped_out_of_scope=%d conflicted=%d total=%d",
         summary.applied, summary.skipped_unknown_node,
-        summary.skipped_out_of_scope, summary.total,
+        summary.skipped_out_of_scope, summary.conflicted, summary.total,
     )
+
+    # A conflict at hydration means the LOCAL store already held a different
+    # confirmed decision than canon asserts — i.e. a warm store diverging
+    # from the canonical bundle. Refused (not overwritten) by default, so
+    # this is a signal to adjudicate, not a failure to boot on.
+    for c in summary.conflicts:
+        _log.warning(
+            "hydrate: CONFLICT %s/%s local=%s incoming=%s (%s) — local "
+            "decision retained; adjudicate before re-baselining",
+            c.vendor, c.product_id, c.local_node_iri,
+            c.incoming_node_iri, c.resolution,
+        )
 
     return HydrationResult(
         skipped_no_bundle=False,
@@ -244,6 +264,7 @@ def hydrate(strict: bool = True) -> HydrationResult:
         skipped_unknown_node=summary.skipped_unknown_node,
         skipped_out_of_scope=summary.skipped_out_of_scope,
         total=summary.total,
+        conflicted=summary.conflicted,
     )
 
 

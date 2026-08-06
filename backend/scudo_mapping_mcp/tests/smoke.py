@@ -696,6 +696,110 @@ def _():
     assert summary.taxonomy_version_source != summary.taxonomy_version_local
 
 
+@case("MERGE_conflicting_import_is_refused_not_silently_applied")
+def _():
+    """THE MERGE CASE. Two independent decision streams disagree about the
+    same (vendor, product_id): a bundle from env A says cdao:eq-prices, the
+    importer's local canon says cdao:fx (a human decided that here).
+
+    upsert_precedent's single-positive-precedent invariant would wipe the
+    local edge and report `applied` — a human's decision destroyed with no
+    record. The importer must detect the disagreement BEFORE writing,
+    refuse the pattern, and surface it for adjudication."""
+    # Env A: confirmed mapping to EQ_PRICES.
+    _fresh_store()
+    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-CONFLICT",
+                           name="Equity Prices Real Time")
+    apply_decision(ref, decision="approve", decided_by="reviewer-a@jpmc",
+                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
+    bundle = export_bundle(source_env="env-a",
+                           created_at="2026-01-01T00:00:00.000Z")
+
+    # Env B: a human here already decided the SAME product maps to FX.
+    fake_b = _fresh_store()
+    apply_decision(ref, decision="approve", decided_by="reviewer-b@jpmc",
+                   node_iri=FX_IRI, suggested_confidence=0.88)
+
+    summary = import_bundle(bundle)
+
+    assert summary.total == 1, summary.total
+    assert summary.conflicted == 1, summary.conflicted
+    assert summary.applied == 0, "a conflicting pattern must NOT be applied"
+    c = summary.conflicts[0]
+    assert c.local_node_iri == FX_IRI, c.local_node_iri
+    assert c.incoming_node_iri == EQ_PRICES_IRI, c.incoming_node_iri
+    assert c.resolution == "refused", c.resolution
+    assert c.product_id == "EQ-CONFLICT"
+
+    # And canon is UNCHANGED — the local human decision survived.
+    still = fake_b.get_precedent_mapping(IN_SCOPE_VENDOR, "EQ-CONFLICT")
+    assert still is not None and still.mapped_node_iri == FX_IRI, still
+
+
+@case("MERGE_identical_decision_is_not_a_conflict_idempotency_holds")
+def _():
+    """Conflict detection must not break replay. Importing a bundle whose
+    decision MATCHES local canon is the idempotent hydration path, not a
+    merge case — same target IRI, so applied and conflicted==0."""
+    _fresh_store()
+    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-SAME",
+                           name="Equity Prices Real Time")
+    apply_decision(ref, decision="approve", decided_by="reviewer@jpmc",
+                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
+    bundle = export_bundle(source_env="env-a",
+                           created_at="2026-01-01T00:00:00.000Z")
+
+    # Re-import into the SAME store (the hydration / replay path).
+    summary = import_bundle(bundle)
+    assert summary.conflicted == 0, summary.conflicts
+    assert summary.applied == 1, summary.applied
+
+    # Twice more — still stable, still no phantom conflicts.
+    again = import_bundle(bundle)
+    assert again.conflicted == 0 and again.applied == 1, again
+
+
+@case("MERGE_overwrite_is_explicit_and_still_recorded")
+def _():
+    """A deliberate re-baseline is possible, but never silent: with
+    on_conflict='overwrite' the bundle wins AND the overwrite is recorded,
+    so an operator can always answer 'what did this import replace?'"""
+    _fresh_store()
+    ref = VendorProductRef(vendor=IN_SCOPE_VENDOR, product_id="EQ-REBASE",
+                           name="Equity Prices Real Time")
+    apply_decision(ref, decision="approve", decided_by="reviewer-a@jpmc",
+                   node_iri=EQ_PRICES_IRI, suggested_confidence=0.91)
+    bundle = export_bundle(source_env="env-a",
+                           created_at="2026-01-01T00:00:00.000Z")
+
+    fake_b = _fresh_store()
+    apply_decision(ref, decision="approve", decided_by="reviewer-b@jpmc",
+                   node_iri=FX_IRI, suggested_confidence=0.88)
+
+    summary = import_bundle(bundle, on_conflict="overwrite")
+    assert summary.applied == 1, summary.applied
+    assert summary.conflicted == 1, "the overwrite must still be RECORDED"
+    assert summary.conflicts[0].resolution == "overwritten"
+
+    # Canon now reflects the bundle.
+    now = fake_b.get_precedent_mapping(IN_SCOPE_VENDOR, "EQ-REBASE")
+    assert now is not None and now.mapped_node_iri == EQ_PRICES_IRI, now
+
+
+@case("MERGE_unknown_on_conflict_policy_fails_closed")
+def _():
+    """An unrecognised policy is never silently treated as permissive."""
+    _fresh_store()
+    bundle = export_bundle(source_env="env-a",
+                           created_at="2026-01-01T00:00:00.000Z")
+    try:
+        import_bundle(bundle, on_conflict="yolo")
+    except ValueError as e:
+        assert "on_conflict" in str(e), str(e)
+    else:
+        raise AssertionError("unknown on_conflict policy must raise")
+
+
 @case("M6_import_skips_out_of_scope_vendor_no_failure")
 def _():
     # Hand-build a bundle whose pattern is out of scope locally — bypassing

@@ -48,6 +48,7 @@ from typing import Optional
 
 from .frames import check_scope
 from .models import (
+    BundleConflict,
     BundleImportSummary,
     BundleProvenance,
     FieldRule,
@@ -195,7 +196,11 @@ def _now_iso() -> str:
 # ──────────────────────────────────────────────────────────────────────────
 # Import
 # ──────────────────────────────────────────────────────────────────────────
-def import_bundle(bundle: MappingBundle) -> BundleImportSummary:
+def import_bundle(
+    bundle: MappingBundle,
+    *,
+    on_conflict: str = "refuse",
+) -> BundleImportSummary:
     """Seed the live store with the bundle's CONFIRMED precedents.
 
     Idempotent: re-importing the same bundle into the same store leaves the
@@ -214,10 +219,49 @@ def import_bundle(bundle: MappingBundle) -> BundleImportSummary:
       - the ``mapped_node_iri`` is unknown to the importer's taxonomy, or
       - the vendor is not in the importer's scope (I3 fail-closed locally).
 
+    CONFLICT DETECTION (the merge case)
+    -----------------------------------
+    A bundle and the importer's local canon are two INDEPENDENT decision
+    streams. ``upsert_precedent`` resolves a single stream correctly — an
+    override supersedes a prior approval — by wiping existing MAPPED_TO
+    edges. Applied blindly across streams that is a silent overwrite: a
+    human's local approval replaced by a bundle from another environment,
+    counted as ``applied``, with nothing surfaced to review.
+
+    So before writing, the importer reads the existing precedent. When one
+    exists and names a DIFFERENT node:
+
+      on_conflict="refuse"    (default) — the pattern is NOT written. Local
+                                canon stands, the disagreement is recorded
+                                in ``summary.conflicts``. Fail-closed, and
+                                consistent with how the scope gate and the
+                                unknown-node path already behave.
+      on_conflict="overwrite" — the bundle wins, but the overwrite is still
+                                RECORDED in ``summary.conflicts`` with
+                                ``resolution="overwritten"``. Use for a
+                                deliberate re-baseline, never as a default.
+
+    An identical decision (same target IRI) is NOT a conflict, so replay and
+    hydration stay idempotent.
+
+    Args:
+        bundle: The versioned bundle to import.
+        on_conflict: ``"refuse"`` (default) or ``"overwrite"``.
+
+    Raises:
+        ValueError: unparseable/incompatible bundle version, or an
+            unrecognised ``on_conflict`` value (fail-closed: an unknown
+            policy is never silently treated as permissive).
+
     Returns:
-        BundleImportSummary with counts and the source/local taxonomy
-        fingerprints so operators can spot divergence.
+        BundleImportSummary with counts, any conflicts, and the source/local
+        taxonomy fingerprints so operators can spot divergence.
     """
+    if on_conflict not in ("refuse", "overwrite"):
+        raise ValueError(
+            f"on_conflict must be 'refuse' | 'overwrite', got {on_conflict!r}"
+        )
+
     _enforce_format_compat(bundle.version)
 
     store = get_store()
@@ -227,6 +271,7 @@ def import_bundle(bundle: MappingBundle) -> BundleImportSummary:
     applied = 0
     skipped_unknown = 0
     skipped_scope = 0
+    conflicts: list[BundleConflict] = []
 
     for p in bundle.patterns:
         node = store.get_taxonomy_node(p.mapped_node_iri)
@@ -249,6 +294,26 @@ def import_bundle(bundle: MappingBundle) -> BundleImportSummary:
         if not check_scope(ref).allowed:
             skipped_scope += 1
             continue
+
+        # MERGE CASE — read before write. An existing precedent naming a
+        # DIFFERENT node means two decision streams disagree; writing would
+        # wipe the local edge silently (see upsert_precedent's
+        # single-positive-precedent invariant). Same node = same decision,
+        # which is the idempotent replay path and NOT a conflict.
+        existing = store.get_precedent_mapping(p.vendor, p.product_id)
+        if existing is not None and existing.mapped_node_iri and \
+                existing.mapped_node_iri != p.mapped_node_iri:
+            conflicts.append(BundleConflict(
+                vendor=p.vendor,
+                product_id=p.product_id,
+                local_node_iri=existing.mapped_node_iri,
+                incoming_node_iri=p.mapped_node_iri,
+                local_node_label=existing.mapped_node_label or "",
+                incoming_node_label=p.mapped_node_label or node.label or "",
+                resolution="refused" if on_conflict == "refuse" else "overwritten",
+            ))
+            if on_conflict == "refuse":
+                continue
 
         store.upsert_precedent(
             ref=ref, node=node,
@@ -276,6 +341,8 @@ def import_bundle(bundle: MappingBundle) -> BundleImportSummary:
         applied=applied,
         skipped_unknown_node=skipped_unknown,
         skipped_out_of_scope=skipped_scope,
+        conflicted=len(conflicts),
+        conflicts=conflicts,
         taxonomy_version_source=bundle.taxonomy_version,
         taxonomy_version_local=local_taxonomy_version,
     )

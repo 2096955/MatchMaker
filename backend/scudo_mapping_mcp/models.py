@@ -249,16 +249,49 @@ class MappingBundle(BaseModel):
     patterns: list[MappingPattern] = Field(default_factory=list)
 
 
+class BundleConflict(BaseModel):
+    """One pattern whose target DISAGREES with the importer's existing canon.
+
+    A conflict is NOT a format error and NOT a scope failure — both sides are
+    valid confirmed decisions about the same ``(vendor, product_id)`` that
+    name DIFFERENT CDAO nodes. This is the merge case: two independent
+    decision streams (a bundle from another environment and a local HITL
+    approval) that cannot both be right.
+
+    ``upsert_precedent`` enforces a single-positive-precedent invariant by
+    wiping prior MAPPED_TO edges, which is correct for ONE decision stream
+    (an override supersedes an approval) and silently destructive for two.
+    The importer therefore detects the disagreement BEFORE writing and, by
+    default, refuses the pattern and reports it here rather than letting the
+    bundle overwrite a human's local decision with no record.
+    """
+    vendor: str
+    product_id: str
+    local_node_iri: str = Field(..., description="What the importer's canon already says.")
+    incoming_node_iri: str = Field(..., description="What the bundle asserts.")
+    local_node_label: str = ""
+    incoming_node_label: str = ""
+    resolution: Literal["refused", "overwritten"] = "refused"
+
+
 class BundleImportSummary(BaseModel):
     """Result of an import_bundle() call.
 
     Idempotent re-import returns the same numbers; ``skipped`` includes any
     pattern whose ``mapped_node_iri`` is not present in the importer's
     taxonomy or whose vendor is out of scope locally.
+
+    ``conflicted`` counts patterns that disagreed with existing local canon.
+    Under the default ``on_conflict="refuse"`` these are NOT applied — the
+    local decision stands and the disagreement is surfaced in ``conflicts``
+    for a human to adjudicate. Re-importing an IDENTICAL decision is not a
+    conflict (same target IRI), so idempotency is unaffected.
     """
     total: int = Field(..., ge=0)
     applied: int = Field(..., ge=0)
     skipped_unknown_node: int = Field(default=0, ge=0)
     skipped_out_of_scope: int = Field(default=0, ge=0)
+    conflicted: int = Field(default=0, ge=0)
+    conflicts: list[BundleConflict] = Field(default_factory=list)
     taxonomy_version_source: str = ""
     taxonomy_version_local: str = ""
