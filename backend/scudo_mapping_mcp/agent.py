@@ -82,6 +82,7 @@ from .models import (
     VendorProductRef,
 )
 from .store import get_store
+from .taxonomy_graph import analyse_taxonomy
 
 
 # Tier names — must match the keys McpHost was constructed with.
@@ -436,7 +437,21 @@ class BedrockMappingAgent:
         "     on a mis-filed value justify a mapping.\n"
         "  c. If several candidates are near-indistinguishable, recommend "
         "     needs_review and name the tied candidates rather than picking "
-        "     one."
+        "     one.\n\n"
+        "REFUSALS ARE ANSWERS, NOT ERRORS TO WORK AROUND:\n"
+        "  A tool may return a refusal envelope instead of data, e.g.\n"
+        '  {"error": "frame_not_found", ...} when no ingested vendor frame '
+        "  exists for that (vendor, product_id). This is deliberate: the "
+        "  system refuses to score a product whose real details it does not "
+        "  have, rather than inventing a name from the product_id and "
+        "  matching on that.\n"
+        "  When you receive one: report it and recommend needs_review, naming "
+        "  the vendor and product_id. Do NOT retry the same call, do NOT "
+        "  substitute a plausible name or description of your own, and do NOT "
+        "  fall back to a different product. A refusal means the input is "
+        "  missing upstream — that is information worth surfacing, and "
+        "  papering over it produces a confident mapping of data that was "
+        "  never ingested."
     )
 
     def __init__(
@@ -686,6 +701,22 @@ def _strands_tools_for_mapping(
         return json.dumps(_subgraph_dict(sg))
 
     @tool
+    def analyse_taxonomy_candidates(
+        candidate_iris: list[str],
+        anchor_iris: Optional[list[str]] = None,
+        max_nodes: int = 100,
+        max_depth: int = 8,
+    ) -> str:
+        """Return bounded graph evidence without changing scores or status."""
+        return analyse_taxonomy(
+            get_store().list_taxonomy_nodes(),
+            candidate_iris=candidate_iris,
+            anchor_iris=anchor_iris,
+            max_nodes=max_nodes,
+            max_depth=max_depth,
+        ).model_dump_json()
+
+    @tool
     def map_vendor_product_tool(
         vendor: str,
         product_id: str,
@@ -721,6 +752,7 @@ def _strands_tools_for_mapping(
         find_similar_products,
         get_taxonomy_node,
         get_ontology_neighbourhood,
+        analyse_taxonomy_candidates,
         map_vendor_product_tool,
         describe_system_context,
     ]
@@ -1236,6 +1268,13 @@ def get_agent(provider: Optional[str] = None) -> Any:
         return AzureMappingAgent()
     if normalized_provider == "bedrock":
         return BedrockMappingAgent(use_mcp_host=use_host)
+    # JPMC-LOCAL: "scripted" is an override too, for the same reason the two
+    # above are. Without this branch it fell through to SCUDO_AGENT_BACKEND,
+    # so on a Bedrock-configured host the "Local scripted narrator (no AWS)"
+    # option returned BedrockMappingAgent -- the one runtime it promises not
+    # to be. Every named provider must be honoured, or the dropdown lies.
+    if normalized_provider == "scripted":
+        return ScriptedMappingAgent(use_mcp_host=use_host)
     backend = (os.getenv("SCUDO_AGENT_BACKEND") or "scripted").strip().lower()
     if backend == "bedrock":
         return BedrockMappingAgent(use_mcp_host=use_host)

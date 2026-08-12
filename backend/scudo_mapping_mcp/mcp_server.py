@@ -18,6 +18,8 @@ Inspect:       npx @modelcontextprotocol/inspector
 
 from __future__ import annotations
 
+from typing import Optional
+
 import json
 import os
 from contextlib import asynccontextmanager
@@ -33,6 +35,7 @@ from .matching import map_vendor_product
 from .models import VendorProductRef
 from .specialist import specialist_from_env
 from .store import get_store
+from .taxonomy_graph import analyse_taxonomy
 
 _RO = {
     "readOnlyHint": True,
@@ -95,6 +98,13 @@ class NeighbourhoodInput(_Base):
     max_nodes: int = Field(50, ge=1, le=100, description="Node cap (clamped to 100)")
 
 
+class TaxonomyAnalysisInput(_Base):
+    candidate_iris: list[str] = Field(..., max_length=25)
+    anchor_iris: list[str] = Field(default_factory=list, max_length=25)
+    max_depth: int = Field(8, ge=1, le=100)
+    max_nodes: int = Field(100, ge=1, le=100)
+
+
 class SimilarInput(_Base):
     vendor: str = Field(..., description=f"One of: {', '.join(PRIORITY_VENDORS)}")
     product_id: str = Field(..., min_length=1, description="Vendor-native product id")
@@ -124,16 +134,29 @@ class MapInput(_Base):
 # --- helpers -------------------------------------------------------------
 def _frame(
     vendor: str, product_id: str, name: str = "", description: str = ""
-) -> VendorProductRef:
-    # Inline attributes win — makes the server testable with no ingestion wired.
-    if name or description:
+) -> Optional[VendorProductRef]:
+    """Resolve the ref to score. Fail-closed, and deliberately reading the SAME
+    env flag as the other two copies of this function.
+
+    THIS IS THE THIRD COPY. The same fail-open logic lived in
+    ``match_verify_mcp._frame`` and ``routes/mapping._frame``; both were fixed
+    and this one was missed because each fix was scoped to a named file. A
+    completeness critic found it. The behaviour it used to have:
+
+        _frame('LSEG', 'GHOST-999') -> name='GHOST-999'   (fabricated)
+        inline text                 -> real frame bypassed, no gate
+
+    Rules now, matching the other two exactly:
+      1. Inline text is IGNORED unless ``SCUDO_MV_ALLOW_INLINE_FRAME`` is set.
+      2. A missing frame returns ``None`` rather than inventing a name.
+    """
+    from .match_verify_mcp import env_allow_inline_frame
+
+    if (name or description) and env_allow_inline_frame():
         return VendorProductRef(
             vendor=vendor, product_id=product_id, name=name, description=description
         )
-    ref = _read_vendor_frame(vendor, product_id)
-    if ref is None:
-        return VendorProductRef(vendor=vendor, product_id=product_id, name=product_id)
-    return ref
+    return _read_vendor_frame(vendor, product_id)
 
 
 def _frame_error_envelope(e: BaseException) -> str:
@@ -176,6 +199,19 @@ async def find_similar_products(params: SimilarInput) -> str:
         ref = _frame(params.vendor, params.product_id, params.name, params.description)
     except NotImplementedError as e:
         return _frame_error_envelope(e)
+    if ref is None:
+        # No ingested frame, and inline text is not permitted. Refuse rather
+        # than scoring a fabricated name=product_id (see _frame).
+        return json.dumps(
+            {
+                "error": "frame_not_found",
+                "detail": (
+                    f"no ingested frame for {params.vendor}/{params.product_id}; "
+                    "ingest it first, or set SCUDO_MV_ALLOW_INLINE_FRAME to "
+                    "score caller-supplied text"
+                ),
+            }
+        )
     cands = get_store().find_similar_products(
         ref, max_results=params.max_results, min_similarity=params.min_similarity
     )
@@ -200,6 +236,22 @@ async def get_ontology_neighbourhood(params: NeighbourhoodInput) -> str:
 
 
 @mcp.tool(
+    name="analyse_taxonomy_candidates",
+    annotations={"title": "Analyse bounded taxonomy graph evidence", **_RO},
+)
+async def analyse_taxonomy_candidates(params: TaxonomyAnalysisInput) -> str:
+    """Return deterministic read-only graph evidence for candidate IRIs."""
+    evidence = analyse_taxonomy(
+        get_store().list_taxonomy_nodes(),
+        candidate_iris=params.candidate_iris,
+        anchor_iris=params.anchor_iris,
+        max_nodes=params.max_nodes,
+        max_depth=params.max_depth,
+    )
+    return evidence.model_dump_json()
+
+
+@mcp.tool(
     name="map_vendor_product",
     annotations={"title": "Map a vendor product to CDAO", **_RO},
 )
@@ -215,6 +267,19 @@ async def map_vendor_product_tool(params: MapInput) -> str:
         ref = _frame(params.vendor, params.product_id, params.name, params.description)
     except NotImplementedError as e:
         return _frame_error_envelope(e)
+    if ref is None:
+        # No ingested frame, and inline text is not permitted. Refuse rather
+        # than scoring a fabricated name=product_id (see _frame).
+        return json.dumps(
+            {
+                "error": "frame_not_found",
+                "detail": (
+                    f"no ingested frame for {params.vendor}/{params.product_id}; "
+                    "ingest it first, or set SCUDO_MV_ALLOW_INLINE_FRAME to "
+                    "score caller-supplied text"
+                ),
+            }
+        )
     return map_vendor_product(ref, specialist=specialist_from_env()).model_dump_json()
 
 

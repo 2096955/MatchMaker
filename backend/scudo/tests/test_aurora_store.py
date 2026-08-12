@@ -18,6 +18,34 @@ class _FakeRdsData:
         return {"numberOfRecordsUpdated": 1}
 
 
+class _TransactionalRdsData:
+    def __init__(self, *, updated=1, fail_execute=False, fail_commit=False):
+        self.calls = []
+        self.updated = updated
+        self.fail_execute = fail_execute
+        self.fail_commit = fail_commit
+
+    def begin_transaction(self, **kwargs):
+        self.calls.append(("begin", kwargs))
+        return {"transactionId": "tx-1"}
+
+    def execute_statement(self, **kwargs):
+        self.calls.append(("execute", kwargs))
+        if self.fail_execute:
+            raise RuntimeError("statement failed")
+        return {"numberOfRecordsUpdated": self.updated}
+
+    def commit_transaction(self, **kwargs):
+        self.calls.append(("commit", kwargs))
+        if self.fail_commit:
+            raise RuntimeError("commit failed")
+        return {}
+
+    def rollback_transaction(self, **kwargs):
+        self.calls.append(("rollback", kwargs))
+        return {}
+
+
 def _store(monkeypatch, client):
     monkeypatch.setenv("SCUDO_AURORA_CLUSTER_ARN", "arn:cluster")
     monkeypatch.setenv("SCUDO_AURORA_SECRET_ARN", "arn:secret")
@@ -70,6 +98,61 @@ def test_missing_aurora_env_raises(monkeypatch):
         aurora_store.put_outbox_record(
             event_id="e1", detail_type="MappingCompleted", detail={}
         )
+
+
+def test_transaction_commits_only_after_expected_row_count(monkeypatch):
+    client = _TransactionalRdsData(updated=1)
+    store = _store(monkeypatch, client)
+
+    with store.transaction() as tx:
+        result = tx.execute("update x set y = 1", [], expected_rows=1)
+
+    assert result["numberOfRecordsUpdated"] == 1
+    assert [name for name, _ in client.calls] == ["begin", "execute", "commit"]
+    assert client.calls[1][1]["transactionId"] == "tx-1"
+
+
+@pytest.mark.parametrize(
+    ("client", "message"),
+    [
+        (_TransactionalRdsData(updated=0), "expected 1"),
+        (_TransactionalRdsData(fail_execute=True), "statement failed"),
+    ],
+)
+def test_transaction_rolls_back_on_cas_miss_or_error(monkeypatch, client, message):
+    store = _store(monkeypatch, client)
+
+    with pytest.raises(RuntimeError, match=message):
+        with store.transaction() as tx:
+            tx.execute("update x set y = 1", [], expected_rows=1)
+
+    assert [name for name, _ in client.calls][-1] == "rollback"
+    assert not any(name == "commit" for name, _ in client.calls)
+
+
+def test_transaction_attempts_rollback_when_commit_fails(monkeypatch):
+    client = _TransactionalRdsData(fail_commit=True)
+    store = _store(monkeypatch, client)
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        with store.transaction() as tx:
+            tx.execute("update x set y = 1", [], expected_rows=1)
+
+    assert [name for name, _ in client.calls] == [
+        "begin",
+        "execute",
+        "commit",
+        "rollback",
+    ]
+
+
+def test_long_param_uses_numeric_data_api_value(monkeypatch):
+    store = _store(monkeypatch, _FakeRdsData())
+
+    assert store._long_param("sequence", 7) == {
+        "name": "sequence",
+        "value": {"longValue": 7},
+    }
 
 
 def test_aws_resources_delegates_to_aurora(monkeypatch):

@@ -21,8 +21,24 @@ Run per-file:
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
+from types import SimpleNamespace
 
 import pytest
+
+from scudo.matching_self_improvement import (
+    EvaluationPolicy,
+    EvaluationReport,
+    GoldenCase,
+    GoldenSet,
+    MatchingPrediction,
+    PromotionApproval,
+    evaluate_golden_set,
+    evaluation_report_digest,
+    issue_evaluation_attestation,
+    trusted_evidence_for,
+)
 
 
 class _FakeRdsData:
@@ -36,6 +52,18 @@ class _FakeRdsData:
             raise RuntimeError("data api down")
         self.calls.append(kwargs)
         return {"records": self._records, "numberOfRecordsUpdated": 1}
+
+    def begin_transaction(self, **kwargs):
+        self.calls.append({"operation": "begin_transaction", **kwargs})
+        return {"transactionId": "tx-1"}
+
+    def commit_transaction(self, **kwargs):
+        self.calls.append({"operation": "commit_transaction", **kwargs})
+        return {}
+
+    def rollback_transaction(self, **kwargs):
+        self.calls.append({"operation": "rollback_transaction", **kwargs})
+        return {}
 
 
 def _wire(monkeypatch, client):
@@ -113,8 +141,15 @@ def _skill_payload(
     brier_score: float = 0.01,
     passed: bool = True,
     approval_ref: str = "MR-2026-07-16-1",
+    signed_receipt: bool = False,
 ) -> dict:
-    return {
+    evaluation = _evaluation_payload(
+        candidate_version=candidate_version,
+        exact_match_rate=exact_match_rate,
+        brier_score=brier_score,
+        passed=passed,
+    )
+    payload = {
         "status": "approved",
         "artifact_id": f"matching-skill-{version}",
         "artifact_kind": "matching_skill",
@@ -125,14 +160,47 @@ def _skill_payload(
         "promoted_at": 1720000000.0,
         "immutable": True,
         "source_trajectory_refs": ["lambda-abc123"],
-        "evaluation": _evaluation_payload(
-            candidate_version=candidate_version,
-            exact_match_rate=exact_match_rate,
-            brier_score=brier_score,
-            passed=passed,
-        ),
+        "evaluation": evaluation,
         "approval": _approval_payload(approval_ref),
     }
+    if signed_receipt:
+        content_hash = hashlib.sha256(
+            json.dumps(
+                skill_text,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        payload["evaluation"]["artifact_content_hash"] = content_hash
+        report_digest = evaluation_report_digest(
+            EvaluationReport.model_validate(payload["evaluation"])
+        )
+        signed = {
+            "receipt_version": 1,
+            "report_digest": report_digest,
+            "evidence_digest": "b" * 64,
+            "manifest_digest": "c" * 64,
+            "artifact_id": payload["artifact_id"],
+            "artifact_version": version,
+            "artifact_kind": "matching_skill",
+            "artifact_content_hash": content_hash,
+        }
+        canonical = json.dumps(
+            signed,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        payload["protected_promotion_receipt"] = {
+            **signed,
+            "signature": hmac.new(
+                b"test-promotion-key",
+                canonical,
+                hashlib.sha256,
+            ).hexdigest(),
+        }
+    return payload
 
 
 def test_consult_priors_returns_real_precedent_when_one_exists(monkeypatch):
@@ -272,23 +340,21 @@ def test_consult_best_skill_returns_none_on_miss(monkeypatch):
     assert aurora_memory.consult_best_skill() is None
 
 
-def test_consult_best_skill_returns_real_text_when_promoted(monkeypatch):
+def test_consult_best_skill_quarantines_duplicated_legacy_best_payload(monkeypatch):
+    monkeypatch.setenv("SCUDO_SKILL_PROMOTION_KEY", "test-promotion-key")
     payload = _skill_payload(
         version=3,
         skill_text="# Matching Skill\nPrefer exact vendor-code matches...",
         candidate_version="candidate-3",
         exact_match_rate=0.87,
+        signed_receipt=True,
     )
     client = _FakeRdsData(
         records=[_memory_row("skill:matching:best", "skill_doc", payload)]
     )
     aurora_memory = _wire(monkeypatch, client)
 
-    skill = aurora_memory.consult_best_skill()
-
-    assert skill is not None
-    assert skill["skill_text"].startswith("# Matching Skill")
-    assert skill["version"] == 3
+    assert aurora_memory.consult_best_skill() is None
     # must query the singleton "best" key specifically, not "current"
     call = client.calls[0]
     key_param = next(p for p in call["parameters"] if p["name"] == "memory_key")
@@ -314,7 +380,21 @@ def test_consult_best_skill_quarantines_legacy_scalar_payload(monkeypatch):
     assert aurora_memory.consult_best_skill() is None
 
 
-def test_consult_best_skill_accepts_pre_auto_pass_artifact_payload(monkeypatch):
+def test_consult_best_skill_quarantines_unattested_artifact(monkeypatch):
+    payload = _skill_payload(
+        version=3,
+        skill_text="unattested skill",
+        candidate_version="candidate-3",
+    )
+    client = _FakeRdsData(
+        records=[_memory_row("skill:matching:best", "skill_doc", payload)]
+    )
+    aurora_memory = _wire(monkeypatch, client)
+
+    assert aurora_memory.consult_best_skill() is None
+
+
+def test_consult_best_skill_quarantines_mutated_pre_auto_pass_payload(monkeypatch):
     payload = _skill_payload(
         version=3,
         skill_text="established skill",
@@ -326,10 +406,7 @@ def test_consult_best_skill_accepts_pre_auto_pass_artifact_payload(monkeypatch):
     )
     aurora_memory = _wire(monkeypatch, client)
 
-    skill = aurora_memory.consult_best_skill()
-
-    assert skill is not None
-    assert skill["version"] == 3
+    assert aurora_memory.consult_best_skill() is None
 
 
 def test_consult_best_skill_quarantines_failed_evaluation(monkeypatch):
@@ -457,28 +534,449 @@ def test_promote_skill_writes_when_no_current_best_exists(monkeypatch):
         approval=_approval_payload(),
     )
 
-    assert promoted is True
+    assert promoted is False
     write_calls = [c for c in client.calls if "insert into" in c["sql"].lower()]
-    assert len(write_calls) == 2
+    assert len(write_calls) == 1
     artifact_key_param = next(
         p for p in write_calls[0]["parameters"] if p["name"] == "memory_key"
     )
     assert artifact_key_param["value"]["stringValue"] == "skill:matching:artifact:1"
     assert "do nothing" in write_calls[0]["sql"].lower()
-    type_param = next(
-        p for p in write_calls[1]["parameters"] if p["name"] == "memory_type"
-    )
-    assert type_param["value"]["stringValue"] == "skill_doc"
     payload_param = next(
-        p for p in write_calls[1]["parameters"] if p["name"] == "payload"
+        p for p in write_calls[0]["parameters"] if p["name"] == "payload"
     )
     payload = json.loads(payload_param["value"]["stringValue"])
     assert payload["skill_text"] == "Prefer exact vendor-code matches."
     assert payload["validation_score"] == 0.6
     assert payload["version"] == 1
-    assert payload["status"] == "approved"
+    assert payload["status"] == "quarantined"
     assert payload["immutable"] is True
     assert payload["approval"]["approval_ref"] == "MR-2026-07-16-1"
+
+
+def test_manual_promotion_preserves_existing_protected_pointer(monkeypatch):
+    protected = _skill_payload(
+        version=3,
+        skill_text="protected live skill",
+        candidate_version="candidate-3",
+    )
+
+    class _PointerPreservingClient(_FakeRdsData):
+        def execute_statement(self, **kwargs):
+            self.calls.append(kwargs)
+            params = {
+                param["name"]: param["value"] for param in kwargs.get("parameters", [])
+            }
+            key = params.get("memory_key", {}).get("stringValue")
+            if kwargs["sql"].lower().startswith("select"):
+                records = (
+                    [_memory_row(key, "skill_doc", protected)]
+                    if key == "skill:matching:best"
+                    else []
+                )
+                return {"records": records, "numberOfRecordsUpdated": 0}
+            return {"records": [], "numberOfRecordsUpdated": 1}
+
+    client = _PointerPreservingClient()
+    aurora_memory = _wire(monkeypatch, client)
+
+    assert (
+        aurora_memory.promote_skill(
+            skill_text="manual candidate",
+            validation_score=1.0,
+            version=4,
+            evaluation=_evaluation_payload(candidate_version="candidate-4"),
+            approval=_approval_payload("MANUAL-4"),
+        )
+        is False
+    )
+    best_pointer_writes = [
+        call
+        for call in client.calls
+        if "insert into" in call["sql"].lower()
+        and any(
+            parameter["name"] == "memory_key"
+            and parameter["value"].get("stringValue") == "skill:matching:best"
+            for parameter in call.get("parameters", [])
+        )
+    ]
+    assert best_pointer_writes == []
+
+
+def test_protected_promotion_writes_artifact_before_live_pointer(monkeypatch):
+    monkeypatch.setenv("SCUDO_SKILL_PROMOTION_KEY", "test-promotion-key")
+    monkeypatch.setenv("SCUDO_EVALUATION_SIGNING_KEY", "evaluation-key")
+    golden = GoldenSet(
+        version="protected-1",
+        cases=[
+            GoldenCase(
+                case_id="one",
+                vendor="lseg",
+                vendor_product_ref="ONE",
+                expected_target_iri="target",
+            )
+        ],
+    )
+    prediction = MatchingPrediction(
+        target_iri="target",
+        confidence=0.95,
+        status="auto_mapped",
+        auto_pass=True,
+    )
+    policy = EvaluationPolicy(max_brier_score=1.0)
+    report = evaluate_golden_set(
+        golden,
+        lambda case: prediction,
+        candidate_version="candidate-1",
+        policy=policy,
+        artifact_content="protected skill",
+        repeat_runs=2,
+    )
+    evidence = trusted_evidence_for(
+        golden,
+        policy=policy,
+        prediction_runs=({"one": prediction},) * 2,
+    )
+    client = _FakeRdsData(records=[])
+    aurora_memory = _wire(monkeypatch, client)
+    attestation = issue_evaluation_attestation(
+        report,
+        trusted_evidence=evidence,
+        artifact_content="protected skill",
+        artifact_id="matching-skill-1",
+        artifact_version=1,
+        artifact_kind="matching_skill",
+        evaluator_id="protected-evaluator",
+        evaluator_version="1",
+        signing_key="evaluation-key",
+        promotion_key="test-promotion-key",
+    )
+
+    promoted = aurora_memory.promote_protected_skill(
+        skill_text="protected skill",
+        version=1,
+        evaluation=report,
+        approval=PromotionApproval(
+            approved_by="protected-gate",
+            approval_ref="AUTO-1",
+            rationale="Protected evidence passed.",
+        ),
+        trusted_evidence=evidence,
+        evaluation_attestation=attestation,
+    )
+
+    assert promoted is True
+    writes = [
+        call
+        for call in client.calls
+        if "sql" in call and "insert into" in call["sql"].lower()
+    ]
+    assert len(writes) == 3
+    written_keys = []
+    for call in writes:
+        key_param = next(
+            parameter
+            for parameter in call["parameters"]
+            if parameter["name"] in {"memory_key", "sequence_key", "artifact_key"}
+        )
+        written_keys.append(key_param["value"]["stringValue"])
+    assert written_keys == [
+        "skill:matching:artifact:1",
+        "skill:matching:promotion:1",
+        "skill:matching:best",
+    ]
+    pointer_payload = json.loads(
+        next(
+            parameter["value"]["stringValue"]
+            for parameter in writes[2]["parameters"]
+            if parameter["name"] == "payload"
+        )
+    )
+    assert pointer_payload["pointer"]["predecessor_version"] is None
+    artifact_payload = json.loads(
+        next(
+            parameter["value"]["stringValue"]
+            for parameter in writes[0]["parameters"]
+            if parameter["name"] == "artifact_payload"
+        )
+    )
+    assert artifact_payload["protected_promotion_receipt"]["signature"]
+    assert any(call.get("operation") == "commit_transaction" for call in client.calls)
+
+
+def test_protected_promotion_rejects_self_authored_evidence_without_attestation(
+    monkeypatch,
+):
+    monkeypatch.setenv("SCUDO_SKILL_PROMOTION_KEY", "test-promotion-key")
+    monkeypatch.setenv("SCUDO_EVALUATION_SIGNING_KEY", "evaluation-key")
+    golden = GoldenSet(
+        version="protected-1",
+        cases=[
+            GoldenCase(
+                case_id="one",
+                vendor="lseg",
+                vendor_product_ref="ONE",
+                expected_target_iri="target",
+            )
+        ],
+    )
+    prediction = MatchingPrediction(
+        target_iri="target",
+        confidence=0.95,
+        status="auto_mapped",
+        auto_pass=True,
+    )
+    policy = EvaluationPolicy(max_brier_score=1.0)
+    report = evaluate_golden_set(
+        golden,
+        lambda case: prediction,
+        candidate_version="candidate-1",
+        policy=policy,
+        artifact_content="protected skill",
+        repeat_runs=2,
+    )
+    evidence = trusted_evidence_for(
+        golden,
+        policy=policy,
+        prediction_runs=({"one": prediction},) * 2,
+    )
+    aurora_memory = _wire(monkeypatch, _FakeRdsData(records=[]))
+
+    with pytest.raises(Exception, match="evaluation attestation"):
+        aurora_memory.promote_protected_skill(
+            skill_text="protected skill",
+            version=1,
+            evaluation=report,
+            approval=PromotionApproval(
+                approved_by="gate",
+                approval_ref="AUTO",
+                rationale="test",
+            ),
+            trusted_evidence=evidence,
+            evaluation_attestation=None,
+        )
+
+
+def test_normal_protected_promotion_rejects_legacy_best_pointer(monkeypatch):
+    monkeypatch.setenv("SCUDO_SKILL_PROMOTION_KEY", "test-promotion-key")
+    monkeypatch.setenv("SCUDO_EVALUATION_SIGNING_KEY", "evaluation-key")
+    legacy = {
+        "skill_text": "legacy skill",
+        "version": 4,
+        "validation_score": 0.9,
+    }
+    client = _FakeRdsData(
+        records=[_memory_row("skill:matching:best", "skill_doc", legacy)]
+    )
+    aurora_memory = _wire(monkeypatch, client)
+
+    with pytest.raises(Exception, match="malformed|legacy"):
+        aurora_memory.promote_protected_skill(
+            skill_text="candidate",
+            version=5,
+            evaluation=_evaluation_payload(candidate_version="candidate-5"),
+            approval=_approval_payload("AUTO-5"),
+            trusted_evidence=None,
+            evaluation_attestation=None,
+        )
+    assert not any(
+        "insert into" in call.get("sql", "").lower() for call in client.calls
+    )
+
+
+def test_protected_promotion_rejects_stale_predecessor(monkeypatch):
+    monkeypatch.setenv("SCUDO_SKILL_PROMOTION_KEY", "test-promotion-key")
+    monkeypatch.setenv("SCUDO_EVALUATION_SIGNING_KEY", "evaluation-key")
+
+    class _StaleCasClient(_FakeRdsData):
+        def execute_statement(self, **kwargs):
+            self.calls.append(kwargs)
+            if "compare-and-swap" in kwargs["sql"].lower() and kwargs.get(
+                "transactionId"
+            ):
+                return {"records": [], "numberOfRecordsUpdated": 0}
+            if kwargs["sql"].lower().startswith("select"):
+                return {"records": [], "numberOfRecordsUpdated": 0}
+            return {"records": [], "numberOfRecordsUpdated": 1}
+
+    golden = GoldenSet(
+        version="protected-1",
+        cases=[
+            GoldenCase(
+                case_id="one",
+                vendor="lseg",
+                vendor_product_ref="ONE",
+                expected_target_iri="target",
+            )
+        ],
+    )
+    prediction = MatchingPrediction(
+        target_iri="target", confidence=0.95, status="auto_mapped", auto_pass=True
+    )
+    policy = EvaluationPolicy(max_brier_score=1.0)
+    report = evaluate_golden_set(
+        golden,
+        lambda case: prediction,
+        candidate_version="candidate-1",
+        policy=policy,
+        artifact_content="protected skill",
+        repeat_runs=2,
+    )
+    evidence = trusted_evidence_for(
+        golden, policy=policy, prediction_runs=({"one": prediction},) * 2
+    )
+    attestation = issue_evaluation_attestation(
+        report,
+        trusted_evidence=evidence,
+        artifact_content="protected skill",
+        artifact_id="matching-skill-1",
+        artifact_version=1,
+        artifact_kind="matching_skill",
+        evaluator_id="protected-evaluator",
+        evaluator_version="1",
+        signing_key="evaluation-key",
+        promotion_key="test-promotion-key",
+    )
+    client = _StaleCasClient()
+    aurora_memory = _wire(monkeypatch, client)
+
+    with pytest.raises(RuntimeError, match="expected 1"):
+        aurora_memory.promote_protected_skill(
+            skill_text="protected skill",
+            version=1,
+            evaluation=report,
+            approval=PromotionApproval(
+                approved_by="gate",
+                approval_ref="AUTO",
+                rationale="test",
+            ),
+            trusted_evidence=evidence,
+            evaluation_attestation=attestation,
+        )
+    assert any(call.get("operation") == "rollback_transaction" for call in client.calls)
+
+
+def _migration_test_setup(monkeypatch, *, fail_at=None):
+    from scudo import aurora_memory
+
+    legacy = {"skill_text": "legacy", "version": 1}
+    evaluation = EvaluationReport.model_validate(
+        _evaluation_payload(candidate_version="candidate-2")
+    )
+    approval = PromotionApproval.model_validate(_approval_payload("MIGRATE-2"))
+    receipt = SimpleNamespace(model_dump=lambda mode=None: {"signature": "signed"})
+    pointer = SimpleNamespace(
+        model_dump=lambda mode=None: {
+            "artifact_key": "skill:matching:artifact:2",
+            "artifact_version": 2,
+            "artifact_digest": "a" * 64,
+            "sequence": 1,
+        }
+    )
+    monkeypatch.setattr(aurora_memory, "validate_promotion", lambda *a, **k: None)
+    monkeypatch.setattr(aurora_memory, "promotion_receipt_for", lambda *a, **k: receipt)
+    monkeypatch.setattr(aurora_memory, "issue_live_pointer", lambda *a, **k: pointer)
+    monkeypatch.setattr(
+        aurora_memory, "learning_artifact_digest", lambda artifact: "a" * 64
+    )
+    calls = []
+
+    class Tx:
+        def execute(self, sql, params, expected_rows=None):
+            calls.append(sql)
+            if fail_at is not None and len(calls) == fail_at:
+                raise RuntimeError(f"failure-{fail_at}")
+            return {"numberOfRecordsUpdated": expected_rows or 0}
+
+    class Context:
+        def __enter__(self):
+            return Tx()
+
+        def __exit__(self, exc_type, exc, tb):
+            calls.append("rollback" if exc else "commit")
+            return False
+
+    monkeypatch.setattr(aurora_memory.aurora_store, "transaction", Context)
+    return aurora_memory, legacy, evaluation, approval, calls
+
+
+def test_legacy_migration_success_is_live_consultable(monkeypatch):
+    aurora_memory, legacy, evaluation, approval, calls = _migration_test_setup(
+        monkeypatch
+    )
+
+    assert aurora_memory.migrate_legacy_best_skill(
+        legacy_payload=legacy,
+        operator_migration_ref="OP-1",
+        skill_text="protected",
+        version=2,
+        evaluation=evaluation,
+        approval=approval,
+        trusted_evidence=object(),
+        evaluation_attestation=object(),
+        signing_key="promotion",
+    )
+    assert calls[-1] == "commit"
+    assert len(calls[:-1]) == 5
+
+
+def test_legacy_migration_exact_retry_is_idempotent(monkeypatch):
+    aurora_memory, legacy, evaluation, approval, calls = _migration_test_setup(
+        monkeypatch
+    )
+    kwargs = dict(
+        legacy_payload=legacy,
+        operator_migration_ref="OP-1",
+        skill_text="protected",
+        version=2,
+        evaluation=evaluation,
+        approval=approval,
+        trusted_evidence=object(),
+        evaluation_attestation=object(),
+        signing_key="promotion",
+    )
+
+    assert aurora_memory.migrate_legacy_best_skill(**kwargs)
+    assert aurora_memory.migrate_legacy_best_skill(**kwargs)
+    assert calls.count("commit") == 2
+
+
+def test_legacy_migration_conflicting_retry_rejected(monkeypatch):
+    aurora_memory, legacy, evaluation, approval, _ = _migration_test_setup(monkeypatch)
+
+    with pytest.raises(Exception):
+        aurora_memory.migrate_legacy_best_skill(
+            legacy_payload=legacy,
+            operator_migration_ref="OP-1",
+            skill_text="protected",
+            version=1,
+            evaluation=evaluation,
+            approval=approval,
+            trusted_evidence=object(),
+            evaluation_attestation=object(),
+            signing_key="promotion",
+        )
+
+
+@pytest.mark.parametrize("failure_point", [1, 2, 3, 4, 5])
+def test_legacy_migration_failure_rolls_back_legacy(monkeypatch, failure_point):
+    aurora_memory, legacy, evaluation, approval, calls = _migration_test_setup(
+        monkeypatch, fail_at=failure_point
+    )
+
+    with pytest.raises(RuntimeError, match=f"failure-{failure_point}"):
+        aurora_memory.migrate_legacy_best_skill(
+            legacy_payload=legacy,
+            operator_migration_ref="OP-1",
+            skill_text="protected",
+            version=2,
+            evaluation=evaluation,
+            approval=approval,
+            trusted_evidence=object(),
+            evaluation_attestation=object(),
+            signing_key="promotion",
+        )
+    assert calls[-1] == "rollback"
 
 
 def test_preflight_skill_promotion_requires_evaluation_and_named_approval(monkeypatch):
@@ -516,8 +1014,7 @@ def test_preflight_skill_promotion_rejects_a_conflicting_immutable_version(monke
     class _ArtifactConflictRdsData:
         def execute_statement(self, **kwargs):
             params = {
-                param["name"]: param["value"]
-                for param in kwargs.get("parameters", [])
+                param["name"]: param["value"] for param in kwargs.get("parameters", [])
             }
             key = params.get("memory_key", {}).get("stringValue")
             if key == "skill:matching:artifact:1":
@@ -580,9 +1077,7 @@ def test_next_skill_version_advances_past_existing_immutable_artifacts(monkeypat
         candidate_version="candidate-3",
     )
     client = _FakeRdsData(
-        records=[
-            _memory_row("skill:matching:artifact:3", "skill_artifact", existing)
-        ]
+        records=[_memory_row("skill:matching:artifact:3", "skill_artifact", existing)]
     )
     aurora_memory = _wire(monkeypatch, client)
 
@@ -617,7 +1112,7 @@ def test_next_skill_version_advances_past_quarantined_legacy_best_pointer(monkey
     assert aurora_memory.next_skill_version() == 8
 
 
-def test_promote_skill_writes_on_strict_improvement(monkeypatch):
+def test_manual_promote_writes_quarantine_without_advancing_pointer(monkeypatch):
     current = _skill_payload(
         version=1,
         skill_text="old skill",
@@ -642,7 +1137,7 @@ def test_promote_skill_writes_on_strict_improvement(monkeypatch):
         approval=_approval_payload("MR-2026-07-16-2"),
     )
 
-    assert promoted is True
+    assert promoted is False
 
 
 def test_promote_skill_rejects_non_improvement(monkeypatch):
@@ -674,13 +1169,17 @@ def test_promote_skill_rejects_non_improvement(monkeypatch):
 
     assert promoted is False
     write_calls = [c for c in client.calls if "insert into" in c["sql"].lower()]
-    assert write_calls == []
+    assert len(write_calls) == 1
+    payload_param = next(
+        parameter
+        for parameter in write_calls[0]["parameters"]
+        if parameter["name"] == "payload"
+    )
+    assert json.loads(payload_param["value"]["stringValue"])["status"] == "quarantined"
 
 
-def test_promote_skill_read_of_current_best_fails_open(monkeypatch):
-    """If reading the current best errors, treat it as 'no current best'
-    (benefit of the doubt) rather than blocking promotion entirely — same
-    fail-open philosophy as consult_best_skill, which this reuses."""
+def test_manual_promote_artifact_read_fails_loud(monkeypatch):
+    """A quarantine artifact conflict read is a persistence operation."""
 
     class _FlakyThenOkClient:
         def __init__(self):
@@ -696,18 +1195,17 @@ def test_promote_skill_read_of_current_best_fails_open(monkeypatch):
 
     aurora_memory = _wire(monkeypatch, _FlakyThenOkClient())
 
-    promoted = aurora_memory.promote_skill(
-        skill_text="candidate",
-        validation_score=0.5,
-        version=1,
-        evaluation=_evaluation_payload(candidate_version="candidate-1"),
-        approval=_approval_payload("MR-2026-07-16-4"),
-    )
+    with pytest.raises(RuntimeError, match="data api down"):
+        aurora_memory.promote_skill(
+            skill_text="candidate",
+            validation_score=0.5,
+            version=1,
+            evaluation=_evaluation_payload(candidate_version="candidate-1"),
+            approval=_approval_payload("MR-2026-07-16-4"),
+        )
 
-    assert promoted is True
 
-
-def test_promote_skill_write_is_fail_loud(monkeypatch):
+def test_manual_promote_artifact_write_is_fail_loud(monkeypatch):
     """The write itself, once the gate passes, must never silently swallow
     an error — a lost promotion means the improved skill never reaches
     live agents."""
@@ -734,7 +1232,7 @@ def test_promote_skill_write_is_fail_loud(monkeypatch):
         )
 
 
-def test_promote_skill_retries_after_artifact_write_pointer_failure(monkeypatch):
+def test_manual_promote_never_attempts_pointer_write(monkeypatch):
     class _RecoveringRdsData:
         def __init__(self):
             self.calls = []
@@ -746,16 +1244,13 @@ def test_promote_skill_retries_after_artifact_write_pointer_failure(monkeypatch)
             self.calls.append(kwargs)
             sql = kwargs["sql"].lower()
             params = {
-                param["name"]: param["value"]
-                for param in kwargs.get("parameters", [])
+                param["name"]: param["value"] for param in kwargs.get("parameters", [])
             }
             key = params.get("memory_key", {}).get("stringValue")
 
             if sql.startswith("select"):
                 payload = self.best if key == "skill:matching:best" else self.artifact
-                records = (
-                    [_memory_row(key, "skill_doc", payload)] if payload else []
-                )
+                records = [_memory_row(key, "skill_doc", payload)] if payload else []
                 return {"records": records, "numberOfRecordsUpdated": 0}
 
             payload = json.loads(params["payload"]["stringValue"])
@@ -783,11 +1278,8 @@ def test_promote_skill_retries_after_artifact_write_pointer_failure(monkeypatch)
         "approval": approval,
     }
 
-    with pytest.raises(RuntimeError, match="pointer write failed"):
-        aurora_memory.promote_skill(**kwargs)
-
-    assert aurora_memory.promote_skill(**kwargs) is True
-    assert client.best["skill_text"] == "candidate"
+    assert aurora_memory.promote_skill(**kwargs) is False
+    assert client.best is None
 
 
 def test_harvest_trajectories_returns_recorded_rows(monkeypatch):

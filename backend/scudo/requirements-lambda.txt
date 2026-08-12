@@ -1,5 +1,6 @@
 strands-agents>=1.42
 pydantic>=2
+scipy>=1.16,<2
 mcp>=1.0
 boto3>=1.34
 falkordb>=1.0
@@ -7,3 +8,4 @@ falkordb>=1.0
 # Required whenever SCUDO_AGENT_PROVIDER_DEFAULT=azure or a /run payload sets
 # agent_provider=azure — the shim does `from openai import AzureOpenAI`.
 openai>=1.0
+cryptography>=44

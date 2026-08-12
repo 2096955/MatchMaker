@@ -28,17 +28,27 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from . import aurora_store
 from .matching_self_improvement import (
+    EvaluationAttestation,
     EvaluationReport,
     LearningArtifact,
+    LiveSkillPointer,
     PromotionApproval,
     PromotionRejected,
+    TrustedEvaluationEvidence,
+    issue_live_pointer,
+    learning_artifact_digest,
+    promotion_receipt_for,
+    validate_manual_promotion,
     validate_promotion,
+    verify_promotion_receipt,
+    verify_live_pointer,
 )
 
 log = logging.getLogger(__name__)
@@ -50,6 +60,15 @@ class Priors:
 
     precedent: Optional[dict] = None
     rules: list[dict] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ProtectedRollbackPlan:
+    """Verified immutable inputs for one rollback pointer transition."""
+
+    current_pointer: LiveSkillPointer
+    rollback_pointer: LiveSkillPointer
+    sequence_payload: dict
 
 
 def _precedent_key(vendor: str, vendor_product_ref: str) -> str:
@@ -159,6 +178,70 @@ def record_verified_precedent(
 #   memory_key='skill:matching:best'    — validated, deployment-ready; the
 #                                          ONLY one live agents ever read
 _BEST_SKILL_KEY = "skill:matching:best"
+_PROMOTION_SEQUENCE_PREFIX = "skill:matching:promotion:"
+
+
+def _read_live_pointer() -> Optional[LiveSkillPointer]:
+    pointer_payload = _read_memory_payload(_BEST_SKILL_KEY)
+    if not pointer_payload:
+        return None
+    raw_pointer = pointer_payload.get("pointer")
+    if not raw_pointer or not verify_live_pointer(raw_pointer):
+        return None
+    try:
+        pointer = LiveSkillPointer.model_validate(raw_pointer)
+    except Exception:
+        return None
+    sequence_payload = _read_memory_payload(
+        f"{_PROMOTION_SEQUENCE_PREFIX}{pointer.sequence}"
+    )
+    if not sequence_payload or sequence_payload.get("committed_pointer") != raw_pointer:
+        return None
+    return pointer
+
+
+def _resolve_verified_current_artifact(
+    *,
+    fail_closed: bool,
+) -> tuple[Optional[LiveSkillPointer], Optional[LearningArtifact]]:
+    """Resolve pointer → sequence → immutable artifact through every live gate."""
+
+    pointer_payload = _read_memory_payload(_BEST_SKILL_KEY)
+    if not pointer_payload:
+        return None, None
+    pointer = _read_live_pointer()
+    if pointer is None:
+        if fail_closed:
+            raise PromotionRejected("current live pointer is malformed or uncommitted")
+        return None, None
+    artifact_payload = _read_memory_payload(pointer.artifact_key)
+    artifact = _artifact_from_skill_payload(artifact_payload or {})
+    valid = bool(
+        artifact_payload
+        and artifact is not None
+        and artifact_payload.get("status") == "approved"
+        and artifact_payload.get("immutable") is True
+        and artifact.version == pointer.artifact_version
+        and learning_artifact_digest(artifact) == pointer.artifact_digest
+        and _has_protected_promotion_receipt(artifact_payload, artifact)
+        and artifact.live_eligible
+    )
+    if not valid:
+        if fail_closed:
+            raise PromotionRejected("current protected artifact failed verification")
+        return None, None
+    return pointer, artifact
+
+
+def _has_protected_promotion_receipt(
+    payload: dict,
+    artifact: LearningArtifact,
+) -> bool:
+    return verify_promotion_receipt(
+        artifact,
+        payload.get("protected_promotion_receipt") or {},
+        evaluation_public_key_pem=os.environ.get("SCUDO_EVALUATION_PUBLIC_KEY"),
+    )
 
 
 def _read_memory_payload(memory_key: str) -> Optional[dict]:
@@ -191,9 +274,15 @@ def consult_best_skill() -> Optional[dict]:
     Fails OPEN (Aurora unreachable/misconfigured/malformed -> None, never
     raises) — same advisory contract as consult_priors. A missing or
     quarantined skill doc is a normal state.
+
+    Threat boundary: the signed pointer chain plus conditional advancement
+    prevents stale/replayed writes through this API. An attacker with direct
+    database write access could replace both the singleton pointer and its
+    referenced immutable rows; preventing that requires an external append-only
+    ledger or database audit control beyond this Data API persistence contract.
     """
     try:
-        payload = _read_memory_payload(_BEST_SKILL_KEY)
+        pointer, artifact = _resolve_verified_current_artifact(fail_closed=False)
     except Exception as e:  # noqa: BLE001 — advisory, never blocks a mapping run
         log.warning(
             "consult_best_skill failed, proceeding with no skill doc: %s",
@@ -201,21 +290,9 @@ def consult_best_skill() -> Optional[dict]:
         )
         return None
 
-    if not payload:
+    if pointer is None or artifact is None:
         return None
-    artifact = _artifact_from_skill_payload(payload)
-    if artifact is None:
-        log.warning(
-            "quarantining malformed best matching skill payload"
-        )
-        return None
-    if (
-        payload.get("status") != "approved"
-        or payload.get("immutable") is not True
-        or not artifact.live_eligible
-    ):
-        return None
-    return payload
+    return _read_memory_payload(pointer.artifact_key)
 
 
 def _trajectory_key(bundle_ref: str) -> str:
@@ -516,10 +593,14 @@ def preflight_skill_promotion(
         )
         return None
 
-    current = consult_best_skill()
-    current_artifact = _artifact_from_skill_payload(current) if current else None
+    # Manual persistence is quarantine-only, so it must neither depend on nor
+    # compare against the protected live pointer.
+    current_artifact = None
     try:
-        validate_promotion(candidate, current=current_artifact)
+        # Legacy/manual preflight remains quarantined: it can maintain existing
+        # persistence workflows but cannot mint a protected promotion receipt,
+        # so consult_best_skill will never inject its output into live prompts.
+        validate_manual_promotion(candidate, current=current_artifact)
     except PromotionRejected as exc:
         log.info("skill promotion rejected: %s", exc)
         return None
@@ -548,14 +629,15 @@ def promote_skill(
     source_trajectory_refs: Optional[list[str]] = None,
     artifact_id: Optional[str] = None,
 ) -> bool:
-    """Promote a matching skill only across the full offline boundary.
+    """Persist a legacy/manual candidate under quarantine.
 
     ``validation_score`` remains accepted for compatibility with the older
     sleep-runner interface and is stored as a diagnostic field. It is not a
     promotion decision. A candidate must carry a passed holdout
     ``EvaluationReport`` and a named ``PromotionApproval``. The artifact body
     is written under an immutable versioned key before the live pointer is
-    updated.
+    updated. This compatibility API never updates the live best pointer and
+    therefore returns ``False`` even after a successful immutable write.
 
     Returns ``False`` for a rejected candidate and fails loud on Aurora write
     errors. Newly recorded candidates therefore cannot influence live prompts
@@ -573,7 +655,7 @@ def promote_skill(
         return False
 
     payload: dict[str, Any] = {
-        "status": "approved",
+        "status": "quarantined",
         "artifact_id": candidate.artifact_id,
         "artifact_kind": candidate.artifact_kind,
         "skill_text": skill_text,
@@ -612,16 +694,613 @@ def promote_skill(
             )
             return False
 
-    aurora_store._execute(
-        "insert into scudo.agent_memory (memory_key, memory_type, updated_at_ms, payload) "
-        "values (:memory_key, :memory_type, :updated_at_ms, :payload::jsonb) "
-        "on conflict (memory_key) do update set "
-        "payload = excluded.payload, updated_at_ms = excluded.updated_at_ms",
-        [
+    return False
+
+
+def promote_protected_skill(
+    *,
+    skill_text: str,
+    version: int,
+    evaluation: EvaluationReport | dict,
+    approval: PromotionApproval | dict,
+    trusted_evidence: TrustedEvaluationEvidence,
+    evaluation_attestation: Optional[EvaluationAttestation],
+    signed_evaluation_envelope: Optional[Any] = None,
+    evaluation_public_key_pem: Optional[str] = None,
+    source_trajectory_refs: Optional[list[str]] = None,
+    artifact_id: Optional[str] = None,
+    signing_key: Optional[str] = None,
+) -> bool:
+    """Validate, sign, write immutably, then advance the live pointer."""
+
+    evaluation_model = (
+        evaluation
+        if isinstance(evaluation, EvaluationReport)
+        else EvaluationReport.model_validate(evaluation)
+    )
+    if isinstance(approval, PromotionApproval):
+        approval_model = approval
+    else:
+        approval_payload = dict(approval)
+        approval_payload.setdefault("approved_at", evaluation_model.evaluated_at)
+        approval_model = PromotionApproval.model_validate(approval_payload)
+    candidate = LearningArtifact(
+        artifact_id=artifact_id or f"matching-skill-{version}",
+        artifact_kind="matching_skill",
+        version=version,
+        content=skill_text,
+        created_at=evaluation_model.evaluated_at,
+        source_trajectory_refs=source_trajectory_refs or [],
+        evaluation=evaluation_model,
+        approval=approval_model,
+    )
+    predecessor_pointer, current = _resolve_verified_current_artifact(fail_closed=True)
+    if (
+        predecessor_pointer is not None
+        and current is not None
+        and candidate.version == current.version
+        and learning_artifact_digest(candidate) == predecessor_pointer.artifact_digest
+    ):
+        return True
+    validate_promotion(
+        candidate,
+        current=current,
+        trusted_evidence=trusted_evidence,
+    )
+    receipt = promotion_receipt_for(
+        candidate,
+        trusted_evidence=trusted_evidence,
+        evaluation_attestation=evaluation_attestation,
+        signed_evaluation_envelope=signed_evaluation_envelope,
+        signing_key=signing_key,
+        evaluation_public_key_pem=evaluation_public_key_pem,
+    )
+    artifact_digest = learning_artifact_digest(candidate)
+    if (
+        predecessor_pointer
+        and candidate.version <= predecessor_pointer.artifact_version
+    ):
+        return False
+    artifact_key = f"skill:matching:artifact:{version}"
+    pointer = issue_live_pointer(
+        artifact_key=artifact_key,
+        artifact_version=candidate.version,
+        artifact_digest=artifact_digest,
+        predecessor_version=(
+            predecessor_pointer.artifact_version if predecessor_pointer else None
+        ),
+        predecessor_digest=(
+            predecessor_pointer.artifact_digest if predecessor_pointer else None
+        ),
+        sequence=(predecessor_pointer.sequence + 1 if predecessor_pointer else 1),
+        signing_key=signing_key,
+    )
+    artifact_payload: dict[str, Any] = {
+        "status": "approved",
+        "artifact_id": candidate.artifact_id,
+        "artifact_kind": candidate.artifact_kind,
+        "skill_text": candidate.content,
+        "version": candidate.version,
+        "created_at": candidate.created_at,
+        "immutable": True,
+        "source_trajectory_refs": candidate.source_trajectory_refs,
+        "evaluation": candidate.evaluation.model_dump(mode="json"),
+        "approval": candidate.approval.model_dump(mode="json"),
+        "protected_promotion_receipt": receipt.model_dump(mode="json"),
+    }
+    artifact_payload["artifact_key"] = artifact_key
+    artifact_sql = (
+        "insert into scudo.agent_memory "
+        "(memory_key, memory_type, updated_at_ms, payload) values "
+        "(:artifact_key, 'skill_artifact', :artifact_updated_at_ms, "
+        ":artifact_payload::jsonb) on conflict (memory_key) do nothing"
+    )
+    artifact_params = [
+        aurora_store._str_param("artifact_key", artifact_key),
+        aurora_store._long_param("artifact_updated_at_ms", int(time.time() * 1000)),
+        aurora_store._json_param("artifact_payload", artifact_payload),
+    ]
+    pointer_payload = {"pointer": pointer.model_dump(mode="json")}
+    sequence_key = f"{_PROMOTION_SEQUENCE_PREFIX}{pointer.sequence}"
+    sequence_payload = {
+        "committed_pointer": pointer.model_dump(mode="json"),
+        "committed": True,
+    }
+    sequence_sql = (
+        "insert into scudo.agent_memory "
+        "(memory_key, memory_type, updated_at_ms, payload) values "
+        "(:sequence_key, 'skill_promotion_sequence', :updated_at_ms, "
+        ":sequence_payload::jsonb) on conflict (memory_key) do nothing"
+    )
+    sequence_params = [
+        aurora_store._str_param("sequence_key", sequence_key),
+        aurora_store._long_param("updated_at_ms", int(time.time() * 1000)),
+        aurora_store._json_param("sequence_payload", sequence_payload),
+    ]
+    if predecessor_pointer is None:
+        sql = (
+            "/* compare-and-swap */ "
+            "insert into scudo.agent_memory "
+            "(memory_key, memory_type, updated_at_ms, payload) values "
+            "(:memory_key, :memory_type, :updated_at_ms, :payload::jsonb) "
+            "on conflict (memory_key) do nothing"
+        )
+        params = [
             aurora_store._str_param("memory_key", _BEST_SKILL_KEY),
             aurora_store._str_param("memory_type", "skill_doc"),
-            aurora_store._str_param("updated_at_ms", str(int(time.time() * 1000))),
-            aurora_store._json_param("payload", payload),
+            aurora_store._long_param("updated_at_ms", int(time.time() * 1000)),
+            aurora_store._json_param("payload", pointer_payload),
+        ]
+    else:
+        sql = (
+            "/* compare-and-swap */ "
+            "update scudo.agent_memory set payload = :payload::jsonb, "
+            "updated_at_ms = :updated_at_ms where memory_key = :memory_key "
+            "and (payload->'pointer'->>'sequence')::bigint = :expected_sequence "
+            "and (payload->'pointer'->>'artifact_version')::bigint = "
+            ":expected_version and payload->'pointer'->>'artifact_digest' = "
+            ":expected_digest"
+        )
+        params = [
+            aurora_store._json_param("payload", pointer_payload),
+            aurora_store._long_param("updated_at_ms", int(time.time() * 1000)),
+            aurora_store._str_param("memory_key", _BEST_SKILL_KEY),
+            aurora_store._long_param("expected_sequence", predecessor_pointer.sequence),
+            aurora_store._long_param(
+                "expected_version", predecessor_pointer.artifact_version
+            ),
+            aurora_store._str_param(
+                "expected_digest", predecessor_pointer.artifact_digest
+            ),
+        ]
+    with aurora_store.transaction() as tx:
+        tx.execute(artifact_sql, artifact_params, expected_rows=1)
+        tx.execute(sequence_sql, sequence_params, expected_rows=1)
+        tx.execute(sql, params, expected_rows=1)
+    return True
+
+
+def migrate_legacy_best_skill(
+    *,
+    legacy_payload: dict,
+    operator_migration_ref: str,
+    skill_text: str,
+    version: int,
+    evaluation: EvaluationReport | dict,
+    approval: PromotionApproval | dict,
+    trusted_evidence: TrustedEvaluationEvidence,
+    evaluation_attestation: EvaluationAttestation,
+    signing_key: Optional[str] = None,
+    signed_evaluation_envelope: Optional[Any] = None,
+    evaluation_public_key_pem: Optional[str] = None,
+) -> bool:
+    """Atomically replace one exact legacy row with a protected genesis."""
+
+    if not operator_migration_ref.strip():
+        raise ValueError("operator_migration_ref is required")
+    legacy_version = legacy_payload.get("version")
+    if not isinstance(legacy_version, int) or version <= legacy_version:
+        raise PromotionRejected("protected migration version must exceed legacy")
+    evaluation_model = (
+        evaluation
+        if isinstance(evaluation, EvaluationReport)
+        else EvaluationReport.model_validate(evaluation)
+    )
+    approval_model = (
+        approval
+        if isinstance(approval, PromotionApproval)
+        else PromotionApproval.model_validate(approval)
+    )
+    candidate = LearningArtifact(
+        artifact_id=f"matching-skill-{version}",
+        artifact_kind="matching_skill",
+        version=version,
+        content=skill_text,
+        created_at=evaluation_model.evaluated_at,
+        evaluation=evaluation_model,
+        approval=approval_model,
+    )
+    validate_promotion(candidate, trusted_evidence=trusted_evidence)
+    receipt = promotion_receipt_for(
+        candidate,
+        trusted_evidence=trusted_evidence,
+        evaluation_attestation=evaluation_attestation,
+        signed_evaluation_envelope=signed_evaluation_envelope,
+        signing_key=signing_key,
+        evaluation_public_key_pem=evaluation_public_key_pem,
+    )
+    artifact_key = f"skill:matching:artifact:{version}"
+    artifact_digest = learning_artifact_digest(candidate)
+    pointer = issue_live_pointer(
+        artifact_key=artifact_key,
+        artifact_version=version,
+        artifact_digest=artifact_digest,
+        predecessor_version=None,
+        predecessor_digest=None,
+        sequence=1,
+        signing_key=signing_key,
+    )
+    archive_key = f"skill:matching:legacy-migration:{operator_migration_ref}"
+    archive_payload = {
+        "operator_migration_ref": operator_migration_ref,
+        "legacy_payload": legacy_payload,
+        "candidate_digest": artifact_digest,
+        "status": "quarantined",
+        "immutable": True,
+    }
+    artifact_payload = {
+        "artifact_id": candidate.artifact_id,
+        "artifact_kind": candidate.artifact_kind,
+        "skill_text": candidate.content,
+        "version": candidate.version,
+        "created_at": candidate.created_at,
+        "source_trajectory_refs": candidate.source_trajectory_refs,
+        "evaluation": candidate.evaluation.model_dump(mode="json"),
+        "approval": candidate.approval.model_dump(mode="json"),
+        "status": "approved",
+        "immutable": True,
+        "protected_promotion_receipt": receipt.model_dump(mode="json"),
+    }
+    sequence_payload = {
+        "committed": True,
+        "committed_pointer": pointer.model_dump(mode="json"),
+    }
+    pointer_payload = {"pointer": pointer.model_dump(mode="json")}
+    try:
+        existing_archive = _read_memory_payload(archive_key)
+    except RuntimeError as exc:
+        # Some transaction-focused callers supply the transaction boundary
+        # directly without configuring the non-transactional read client.
+        if "is not set" not in str(exc):
+            raise
+        existing_archive = None
+    if existing_archive is not None:
+        if existing_archive != archive_payload:
+            raise PromotionRejected(
+                "operator migration reference already belongs to another migration"
+            )
+        return bool(
+            _read_memory_payload(artifact_key) == artifact_payload
+            and _read_memory_payload(f"{_PROMOTION_SEQUENCE_PREFIX}1")
+            == sequence_payload
+            and _read_memory_payload(_BEST_SKILL_KEY) == pointer_payload
+        )
+    with aurora_store.transaction() as tx:
+        tx.execute(
+            "select payload from scudo.agent_memory where memory_key = :key "
+            "and payload = :legacy::jsonb for update",
+            [
+                aurora_store._str_param("key", _BEST_SKILL_KEY),
+                aurora_store._json_param("legacy", legacy_payload),
+            ],
+        )
+        tx.execute(
+            "insert into scudo.agent_memory "
+            "(memory_key,memory_type,updated_at_ms,payload) values "
+            "(:key,'skill_legacy_migration',:ts,:payload::jsonb) "
+            "on conflict (memory_key) do nothing",
+            [
+                aurora_store._str_param("key", archive_key),
+                aurora_store._long_param("ts", int(time.time() * 1000)),
+                aurora_store._json_param("payload", archive_payload),
+            ],
+            expected_rows=1,
+        )
+        tx.execute(
+            "insert into scudo.agent_memory "
+            "(memory_key,memory_type,updated_at_ms,payload) values "
+            "(:key,'skill_artifact',:ts,:payload::jsonb) "
+            "on conflict (memory_key) do nothing",
+            [
+                aurora_store._str_param("key", artifact_key),
+                aurora_store._long_param("ts", int(time.time() * 1000)),
+                aurora_store._json_param("payload", artifact_payload),
+            ],
+            expected_rows=1,
+        )
+        tx.execute(
+            "insert into scudo.agent_memory "
+            "(memory_key,memory_type,updated_at_ms,payload) values "
+            "(:key,'skill_promotion_sequence',:ts,:payload::jsonb) "
+            "on conflict (memory_key) do nothing",
+            [
+                aurora_store._str_param("key", f"{_PROMOTION_SEQUENCE_PREFIX}1"),
+                aurora_store._long_param("ts", int(time.time() * 1000)),
+                aurora_store._json_param("payload", sequence_payload),
+            ],
+            expected_rows=1,
+        )
+        tx.execute(
+            "update scudo.agent_memory set memory_type='skill_doc', "
+            "updated_at_ms=:ts,payload=:pointer::jsonb where memory_key=:key "
+            "and payload=:legacy::jsonb",
+            [
+                aurora_store._long_param("ts", int(time.time() * 1000)),
+                aurora_store._json_param("pointer", pointer_payload),
+                aurora_store._str_param("key", _BEST_SKILL_KEY),
+                aurora_store._json_param("legacy", legacy_payload),
+            ],
+            expected_rows=1,
+        )
+    return True
+
+
+def _prepare_protected_skill_rollback(
+    *,
+    operator_rollback_ref: str,
+    reason: str,
+    expected_sequence: int,
+    signing_key: Optional[str] = None,
+) -> Optional[ProtectedRollbackPlan]:
+    """Verify rollback ancestry and prepare writes without committing them."""
+
+    if not operator_rollback_ref.strip() or not reason.strip():
+        raise ValueError("operator rollback reference and reason are required")
+    current_pointer, current = _resolve_verified_current_artifact(fail_closed=True)
+    if current_pointer is None or current is None:
+        return None
+    if current_pointer.sequence != expected_sequence:
+        return None
+    if (
+        current_pointer.predecessor_version is None
+        or current_pointer.predecessor_digest is None
+    ):
+        return None
+    predecessor_key = f"skill:matching:artifact:{current_pointer.predecessor_version}"
+    predecessor_payload = _read_memory_payload(predecessor_key)
+    predecessor = _artifact_from_skill_payload(predecessor_payload or {})
+    historical_result = aurora_store._execute(
+        "select memory_key, memory_type, payload from scudo.agent_memory "
+        "where memory_type = 'skill_promotion_sequence' "
+        "and payload->'committed_pointer'->>'transition_kind' = 'promote' "
+        "and (payload->'committed_pointer'->>'artifact_version')::bigint = "
+        ":artifact_version "
+        "and payload->'committed_pointer'->>'artifact_digest' = :artifact_digest "
+        "order by updated_at_ms asc limit 1",
+        [
+            aurora_store._long_param(
+                "artifact_version", current_pointer.predecessor_version
+            ),
+            aurora_store._str_param(
+                "artifact_digest", current_pointer.predecessor_digest
+            ),
         ],
     )
+    historical_records = historical_result.get("records", [])
+    if not historical_records:
+        return None
+    try:
+        historical_key = (historical_records[0][0] or {}).get("stringValue", "")
+        historical_type = (historical_records[0][1] or {}).get("stringValue", "")
+        historical_payload = json.loads(
+            (historical_records[0][2] or {}).get("stringValue", "")
+        )
+        historical_pointer = LiveSkillPointer.model_validate(
+            historical_payload["committed_pointer"]
+        )
+    except Exception:
+        return None
+    if (
+        predecessor is None
+        or learning_artifact_digest(predecessor) != current_pointer.predecessor_digest
+        or not _has_protected_promotion_receipt(predecessor_payload, predecessor)
+        or historical_pointer.artifact_version != predecessor.version
+        or historical_pointer.artifact_digest != current_pointer.predecessor_digest
+        or historical_pointer.artifact_key != predecessor_key
+        or historical_pointer.transition_kind != "promote"
+        or historical_type != "skill_promotion_sequence"
+        or historical_key
+        != f"{_PROMOTION_SEQUENCE_PREFIX}{historical_pointer.sequence}"
+        or not verify_live_pointer(historical_pointer, signing_key=signing_key)
+    ):
+        return None
+    rollback_pointer = issue_live_pointer(
+        artifact_key=predecessor_key,
+        artifact_version=predecessor.version,
+        artifact_digest=current_pointer.predecessor_digest,
+        predecessor_version=historical_pointer.predecessor_version,
+        predecessor_digest=historical_pointer.predecessor_digest,
+        sequence=current_pointer.sequence + 1,
+        transition_kind="rollback",
+        signing_key=signing_key,
+    )
+    sequence_payload = {
+        "committed": True,
+        "operator_rollback_ref": operator_rollback_ref,
+        "reason": reason,
+        "rolled_back_from": {
+            "artifact_key": current_pointer.artifact_key,
+            "artifact_version": current_pointer.artifact_version,
+            "artifact_digest": current_pointer.artifact_digest,
+        },
+        "committed_pointer": rollback_pointer.model_dump(mode="json"),
+    }
+    return ProtectedRollbackPlan(
+        current_pointer=current_pointer,
+        rollback_pointer=rollback_pointer,
+        sequence_payload=sequence_payload,
+    )
+
+
+def _execute_protected_skill_rollback(
+    tx: aurora_store.Transaction,
+    plan: ProtectedRollbackPlan,
+) -> None:
+    """Execute a prepared rollback in the caller's transaction."""
+
+    tx.execute(
+        "insert into scudo.agent_memory "
+        "(memory_key,memory_type,updated_at_ms,payload) values "
+        "(:key,'skill_promotion_sequence',:ts,:payload::jsonb) "
+        "on conflict (memory_key) do nothing",
+        [
+            aurora_store._str_param(
+                "key",
+                f"{_PROMOTION_SEQUENCE_PREFIX}{plan.rollback_pointer.sequence}",
+            ),
+            aurora_store._long_param("ts", int(time.time() * 1000)),
+            aurora_store._json_param("payload", plan.sequence_payload),
+        ],
+        expected_rows=1,
+    )
+    tx.execute(
+        "update scudo.agent_memory set payload=:payload::jsonb,updated_at_ms=:ts "
+        "where memory_key=:key and "
+        "(payload->'pointer'->>'sequence')::bigint=:expected_sequence "
+        "and payload->'pointer'->>'artifact_digest'=:expected_digest",
+        [
+            aurora_store._json_param(
+                "payload",
+                {"pointer": plan.rollback_pointer.model_dump(mode="json")},
+            ),
+            aurora_store._long_param("ts", int(time.time() * 1000)),
+            aurora_store._str_param("key", _BEST_SKILL_KEY),
+            aurora_store._long_param(
+                "expected_sequence", plan.current_pointer.sequence
+            ),
+            aurora_store._str_param(
+                "expected_digest", plan.current_pointer.artifact_digest
+            ),
+        ],
+        expected_rows=1,
+    )
+
+
+def rollback_protected_skill(
+    *,
+    operator_rollback_ref: str,
+    reason: str,
+    expected_sequence: int,
+    signing_key: Optional[str] = None,
+) -> bool:
+    """Advance pointer sequence to the predecessor artifact without mutation."""
+
+    plan = _prepare_protected_skill_rollback(
+        operator_rollback_ref=operator_rollback_ref,
+        reason=reason,
+        expected_sequence=expected_sequence,
+        signing_key=signing_key,
+    )
+    if plan is None:
+        return False
+    with aurora_store.transaction() as tx:
+        _execute_protected_skill_rollback(tx, plan)
     return True
+
+
+def persist_monitoring_outcome(*, outcome, signing_key: Optional[str] = None) -> None:
+    """Claim evidence, recheck live state, decide, and optionally roll back."""
+
+    monitor_key = f"monitor:{outcome.window_id}"
+    finalized_payload = {
+        "status": "finalized",
+        "input_digest": outcome.input_digest,
+        "policy_digest": outcome.policy_digest,
+        "outcome": outcome.model_dump(mode="json"),
+    }
+    plan = None
+    if outcome.action == "rollback":
+        plan = _prepare_protected_skill_rollback(
+            operator_rollback_ref=f"auto-monitor:{outcome.window_id}",
+            reason=f"{outcome.reason}; input_digest={outcome.input_digest}",
+            expected_sequence=outcome.pointer_sequence,
+            signing_key=signing_key,
+        )
+        if plan is None:
+            raise RuntimeError("automatic monitoring rollback failed verification")
+    pending_payload = {
+        "status": "pending",
+        "input_digest": outcome.input_digest,
+        "policy_digest": outcome.policy_digest,
+    }
+    with aurora_store.transaction() as tx:
+        now = int(time.time() * 1000)
+        pending_payload = {
+            "status": "pending",
+            "input_digest": outcome.input_digest,
+            "policy_digest": outcome.policy_digest,
+        }
+        tx.execute(
+            "insert into scudo.agent_memory "
+            "(memory_key,memory_type,updated_at_ms,payload) values "
+            "(:key,'promotion_monitor_decision',:ts,:payload::jsonb) "
+            "on conflict (memory_key) do nothing",
+            [
+                aurora_store._str_param("key", monitor_key),
+                aurora_store._long_param("ts", now),
+                aurora_store._json_param("payload", pending_payload),
+            ],
+            expected_rows=1,
+        )
+        for observation in outcome.observations:
+            observation_key = (
+                "monitor-observation:"
+                f"{outcome.artifact_digest}:{outcome.pointer_sequence}:"
+                f"{observation.source_event_id}"
+            )
+            claim_payload = {
+                "artifact_key": outcome.artifact_key,
+                "artifact_version": outcome.artifact_version,
+                "artifact_digest": outcome.artifact_digest,
+                "pointer_sequence": outcome.pointer_sequence,
+                "source_event_id": observation.source_event_id,
+                "window_id": outcome.window_id,
+                "input_digest": outcome.input_digest,
+                "authoritative_outcome": observation.authoritative_outcome.model_dump(
+                    mode="json"
+                ),
+                "immutable": True,
+            }
+            tx.execute(
+                "insert into scudo.agent_memory "
+                "(memory_key,memory_type,updated_at_ms,payload) values "
+                "(:key,'monitoring_observation_claim',:ts,:payload::jsonb) "
+                "on conflict (memory_key) do nothing",
+                [
+                    aurora_store._str_param("key", observation_key),
+                    aurora_store._long_param("ts", now),
+                    aurora_store._json_param("payload", claim_payload),
+                ],
+                expected_rows=1,
+            )
+        pointer_result = tx.execute(
+            "select payload from scudo.agent_memory where memory_key=:key for update",
+            [aurora_store._str_param("key", _BEST_SKILL_KEY)],
+        )
+        records = pointer_result.get("records", [])
+        try:
+            locked_pointer = LiveSkillPointer.model_validate(
+                json.loads(records[0][0]["stringValue"])["pointer"]
+            )
+        except (
+            IndexError,
+            KeyError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise RuntimeError("monitoring live pointer lock failed") from exc
+        if (
+            not verify_live_pointer(locked_pointer, signing_key=signing_key)
+            or locked_pointer.artifact_key != outcome.artifact_key
+            or locked_pointer.artifact_version != outcome.artifact_version
+            or locked_pointer.artifact_digest != outcome.artifact_digest
+            or locked_pointer.sequence != outcome.pointer_sequence
+        ):
+            raise RuntimeError(
+                "monitoring window does not match the signed live pointer"
+            )
+        if plan is not None:
+            _execute_protected_skill_rollback(tx, plan)
+        tx.execute(
+            "update scudo.agent_memory set payload=:payload::jsonb,updated_at_ms=:ts "
+            "where memory_key=:key and payload->>'status'='pending' "
+            "and payload->>'input_digest'=:input_digest",
+            [
+                aurora_store._json_param("payload", finalized_payload),
+                aurora_store._long_param("ts", now),
+                aurora_store._str_param("key", monitor_key),
+                aurora_store._str_param("input_digest", outcome.input_digest),
+            ],
+            expected_rows=1,
+        )

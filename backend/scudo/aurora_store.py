@@ -6,20 +6,21 @@ the audit/lineage trail. Boto3 imports stay lazy for credential-free tests.
 
 from __future__ import annotations
 
+import os
 import json
 import time
-from typing import Any, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Any, Iterator, Mapping
+
+import boto3  # type: ignore
 
 
 def _rds_data():
-    import boto3  # type: ignore
-
     return boto3.client("rds-data")
 
 
 def _require(name: str) -> str:
-    import os
-
     val = os.environ.get(name)
     if not val:
         raise RuntimeError(f"{name} is not set — Aurora persistence is required")
@@ -28,6 +29,10 @@ def _require(name: str) -> str:
 
 def _str_param(name: str, value: str) -> dict:
     return {"name": name, "value": {"stringValue": value}}
+
+
+def _long_param(name: str, value: int) -> dict:
+    return {"name": name, "value": {"longValue": int(value)}}
 
 
 def _json_param(name: str, value: Mapping[str, Any]) -> dict:
@@ -52,6 +57,85 @@ def _execute(sql: str, params: list[dict]) -> dict:
         sql=sql,
         parameters=params,
     )
+
+
+@dataclass(frozen=True)
+class Transaction:
+    client: Any
+    resource_arn: str
+    secret_arn: str
+    database: str
+    transaction_id: str
+
+    def execute(
+        self,
+        sql: str,
+        params: list[dict],
+        *,
+        expected_rows: int | None = None,
+    ) -> dict:
+        result = self.client.execute_statement(
+            resourceArn=self.resource_arn,
+            secretArn=self.secret_arn,
+            database=self.database,
+            transactionId=self.transaction_id,
+            sql=sql,
+            parameters=params,
+        )
+        if (
+            expected_rows is not None
+            and result.get("numberOfRecordsUpdated") != expected_rows
+        ):
+            raise RuntimeError(
+                "transaction statement expected "
+                f"{expected_rows} updated row(s), got "
+                f"{result.get('numberOfRecordsUpdated', 0)}"
+            )
+        return result
+
+
+@contextmanager
+def transaction() -> Iterator[Transaction]:
+    resource_arn = _require("SCUDO_AURORA_CLUSTER_ARN")
+    secret_arn = _require("SCUDO_AURORA_SECRET_ARN")
+    database = _require("SCUDO_AURORA_DATABASE_NAME")
+    client = _rds_data()
+    started = client.begin_transaction(
+        resourceArn=resource_arn,
+        secretArn=secret_arn,
+        database=database,
+    )
+    transaction_id = started["transactionId"]
+    tx = Transaction(
+        client=client,
+        resource_arn=resource_arn,
+        secret_arn=secret_arn,
+        database=database,
+        transaction_id=transaction_id,
+    )
+    try:
+        yield tx
+    except Exception:
+        client.rollback_transaction(
+            resourceArn=resource_arn,
+            secretArn=secret_arn,
+            transactionId=transaction_id,
+        )
+        raise
+    else:
+        try:
+            client.commit_transaction(
+                resourceArn=resource_arn,
+                secretArn=secret_arn,
+                transactionId=transaction_id,
+            )
+        except Exception:
+            client.rollback_transaction(
+                resourceArn=resource_arn,
+                secretArn=secret_arn,
+                transactionId=transaction_id,
+            )
+            raise
 
 
 def put_audit_record(

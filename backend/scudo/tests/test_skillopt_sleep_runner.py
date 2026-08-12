@@ -477,10 +477,7 @@ def test_run_evaluated_sleep_cycle_requires_a_structured_holdout_report():
         ],
     )
     store = _StrictStore(
-        trajectories=[
-            {"bundle_ref": f"bundle-{i}"}
-            for i in range(5)
-        ],
+        trajectories=[{"bundle_ref": f"bundle-{i}"} for i in range(5)],
         current_best=None,
     )
     approval = PromotionApproval(
@@ -553,6 +550,127 @@ def test_run_evaluated_sleep_cycle_short_circuits_without_viable_partitions(
     assert result is False
     assert calls == []
     assert store.promote_calls == []
+
+
+def test_run_protected_sleep_cycle_attests_and_calls_protected_store():
+    from scudo.matching_self_improvement import (
+        EvaluationPolicy,
+        GoldenCase,
+        GoldenSet,
+        MatchingPrediction,
+        PromotionApproval,
+        evaluate_golden_set,
+        trusted_evidence_for,
+    )
+    from scudo.skillopt_sleep_runner import (
+        ProtectedEvaluation,
+        run_protected_sleep_cycle,
+    )
+
+    class _ProtectedStore(_FakeSleepStore):
+        def promote_protected_skill(self, **kwargs):
+            self.promote_calls.append(kwargs)
+            return True
+
+    store = _ProtectedStore(
+        trajectories=[{"bundle_ref": f"bundle-{index}"} for index in range(5)]
+    )
+    golden = GoldenSet(
+        version="protected",
+        cases=[
+            GoldenCase(
+                case_id="one",
+                vendor="lseg",
+                vendor_product_ref="ONE",
+                expected_target_iri="target",
+            )
+        ],
+    )
+    prediction = MatchingPrediction(
+        target_iri="target", confidence=0.95, status="auto_mapped", auto_pass=True
+    )
+    policy = EvaluationPolicy(max_brier_score=1.0)
+
+    def evaluator(request):
+        candidate = request["candidate_content"]
+        report = evaluate_golden_set(
+            golden,
+            lambda case: prediction,
+            candidate_version="candidate-1",
+            policy=policy,
+            artifact_content=candidate,
+            repeat_runs=2,
+        )
+        evidence = trusted_evidence_for(
+            golden,
+            policy=policy,
+            prediction_runs=({"one": prediction},) * 2,
+        )
+        return ProtectedEvaluation(report=report, evidence=evidence)
+
+    assert run_protected_sleep_cycle(
+        store=store,
+        optimizer=lambda train, current: "protected candidate",
+        evaluator=evaluator,
+        approval=PromotionApproval(
+            approved_by="protected-gate",
+            approval_ref="AUTO",
+            rationale="protected",
+        ),
+        evaluation_signing_key="evaluation-key",
+        promotion_signing_key="promotion-key",
+        evaluator_id="sleep-evaluator",
+        evaluator_version="1",
+    )
+    call = store.promote_calls[0]
+    assert call["skill_text"] == "protected candidate"
+    assert call["evaluation_attestation"].artifact_content_hash
+    assert call["trusted_evidence"].golden_set.version == "protected"
+
+
+def test_protected_cycle_promotes_allocated_version_above_one():
+    from scudo.matching_self_improvement import PromotionApproval
+    from scudo.skillopt_sleep_runner import (
+        run_protected_sleep_cycle,
+    )
+
+    class _Store(_FakeSleepStore):
+        def promote_protected_skill(self, **kwargs):
+            self.promote_calls.append(kwargs)
+            return True
+
+    store = _Store(
+        trajectories=[{"bundle_ref": str(index)} for index in range(5)],
+        current_best={"skill_text": "current", "version": 3},
+        next_version=4,
+    )
+    seen = {}
+
+    def evaluator(request):
+        seen.update(request)
+        raise RuntimeError("stop after identity allocation")
+
+    with pytest.raises(RuntimeError, match="stop after identity"):
+        run_protected_sleep_cycle(
+            store=store,
+            optimizer=lambda train, current: "candidate",
+            evaluator=evaluator,
+            approval=PromotionApproval(
+                approved_by="gate", approval_ref="A", rationale="test"
+            ),
+            evaluation_signing_key="evaluation",
+            promotion_signing_key="promotion",
+            evaluator_id="expected-evaluator",
+            evaluator_version="1",
+        )
+
+    assert seen == {
+        "candidate_content": "candidate",
+        "artifact_id": "matching-skill-4",
+        "artifact_version": 4,
+        "artifact_kind": "matching_skill",
+        "candidate_version": "candidate-4",
+    }
 
 
 def test_lazy_skillopt_optimizer_raises_runtime_error_when_package_not_installed():

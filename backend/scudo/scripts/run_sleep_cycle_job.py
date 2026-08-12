@@ -29,6 +29,8 @@ so importing this module offline never touches Aurora or the network.
 from __future__ import annotations
 
 import argparse
+import math
+import os
 import sys
 from typing import Any, Optional
 
@@ -37,12 +39,17 @@ _REQUIRED_AURORA_ENV_VARS = (
     "SCUDO_AURORA_SECRET_ARN",
     "SCUDO_AURORA_DATABASE_NAME",
 )
+_REQUIRED_APPLY_ENV_VARS = (
+    "SCUDO_EVALUATION_PUBLIC_KEY",
+    "SCUDO_SKILL_PROMOTION_KEY",
+    "SCUDO_PROTECTED_EVALUATOR_COMMAND",
+    "SCUDO_PROTECTED_EVALUATION_REQUEST_ID",
+    "SCUDO_SKILL_OPTIMIZER_COMMAND",
+)
 
 
 def _env_validation_errors() -> list[str]:
     """Which required Aurora env vars are missing. Pure — no AWS call."""
-    import os
-
     return [name for name in _REQUIRED_AURORA_ENV_VARS if not os.environ.get(name)]
 
 
@@ -118,17 +125,25 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "(default: 0.2, same default as run_sleep_cycle).",
     )
     args = parser.parse_args(argv[1:])
+    if args.apply and args.dry_run:
+        parser.error("--apply and --dry-run are mutually exclusive")
+    if not math.isfinite(args.held_out_ratio) or not 0 < args.held_out_ratio < 1:
+        parser.error("--held-out-ratio must be finite and between 0 and 1")
     # Safe default: anything that is not an explicit --apply is a dry-run.
     args.dry_run = not args.apply
     return args
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: Optional[list[str]] = None, *, store_override: Any = None) -> int:
     """CLI entrypoint. Returns a process exit code (0 = success)."""
     argv = list(sys.argv if argv is None else argv)
     args = _parse_args(argv)
 
     missing = _env_validation_errors()
+    if args.apply:
+        missing.extend(
+            name for name in _REQUIRED_APPLY_ENV_VARS if not os.environ.get(name)
+        )
     if missing:
         print(
             f"[run_sleep_cycle_job] ERROR: missing required env var(s): "
@@ -138,15 +153,55 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 2
 
     from scudo import aurora_memory
-    from scudo.skillopt_sleep_runner import run_sleep_cycle
+    from scudo.skillopt_sleep_runner import (
+        run_protected_sleep_cycle,
+        run_sleep_cycle,
+    )
+    from scudo.protected_evaluator_adapter import run_protected_evaluator_command
+    from scudo.skill_optimizer_adapter import run_skill_optimizer_command
 
     mode = "dry-run" if args.dry_run else "apply"
     print(f"[run_sleep_cycle_job] mode={mode} held_out_ratio={args.held_out_ratio}")
 
-    store = _make_dry_run_store(aurora_memory) if args.dry_run else aurora_memory
+    real_store = store_override or aurora_memory
+    store = _make_dry_run_store(real_store) if args.dry_run else real_store
 
     try:
-        promoted = run_sleep_cycle(store=store, held_out_ratio=args.held_out_ratio)
+        if args.apply:
+
+            def configured_evaluator(request):
+                request = {
+                    **request,
+                    "evaluation_request_id": os.environ[
+                        "SCUDO_PROTECTED_EVALUATION_REQUEST_ID"
+                    ],
+                }
+                return run_protected_evaluator_command(
+                    request,
+                    command=os.environ["SCUDO_PROTECTED_EVALUATOR_COMMAND"],
+                )
+
+            promoted = run_protected_sleep_cycle(
+                store=store,
+                optimizer=lambda train, current: run_skill_optimizer_command(
+                    {"trajectories": train, "current_skill": current},
+                    command=os.environ["SCUDO_SKILL_OPTIMIZER_COMMAND"],
+                ),
+                evaluator=configured_evaluator,
+                approval={
+                    "approved_by": "protected-sleep-evaluator",
+                    "approval_ref": "scheduled-protected-apply",
+                    "rationale": "Protected scheduled evaluation.",
+                },
+                evaluation_signing_key="",
+                promotion_signing_key=os.environ["SCUDO_SKILL_PROMOTION_KEY"],
+                evaluator_id="skillopt-sleep",
+                evaluator_version="1",
+                evaluation_public_key_pem=os.environ["SCUDO_EVALUATION_PUBLIC_KEY"],
+                held_out_ratio=args.held_out_ratio,
+            )
+        else:
+            promoted = run_sleep_cycle(store=store, held_out_ratio=args.held_out_ratio)
     except RuntimeError as exc:
         # The default optimizer/evaluator (scudo.skillopt_sleep_runner's
         # lazy skillopt import) raises RuntimeError with a clear message

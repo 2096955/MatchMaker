@@ -23,6 +23,43 @@ SCOPE GATE — LAYER 2
 which runs before the verdict is signed. Defense in depth with Ingestion
 (layer 1) and Persistence (layer 3).
 
+FRAME RESOLUTION — WHAT GETS SCORED
+-----------------------------------
+Every tool here scores a ``VendorProductRef``. Where that ref comes from is
+a trust question, because the HMAC seal binds only
+``(input_hash, mapped_node_iri, status, confidence, band, ts_ms)`` — NOT the
+text that was scored and NOT the frame's provenance. A verdict produced from
+caller-supplied text is therefore byte-indistinguishable, downstream, from
+one produced from the real ingested frame. Two rules follow:
+
+  1. INLINE TEXT IS GATED, DEFAULT OFF. ``SCUDO_MV_ALLOW_INLINE_FRAME``
+     (truthy: 1/true/yes/on) lets a caller pass ``name``/``description``
+     inline and skip the frame lookup. Unset — the production default — the
+     inline fields are IGNORED and the real frame is always read. Fail-closed:
+     only an explicit opt-in opens the bypass, and the response marks the
+     resulting frame ``source="inline"`` so it is visible in the trace.
+
+  2. A MISSING FRAME IS A REFUSAL, NOT A FABRICATION. The previous code
+     returned ``VendorProductRef(name=product_id)`` when the lookup missed,
+     and signed a verdict over that invented name. That is not a rare path:
+     the deployed Match & Verify task runs ``FRAME_SOURCE=mock``
+     (infra/scudo-dev-deploy.yaml) while the mock working set is a
+     process-local dict (frames.py), so this container never sees frames the
+     Ingestion container wrote. Now the tools return a typed refusal
+     (``reason="frame_not_found"``) and — critically — NO SEAL. Persistence
+     is handed nothing it could trust.
+
+WHY PROVENANCE IS REPORTED BUT NOT SEALED
+-----------------------------------------
+``verify_mapping`` returns an unsealed ``frame`` block carrying
+``source`` / ``content_hash`` / ``file_audit_id`` and an explicit
+``sealed: false``. Binding those INTO the HMAC would close the remaining
+gap (a compromised M&V could still report one provenance and score
+another), but it requires a ``verdict.py`` payload bump to v=3 plus
+matching read-side changes in ``persistence_mcp`` — a cross-module change
+outside this module's blast radius. See the RECOMMENDATION note on
+``_frame_provenance`` for the concrete sketch.
+
 WHERE THE VERIFIER LIVES
 ------------------------
 The verifier IS the deterministic gate — validations + floor + scope. It
@@ -54,6 +91,7 @@ from contextlib import asynccontextmanager
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import frames as _frames_mod
 from . import verdict as verdict_seal
 from .frames import _read_vendor_frame
 from .hydrate import HydrationError, hydrate
@@ -62,6 +100,7 @@ from .matching import map_vendor_product
 from .models import VendorProductRef
 from .specialist import specialist_from_env
 from .store import get_store
+from .taxonomy_graph import analyse_taxonomy
 
 _RO = {
     "readOnlyHint": True,
@@ -122,6 +161,13 @@ class NeighbourhoodInput(_Base):
     max_nodes: int = Field(50, ge=1, le=100)
 
 
+class TaxonomyAnalysisInput(_Base):
+    candidate_iris: list[str] = Field(..., max_length=25)
+    anchor_iris: list[str] = Field(default_factory=list, max_length=25)
+    max_depth: int = Field(8, ge=1, le=100)
+    max_nodes: int = Field(100, ge=1, le=100)
+
+
 class SimilarInput(_Base):
     vendor: str = Field(...)
     product_id: str = Field(..., min_length=1)
@@ -134,28 +180,173 @@ class SimilarInput(_Base):
 class VerifyInput(_Base):
     vendor: str = Field(...)
     product_id: str = Field(..., min_length=1)
-    name: str = Field("", description="Inline name — avoids a frame lookup.")
-    description: str = Field("")
+    name: str = Field(
+        "",
+        description=(
+            "Inline name — IGNORED unless SCUDO_MV_ALLOW_INLINE_FRAME is on. "
+            "The ingested frame is authoritative by default."
+        ),
+    )
+    description: str = Field(
+        "",
+        description=(
+            "Inline description — IGNORED unless SCUDO_MV_ALLOW_INLINE_FRAME is on."
+        ),
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Frame resolution — the gate. See module docstring "FRAME RESOLUTION".
+# ──────────────────────────────────────────────────────────────────────
+_TRUTHY_ENV = frozenset({"1", "true", "yes", "on"})
+
+_INLINE_FRAME_FLAG = "SCUDO_MV_ALLOW_INLINE_FRAME"
+
+
+def env_allow_inline_frame() -> bool:
+    """Live ``SCUDO_MV_ALLOW_INLINE_FRAME`` — re-read per call.
+
+    Call-time read (not a ``Settings`` snapshot field) matching the other
+    measured-rollout levers in ``config.py`` — ``env_margin_gate_enabled``,
+    ``env_input_completeness_validation_enabled`` — so tests and operators
+    can flip it without re-importing the package.
+
+    Default FALSE. Only the explicit truthy tokens open the bypass; unset,
+    empty, "0", "false" and anything unrecognised all keep it shut.
+    """
+    return os.getenv(_INLINE_FRAME_FLAG, "").strip().lower() in _TRUTHY_ENV
+
+
+def _configured_frame_source() -> str:
+    """The FRAME_SOURCE ``_read_vendor_frame`` will actually branch on.
+
+    Read through the ``frames`` MODULE attribute rather than importing
+    ``settings`` here, because ``frames._read_vendor_frame`` resolves
+    ``settings`` from its own module globals — and the existing smoke
+    helper ``_swap_settings`` rebinds exactly that. Importing the symbol
+    directly would let the reported provenance disagree with the source
+    the read actually used.
+    """
+    return _frames_mod.settings.frame_source
+
+
+class FrameRefusal(Exception):
+    """The frame could not be resolved — refuse rather than invent one.
+
+    Carries a typed ``reason`` (and optional ``detail``) so the tool wrapper
+    can render the same refusal envelope ``persistence_mcp._refusal`` emits.
+    Raised, not returned, so no caller can accidentally proceed to sign a
+    verdict over a ref that does not exist.
+    """
+
+    def __init__(self, reason: str, **detail):
+        super().__init__(reason)
+        self.reason = reason
+        self.detail = detail
+
+
+def _refusal(reason: str, **detail) -> str:
+    """Typed refusal envelope — same ``refusal`` block Persistence emits.
+
+    ``refused: true`` replaces Persistence's ``committed: false`` because
+    this server never commits anything; the nested ``refusal`` object is
+    identical in shape so the agent reasons over one vocabulary.
+    """
+    return json.dumps(
+        {
+            "refused": True,
+            "refusal": {"reason": reason, **detail},
+        }
+    )
+
+
+def _resolve_frame(
+    vendor: str, product_id: str, name: str, description: str
+) -> tuple[VendorProductRef, str]:
+    """Resolve the ref this server will score, plus WHERE it came from.
+
+    Returns ``(ref, source)`` where ``source`` is ``"inline"`` or the
+    configured ``FRAME_SOURCE``. The source is returned rather than
+    re-derived by the caller so the flag is read EXACTLY ONCE per request —
+    a second read could disagree with the first if the env changed mid-call,
+    and the provenance block would then lie about what was scored.
+
+    Raises:
+        FrameRefusal: no frame exists for (vendor, product_id) and the
+            inline bypass is not open. The caller MUST NOT fall back to a
+            synthesised ref — that is the defect this replaces.
+    """
+    has_inline = bool(name or description)
+    if has_inline and env_allow_inline_frame():
+        # Explicit opt-in only. source_content_hash / source_file_audit_id
+        # stay None — an inline frame has no upstream provenance and must
+        # not be able to claim any.
+        return (
+            VendorProductRef(
+                vendor=vendor,
+                product_id=product_id,
+                name=name,
+                description=description,
+            ),
+            "inline",
+        )
+    ref = _read_vendor_frame(vendor, product_id)
+    if ref is None:
+        raise FrameRefusal(
+            "frame_not_found",
+            vendor=vendor,
+            product_id=product_id,
+            frame_source=_configured_frame_source(),
+            inline_ignored=has_inline,
+            detail=(
+                f"No ingested frame for ({vendor!r}, {product_id!r}) via "
+                f"FRAME_SOURCE={_configured_frame_source()!r}. Match & Verify "
+                f"refuses to score a fabricated frame"
+                + (
+                    f"; inline name/description were supplied but "
+                    f"{_INLINE_FRAME_FLAG} is not enabled."
+                    if has_inline
+                    else "."
+                )
+            ),
+        )
+    return ref, _configured_frame_source()
 
 
 def _frame(
     vendor: str, product_id: str, name: str, description: str
 ) -> VendorProductRef:
-    if name or description:
-        return VendorProductRef(
-            vendor=vendor,
-            product_id=product_id,
-            name=name,
-            description=description,
-        )
-    ref = _read_vendor_frame(vendor, product_id)
-    if ref is None:
-        return VendorProductRef(
-            vendor=vendor,
-            product_id=product_id,
-            name=product_id,
-        )
-    return ref
+    """``_resolve_frame`` without the source label. Same fail-closed rules."""
+    return _resolve_frame(vendor, product_id, name, description)[0]
+
+
+def _frame_provenance(ref: VendorProductRef, source: str) -> dict:
+    """UNSEALED provenance block describing which frame was scored.
+
+    ``sealed: false`` is stated explicitly so no reader mistakes this for
+    part of the HMAC-protected payload.
+
+    RECOMMENDATION (deliberately NOT implemented here — cross-module):
+    bind provenance into the seal itself. Sketch:
+      1. ``verdict.sign`` gains ``frame_source: str`` +
+         ``frame_content_hash: str`` and emits ``"v": 3``.
+      2. ``verdict.verify`` accepts ``v in (1, 2, 3)`` and
+         ``setdefault``s both new keys ("unknown"/"") for v=1/v=2 seals, the
+         same forward-compatible trick already used for ``band`` — existing
+         in-flight v=2 seals keep verifying unchanged.
+      3. ``persistence_mcp.commit_mapping`` reads the sealed provenance and
+         can refuse ``frame_source == "inline"`` in prod.
+    Left out of this change because it touches ``verdict.py`` and
+    ``persistence_mcp.py``, which this module does not own, and because a
+    partial rollout (M&V signing v=3 before Persistence accepts it) breaks
+    every commit. Do it as one atomic change across the three files.
+    """
+    return {
+        "source": source,
+        "content_hash": ref.source_content_hash,
+        "file_audit_id": ref.source_file_audit_id,
+        "sealed": False,
+    }
 
 
 @mcp.tool(
@@ -168,8 +359,18 @@ async def find_candidates(params: SimilarInput) -> str:
     Read-only against Falkor (match-and-check tier). No verdict is signed
     here — the agent uses this to explore before asking
     ``verify_mapping`` for the authoritative answer.
+
+    Refuses (``{"refused": true, "refusal": {...}}``) when no frame exists
+    for (vendor, product_id) and the inline bypass is not enabled — the same
+    fail-closed rule ``verify_mapping`` applies, so the agent can't explore
+    against a fabricated frame and then be surprised by the verdict.
     """
-    ref = _frame(params.vendor, params.product_id, params.name, params.description)
+    try:
+        ref, _source = _resolve_frame(
+            params.vendor, params.product_id, params.name, params.description
+        )
+    except FrameRefusal as e:
+        return _refusal(e.reason, **e.detail)
     cands = get_store().find_similar_products(
         ref,
         max_results=params.max_results,
@@ -210,6 +411,22 @@ async def get_neighbourhood(params: NeighbourhoodInput) -> str:
 
 
 @mcp.tool(
+    name="matchverify.analyse_taxonomy_candidates",
+    annotations={"title": "Analyse bounded taxonomy graph evidence", **_RO},
+)
+async def analyse_taxonomy_candidates(params: TaxonomyAnalysisInput) -> str:
+    """Return deterministic read-only graph evidence for candidate IRIs."""
+    evidence = analyse_taxonomy(
+        get_store().list_taxonomy_nodes(),
+        candidate_iris=params.candidate_iris,
+        anchor_iris=params.anchor_iris,
+        max_nodes=params.max_nodes,
+        max_depth=params.max_depth,
+    )
+    return evidence.model_dump_json()
+
+
+@mcp.tool(
     name="matchverify.verify_mapping",
     annotations={"title": "Run the deterministic matcher and sign the verdict", **_RO},
 )
@@ -224,10 +441,22 @@ async def verify_mapping(params: VerifyInput) -> str:
     Returns JSON:
       {
         "verdict": <full MappingResult>,
-        "seal":    {"payload_b64": str, "hmac_b64": str}
+        "seal":    {"payload_b64": str, "hmac_b64": str},
+        "frame":   {"source", "content_hash", "file_audit_id",
+                    "sealed": false}   # provenance, NOT inside the HMAC
       }
+
+    Or, when the frame cannot be resolved:
+      {"refused": true, "refusal": {"reason": "frame_not_found", ...}}
+    — deliberately WITHOUT a seal. Refusing to sign is the whole point: a
+    fabricated frame must not produce a verdict Persistence would honour.
     """
-    ref = _frame(params.vendor, params.product_id, params.name, params.description)
+    try:
+        ref, source = _resolve_frame(
+            params.vendor, params.product_id, params.name, params.description
+        )
+    except FrameRefusal as e:
+        return _refusal(e.reason, **e.detail)
     result = map_vendor_product(ref, specialist=specialist_from_env())
     seal = verdict_seal.sign(
         vendor=result.vendor,
@@ -241,6 +470,7 @@ async def verify_mapping(params: VerifyInput) -> str:
         {
             "verdict": result.model_dump(mode="json"),
             "seal": seal,
+            "frame": _frame_provenance(ref, source),
         }
     )
 

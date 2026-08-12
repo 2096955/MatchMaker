@@ -42,12 +42,26 @@ ever imported lazily, inside `_lazy_skillopt_optimizer`/
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from .matching_self_improvement import EvaluationReport, PromotionApproval
+from .matching_self_improvement import (
+    EvaluationReport,
+    PromotionApproval,
+    TrustedEvaluationEvidence,
+    SignedEvaluationEnvelope,
+    issue_evaluation_attestation,
+    verify_signed_evaluation_envelope,
+)
 
 Optimizer = Callable[[list, Optional[str]], str]
 Evaluator = Callable[[str, list], EvaluationReport]
+
+
+@dataclass(frozen=True)
+class ProtectedEvaluation:
+    report: EvaluationReport
+    evidence: TrustedEvaluationEvidence
 
 
 def _trajectory_identity(trajectory: object) -> Optional[tuple[str, str]]:
@@ -159,6 +173,17 @@ def _lazy_skillopt_evaluator(candidate_text: str, held_out: list) -> EvaluationR
     )
 
 
+def _lazy_skillopt_protected_evaluator(
+    candidate_text: str, held_out: list
+) -> ProtectedEvaluation:
+    """Protected default seam; real deployments must inject protected evidence."""
+
+    raise RuntimeError(
+        "protected apply requires an evaluator returning ProtectedEvaluation "
+        "with authoritative TrustedEvaluationEvidence"
+    )
+
+
 def run_sleep_cycle(
     *,
     store: Any,
@@ -203,9 +228,7 @@ def run_sleep_cycle(
     evaluate = evaluator or _lazy_skillopt_evaluator
     report = evaluate(candidate_text, held_out)
     if not isinstance(report, EvaluationReport):
-        raise TypeError(
-            "run_sleep_cycle evaluator must return EvaluationReport"
-        )
+        raise TypeError("run_sleep_cycle evaluator must return EvaluationReport")
 
     return store.promote_skill(
         skill_text=candidate_text,
@@ -269,4 +292,103 @@ def run_evaluated_sleep_cycle(
             for t in trajectories
             if isinstance(t, dict) and t.get("bundle_ref")
         ],
+    )
+
+
+def run_protected_sleep_cycle(
+    *,
+    store: Any,
+    optimizer: Optimizer,
+    evaluator: Callable[
+        [dict[str, Any]], ProtectedEvaluation | SignedEvaluationEnvelope
+    ],
+    approval: PromotionApproval | dict,
+    evaluation_signing_key: str,
+    promotion_signing_key: str,
+    evaluator_id: str,
+    evaluator_version: str,
+    evaluation_public_key_pem: Optional[str] = None,
+    held_out_ratio: float = 0.2,
+) -> bool:
+    """Production apply path: evaluate, attest, then protected-promote."""
+
+    trajectories = store.harvest_trajectories()
+    if not trajectories:
+        return False
+    train, held_out = default_held_out_split(
+        trajectories, held_out_ratio=held_out_ratio
+    )
+    if not train or not held_out:
+        return False
+    current = store.consult_best_skill()
+    current_skill_text = current["skill_text"] if current else None
+    current_version = current["version"] if current else 0
+    candidate_version = _next_skill_version(store, current_version)
+    candidate_text = optimizer(train, current_skill_text)
+    artifact_id = f"matching-skill-{candidate_version}"
+    evaluator_request = {
+        "candidate_content": candidate_text,
+        "artifact_id": artifact_id,
+        "artifact_version": candidate_version,
+        "artifact_kind": "matching_skill",
+        "candidate_version": f"candidate-{candidate_version}",
+    }
+    protected = evaluator(evaluator_request)
+    if isinstance(protected, SignedEvaluationEnvelope):
+        if (
+            not evaluation_public_key_pem
+            or not verify_signed_evaluation_envelope(
+                protected, public_key_pem=evaluation_public_key_pem
+            )
+            or protected.candidate_content != candidate_text
+            or protected.artifact_version != candidate_version
+        ):
+            raise RuntimeError("protected evaluator envelope verification failed")
+        return store.promote_protected_skill(
+            skill_text=candidate_text,
+            version=candidate_version,
+            evaluation=protected.report,
+            approval=approval,
+            trusted_evidence=protected.evidence,
+            evaluation_attestation=None,
+            signed_evaluation_envelope=protected,
+            evaluation_public_key_pem=evaluation_public_key_pem,
+            source_trajectory_refs=[
+                str(trajectory.get("bundle_ref"))
+                for trajectory in trajectories
+                if isinstance(trajectory, dict) and trajectory.get("bundle_ref")
+            ],
+            artifact_id=protected.artifact_id,
+            signing_key=promotion_signing_key,
+        )
+    if not isinstance(protected, ProtectedEvaluation):
+        raise TypeError(
+            "run_protected_sleep_cycle evaluator must return ProtectedEvaluation"
+        )
+    attestation = issue_evaluation_attestation(
+        protected.report,
+        trusted_evidence=protected.evidence,
+        artifact_content=candidate_text,
+        artifact_id=artifact_id,
+        artifact_version=candidate_version,
+        artifact_kind="matching_skill",
+        evaluator_id=evaluator_id,
+        evaluator_version=evaluator_version,
+        signing_key=evaluation_signing_key,
+        promotion_key=promotion_signing_key,
+    )
+    return store.promote_protected_skill(
+        skill_text=candidate_text,
+        version=candidate_version,
+        evaluation=protected.report,
+        approval=approval,
+        trusted_evidence=protected.evidence,
+        evaluation_attestation=attestation,
+        source_trajectory_refs=[
+            str(trajectory.get("bundle_ref"))
+            for trajectory in trajectories
+            if isinstance(trajectory, dict) and trajectory.get("bundle_ref")
+        ],
+        artifact_id=artifact_id,
+        signing_key=promotion_signing_key,
     )

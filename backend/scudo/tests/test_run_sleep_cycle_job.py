@@ -9,6 +9,8 @@ main() itself for an infra-touching script).
 
 from __future__ import annotations
 
+import pytest
+
 from scudo.scripts.run_sleep_cycle_job import (
     _env_validation_errors,
     _make_dry_run_store,
@@ -40,6 +42,17 @@ def test_explicit_dry_run_flag():
 def test_held_out_ratio_defaults_and_is_overridable():
     assert _args().held_out_ratio == 0.2
     assert _args("--held-out-ratio", "0.3").held_out_ratio == 0.3
+
+
+@pytest.mark.parametrize("value", ["0", "1", "nan", "inf"])
+def test_held_out_ratio_rejects_invalid_values(value):
+    with pytest.raises(SystemExit):
+        _args("--held-out-ratio", value)
+
+
+def test_apply_and_dry_run_are_mutually_exclusive():
+    with pytest.raises(SystemExit):
+        _args("--apply", "--dry-run")
 
 
 def test_env_validation_reports_all_missing_vars(monkeypatch):
@@ -204,3 +217,138 @@ def test_job_script_is_never_imported_by_lambda_handler():
         check=True,
     )
     assert result.stdout.strip() == "False"
+
+
+def test_scheduler_apply_runs_optimizer_evaluator_and_consult_end_to_end(
+    monkeypatch,
+):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from scudo import protected_evaluator_adapter, skill_optimizer_adapter
+    from scudo.matching_self_improvement import (
+        EvaluationPolicy,
+        GoldenCase,
+        GoldenSet,
+        MatchingPrediction,
+        issue_signed_evaluation_envelope,
+        trusted_evidence_for,
+    )
+    from scudo.scripts import run_sleep_cycle_job
+
+    class Store:
+        def __init__(self):
+            self.promoted = []
+
+        def harvest_trajectories(self):
+            return [{"bundle_ref": str(index)} for index in range(5)]
+
+        def consult_best_skill(self):
+            if self.promoted:
+                latest = self.promoted[-1]
+                return {
+                    "skill_text": latest["skill_text"],
+                    "version": latest["version"],
+                }
+            return {"skill_text": "current", "version": 3}
+
+        def next_skill_version(self, *, minimum=1):
+            return max(4, minimum)
+
+        def promote_protected_skill(self, **kwargs):
+            self.promoted.append(kwargs)
+            return True
+
+    store = Store()
+    private_key = Ed25519PrivateKey.generate()
+    private_pem = private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
+    golden = GoldenSet(
+        version="scheduler-e2e",
+        cases=[
+            GoldenCase(
+                case_id="holdout",
+                vendor="lseg",
+                vendor_product_ref="ONE",
+                expected_target_iri="target",
+                split="holdout",
+            ),
+            GoldenCase(
+                case_id="adversarial",
+                vendor="ice",
+                vendor_product_ref="TWO",
+                expected_target_iri="target",
+                split="adversarial",
+            ),
+        ],
+    )
+    prediction = MatchingPrediction(
+        target_iri="target", confidence=0.95, status="auto_mapped", auto_pass=True
+    )
+    policy = EvaluationPolicy(max_brier_score=1.0)
+    holdout = trusted_evidence_for(
+        golden, policy=policy, prediction_runs=({"holdout": prediction},) * 2
+    )
+    adversarial = trusted_evidence_for(
+        golden,
+        policy=policy,
+        split="adversarial",
+        prediction_runs=({"adversarial": prediction},) * 2,
+    )
+    for name in (
+        "SCUDO_AURORA_CLUSTER_ARN",
+        "SCUDO_AURORA_SECRET_ARN",
+        "SCUDO_AURORA_DATABASE_NAME",
+        "SCUDO_EVALUATION_PUBLIC_KEY",
+        "SCUDO_SKILL_PROMOTION_KEY",
+        "SCUDO_PROTECTED_EVALUATOR_COMMAND",
+        "SCUDO_PROTECTED_EVALUATION_REQUEST_ID",
+        "SCUDO_SKILL_OPTIMIZER_COMMAND",
+    ):
+        monkeypatch.setenv(
+            name,
+            public_pem if name == "SCUDO_EVALUATION_PUBLIC_KEY" else f"value-{name}",
+        )
+    monkeypatch.setattr(
+        skill_optimizer_adapter,
+        "run_skill_optimizer_command",
+        lambda request, command: "candidate-v4",
+    )
+    monkeypatch.setattr(
+        protected_evaluator_adapter,
+        "run_protected_evaluator_command",
+        lambda request, command: issue_signed_evaluation_envelope(
+            candidate_content=request["candidate_content"],
+            artifact_id=request["artifact_id"],
+            artifact_version=request["artifact_version"],
+            artifact_kind=request["artifact_kind"],
+            trusted_evidence=holdout,
+            adversarial_evidence=adversarial,
+            candidate_version=request["candidate_version"],
+            baseline_version=None,
+            evaluator_id="fixture-evaluator",
+            evaluator_version="1",
+            private_key_pem=private_pem,
+        ),
+    )
+
+    assert (
+        run_sleep_cycle_job.main(
+            ["run_sleep_cycle_job", "--apply"], store_override=store
+        )
+        == 0
+    )
+    assert store.consult_best_skill() == {
+        "skill_text": "candidate-v4",
+        "version": 4,
+    }
