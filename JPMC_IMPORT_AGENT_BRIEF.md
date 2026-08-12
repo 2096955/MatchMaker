@@ -300,7 +300,9 @@ Cite `:77` when you explain the mechanism. The fix is
 `export CONSOLE_DB_BACKEND=postgres`, not `unset`.
 
 **Line numbers drift, and faster than you expect.**
-[`streamlit_app.py`](streamlit_app.py) grew 872 → 1079 lines during this work.
+[`streamlit_app.py`](streamlit_app.py) grew 872 → 1101 lines during this work
+(the last +22 was the comment correction described above, applied at the very
+end — which is exactly why every anchor into that file was re-derived after it).
 Worse, **other Claude sessions edit this tree while you are writing about it**:
 during the link pass,
 [`backend/scudo_mapping_mcp/config.py`](backend/scudo_mapping_mcp/config.py)
@@ -495,8 +497,8 @@ check `git status` rather than assuming.
 Further verified context lives in the project memory at
 `~/.claude/projects/-Users-anthonylui-MatchMaker-MatchMaker/memory/` — read the
 `MEMORY.md` **in that directory** first. It is **not** the repo-root
-[`MEMORY.md`](MEMORY.md), which is a different file ("Verified Review Notes") and
-contains none of the entries below. That directory is outside the repo, so a
-JPMC clone will not have it. Most relevant here: `aurora-bedrock-file-surface`,
+`MEMORY.md`, which is a different file ("Verified Review Notes"), contains none
+of the entries below, and is deliberately **not committed** — so a clone has
+neither. Both live outside what a JPMC clone gives you. Most relevant here: `aurora-bedrock-file-surface`,
 `streamlit-hitl-applied-codex-review`, `sqlite-fallback-two-gaps`,
 `concurrent-session-doc-overwrite`, `rtk-mangles-measurements`.

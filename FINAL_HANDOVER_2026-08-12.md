@@ -1,7 +1,10 @@
 # Final handover — SCUDO / JPMC documentation work stream
 
-**Written:** 2026-08-12 · **Branch:** `main` @ `51cff58` · **Worktree:** 77 dirty paths (re-measure: `git status --porcelain | wc -l`)
-**Status:** task is complete and ready for review. **Nothing was committed or deployed.**
+**Written:** 2026-08-12 · **Branch:** `main`, was at `51cff58` when this was written (re-measure: `git rev-parse --short HEAD`)
+**Status:** task is complete and ready for review. **Committed on the user's
+instruction; nothing was pushed and nothing was deployed.** Six commits, scoped
+by work stream. Three paths were deliberately left uncommitted — see
+[§5](#5-items-that-needed-approval--both-given-both-done).
 
 This is the closing report for the session. It exists so the next agent can
 pick the work up cold. Read [§1](#1-start-here) and stop there if you only need
@@ -18,7 +21,7 @@ Read these three, in this order. They are the deliverable.
 
 | # | Document | Lines | What it is |
 |---|---|---|---|
-| 1 | [`JPMC_IMPORT_AGENT_BRIEF.md`](JPMC_IMPORT_AGENT_BRIEF.md) | 497 | **The entry point.** Consolidates all three work streams, tells you what is verified and what is not, and gives the ordered task list. |
+| 1 | [`JPMC_IMPORT_AGENT_BRIEF.md`](JPMC_IMPORT_AGENT_BRIEF.md) | 504 | **The entry point.** Consolidates all three work streams, tells you what is verified and what is not, and gives the ordered task list. |
 | 2 | [`JPMC_AURORA_BEDROCK_FILES.md`](JPMC_AURORA_BEDROCK_FILES.md) | 610 | The Aurora/Bedrock file list — the direct answer to the client's question. |
 | 3 | [`HANDOVER_CONSOLIDATION.md`](HANDOVER_CONSOLIDATION.md) | 292 | The doc-consolidation audit: which of the 12 handover docs are current, which are stale. |
 
@@ -39,8 +42,12 @@ no human review — the PASS band and the borderline branch. See
 ## 2. What was actually done this session
 
 The client asked for a file list for Aurora and Bedrock. The work that followed
-was **verification and correction**, not new features. No application code was
-changed.
+was **verification and correction**, not new features. **One comment block in
+application source changed** — the false safety comment in
+[`streamlit_app.py`](streamlit_app.py), rewritten with the user's approval
+([§3](#3-the-correction-that-matters-most)); it is a comment, no behaviour
+moved. Everything else committed this session was pre-existing uncommitted work
+from other streams, not written here.
 
 | Work | Outcome |
 |---|---|
@@ -100,10 +107,12 @@ cited lines before the edit was applied:
 | `agent.py:362-367` — the `map_vendor_product(...)` call | **`:361-366`** | Off by one at both ends: the reader saw the argument list without its opening call, plus one line of unrelated code. |
 
 One more, not a line number: the brief pointed at the project-memory directory
-and then linked `MEMORY.md` **repo-relatively**. Both files exist, so a
-link-existence check passes — but they are *different files*, and none of the
-five named entries are in the repo-root one. Now stated explicitly, with the
-note that the directory is outside the repo and a JPMC clone will not have it.
+and then linked `MEMORY.md` **repo-relatively**. Both files existed on the
+authoring machine, so a link-existence check passed — but they are *different
+files*, and none of the five named entries are in the repo-root one. The link
+was removed rather than repointed: the repo-root `MEMORY.md` was deliberately
+left uncommitted, so it would have 404'd in a clone anyway. Both files are now
+described as what they are — outside what a JPMC clone gives you.
 
 This is the general lesson: **a link validator proves a path resolves, not that
 it resolves to what the sentence promises.** Line numbers and same-name files
@@ -194,23 +203,51 @@ module named 'scudo'`.
 
 ---
 
-## 5. Open items needing your approval
+## 5. Items that needed approval — both given, both done
 
-Listed in the order I would raise them. Item 1 was **not** actioned — it needs a
-decision that is not mine. Item 2 was approved and is done.
+What remains open is the list below them: three paths deliberately left
+uncommitted.
 
-1. **`frontend/dist/` has never been committed.** `git ls-files frontend/dist`
-   returns **0 rows** while `git status` shows `?? frontend/dist/`, even though
-   `.gitignore:18-19` deliberately un-ignores it. A git recipient on a
-   Node-blocked Citrix desktop therefore gets **no console UI at all** —
-   Providers, Datasets, Admin and Ingestion are unreachable.
-   [`CITRIX_NO_NODE.md:47`](CITRIX_NO_NODE.md) reads as though this was already
-   done. **Confirm what JPMC actually holds before pointing them at `/app/`.**
+1. ~~`frontend/dist/` has never been committed~~ — **done.** It is now tracked
+   (3 files), which is what [`CITRIX_NO_NODE.md:47`](CITRIX_NO_NODE.md) already
+   assumed. Without it a recipient on a Node-blocked desktop got **no console
+   UI at all**. **Still confirm what JPMC actually holds** before pointing them
+   at `/app/` — committing it here does not put it on their machine.
 2. ~~The false comment at `streamlit_app.py:128-132`~~ — **done.** The user
    approved it; the comment now spans
    [`:128-151`](streamlit_app.py) and states the four uncapped branches, the
    two auto-mapping ones, and the `SCUDO_DENSE_BACKEND` default. See
    [§3](#3-the-correction-that-matters-most).
+
+### What was committed, and what was deliberately left out
+
+"Commit everything" was scoped rather than taken as a blanket `git add -A`,
+because the worktree held several unrelated in-flight work streams. Six
+commits, each with its own verification basis in the message:
+
+| Commit | Scope |
+|---|---|
+| `docs(jpmc)` | `streamlit_app.py` + theme + these four documents |
+| `feat(local)` | `start_local.py`, SQLite fallback, `local_file_store` |
+| `fix(scudo)` | the seven verified defects and their tests |
+| `docs(jpmc)` | Citrix guides, Aurora bootstrap, README as 5-zone guide |
+| `feat(scudo)` | refusal-detail interceptor, prompt hardening |
+| `build(frontend)` | `frontend/dist/`, TCO workbook |
+
+**Three paths were left uncommitted on purpose.** None is an oversight:
+
+- **`jpmc-port/`** — carries router artifacts (`127.0.0.1:8787`,
+  `~/.codex/shim-router/router.key`, LiteLLM references in
+  `scudo/shared/bedrock.py`, `run_opus_smoke.py`, `run_ab_compare.py`,
+  `README.md`). Router material must never land in this client-facing repo.
+  Scrub those references before any part of it is committed here.
+- **`MEMORY.md`** (repo root) — internal review notes, and its last section
+  documents the local shim router. Same rule. That content is preserved in the
+  RouterProject memory directory.
+- **`backend/.local/`** — a local SQLite database file. Runtime state, not
+  source.
+
+Nothing was pushed. The commits are local to this machine.
 
 ---
 
@@ -257,7 +294,8 @@ State these plainly rather than letting the next agent discover them.
   desktop. A wrong command, a stale line number, or an instruction for something
   already applied costs them hours. This is why the session was spent verifying
   rather than writing.
-- **No commits, no deploys, unless the user asks.** No approval was given.
+- **No commits, no deploys, unless the user asks.** Committing was asked for
+  and done; **pushing and deploying were not** — the commits are local.
 - **Do not claim production readiness** or "fully operational".
 - **Verify before asserting** — prefer running code to reading prose, and state
   the verification basis. Multiple claims in these documents were stale within a
