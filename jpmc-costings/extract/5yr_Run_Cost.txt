@@ -1,0 +1,792 @@
+A1: '5-Year Run Cost — recurring lines, indexed from Y2'
+A2: '="Scenario: envs = "&EnvCount&" · platform = "&Platform&" · sku = "&ModelSKU&" · agents = "&AgentStack&"/"&AgentCount&" · mcp = "&McpServerCount&" · obs = "&Observability&" · HCL = "&HCL_Toggle&" · indexation = "&TEXT(Indexation,"0.0%")'  => 'Scenario: envs = 4 · platform = AKS · sku = GPT-4o · agents = Exclude/1 · mcp = 2 · obs = Azure · HCL = Include · indexation = 3.0%'
+A4: 'Run line'
+B4: 'Side'
+C4: 'Quantity model'
+D4: 'Qty / yr'
+E4: 'Rate/unit £'
+F4: 'Y1'
+G4: 'Y2'
+H4: 'Y3'
+I4: 'Y4'
+J4: 'Y5'
+K4: '5-yr total'
+L4: 'Status'
+M4: 'Basis / source'
+A5: 'AKS cluster management fee (Standard tier) - 24/7'
+B5: 'Azure'
+C5: '1 cluster x 8,760 h/yr'
+D5: 8760
+E5: '=Rates!$C$6'  => 0.0758
+F5: '=(IF(Platform="AKS",(D5*E5)*IF(ClusterCount="Dual",2,1),0))*(1+Indexation)^0'  => 664.008
+G5: '=(IF(Platform="AKS",(D5*E5)*IF(ClusterCount="Dual",2,1),0))*(1+Indexation)^1'  => 683.9282400000001
+H5: '=(IF(Platform="AKS",(D5*E5)*IF(ClusterCount="Dual",2,1),0))*(1+Indexation)^2'  => 704.4460872
+I5: '=(IF(Platform="AKS",(D5*E5)*IF(ClusterCount="Dual",2,1),0))*(1+Indexation)^3'  => 725.579469816
+J5: '=(IF(Platform="AKS",(D5*E5)*IF(ClusterCount="Dual",2,1),0))*(1+Indexation)^4'  => 747.34685391048
+K5: '=SUM(F5:J5)'  => 3525.30865092648
+L5: 'ASSUMPTION'
+M5: 'Rate VERIFIED. Single cluster ASSUMPTION - dual (CDP forced split) flexes via ClusterCount.'
+A6: 'Worker node pools - prod 24/7 + non-prod reduced hours'
+B6: 'Azure'
+C6: '3 prod x 8,760 h + 9 non-prod x 3,120 h = 54,360 node-hrs/yr'
+D6: 54360
+E6: '=Rates!$C$7'  => 0.1682
+F6: '=(IF(Platform="AKS",(D6*E6)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^0'  => 9143.351999999999
+G6: '=(IF(Platform="AKS",(D6*E6)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^1'  => 9417.652559999999
+H6: '=(IF(Platform="AKS",(D6*E6)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^2'  => 9700.182136799998
+I6: '=(IF(Platform="AKS",(D6*E6)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^3'  => 9991.187600903999
+J6: '=(IF(Platform="AKS",(D6*E6)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^4'  => 10290.923228931119
+K6: '=SUM(F6:J6)'  => 48543.29752663511
+L6: 'ASSUMPTION'
+M6: 'Rate VERIFIED. Node counts ASSUMPTION (3/env x 4 envs); non-prod at 12h weekdays (3,120 h/yr) ASSUMPTION - auto-shutdown saves ~64% vs 24/7. NodeSize toggle flexes S/M/L.'
+A7: 'ARO worker node pools - D4ds_v5 (ARO minimum family) - prod 24/7 + non-prod reduced'
+B7: 'Azure'
+C7: '3 prod x 8,760 h + 9 non-prod x 3,120 h = 54,360 node-hrs/yr'
+D7: 54360
+E7: '=Rates!$C$8'  => 0.1985
+F7: '=(IF(Platform="ARO",(D7*E7)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^0'  => 0
+G7: '=(IF(Platform="ARO",(D7*E7)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^1'  => 0
+H7: '=(IF(Platform="ARO",(D7*E7)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^2'  => 0
+I7: '=(IF(Platform="ARO",(D7*E7)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^3'  => 0
+J7: '=(IF(Platform="ARO",(D7*E7)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^4'  => 0
+K7: '=SUM(F7:J7)'  => 0
+L7: 'ASSUMPTION'
+M7: 'Rate VERIFIED (ARO minimum worker family D4ds_v5). Volumes as R-L2; scales with EnvCount and NodeSize. Priced only when Platform=ARO.'
+A8: 'ARO OpenShift worker licence uplift (ARO branch only)'
+B8: 'Azure'
+C8: '12 prod vCPU x 8,760 + 36 non-prod vCPU x 3,120 = 217,440 vCPU-hrs/yr'
+D8: 217440
+E8: '=Rates!$C$10'  => 0.0324
+F8: '=(IF(Platform="ARO",(D8*E8)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^0'  => 0
+G8: '=(IF(Platform="ARO",(D8*E8)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^1'  => 0
+H8: '=(IF(Platform="ARO",(D8*E8)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^2'  => 0
+I8: '=(IF(Platform="ARO",(D8*E8)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^3'  => 0
+J8: '=(IF(Platform="ARO",(D8*E8)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0))*(1+Indexation)^4'  => 0
+K8: '=SUM(F8:J8)'  => 0
+L8: 'ASSUMPTION'
+M8: 'Rate VERIFIED. Volume follows R-L2 node assumptions. Prices the open KDD-1 ARO branch (F3).'
+A9: 'ARO control-plane nodes 3x D8s_v5 - 24/7 (ARO branch only)'
+B9: 'Azure'
+C9: '3 masters x 8,760 h = 26,280 node-hrs/yr'
+D9: 26280
+E9: '=Rates!$C$9'  => 0.3364
+F9: '=(IF(Platform="ARO",(D9*E9)*IF(ClusterCount="Dual",2,1),0))*(1+Indexation)^0'  => 0
+G9: '=(IF(Platform="ARO",(D9*E9)*IF(ClusterCount="Dual",2,1),0))*(1+Indexation)^1'  => 0
+H9: '=(IF(Platform="ARO",(D9*E9)*IF(ClusterCount="Dual",2,1),0))*(1+Indexation)^2'  => 0
+I9: '=(IF(Platform="ARO",(D9*E9)*IF(ClusterCount="Dual",2,1),0))*(1+Indexation)^3'  => 0
+J9: '=(IF(Platform="ARO",(D9*E9)*IF(ClusterCount="Dual",2,1),0))*(1+Indexation)^4'  => 0
+K9: '=SUM(F9:J9)'  => 0
+L9: 'ASSUMPTION'
+M9: 'Rate VERIFIED; ARO requires 3 always-on control-plane nodes (azure_infra_rates narrative).'
+A10: 'PostgreSQL Flexible Server GP 4-vCore - prod 24/7 + non-prod reduced'
+B10: 'Azure'
+C10: '1 prod x 8,760 + 3 non-prod x 3,120 = 18,120 hrs/yr'
+D10: 18120
+E10: '=Rates!$C$14'  => 0.3121
+F10: '=((D10*E10)*EnvCount/4)*(1+Indexation)^0'  => 5655.2519999999995
+G10: '=((D10*E10)*EnvCount/4)*(1+Indexation)^1'  => 5824.90956
+H10: '=((D10*E10)*EnvCount/4)*(1+Indexation)^2'  => 5999.6568468
+I10: '=((D10*E10)*EnvCount/4)*(1+Indexation)^3'  => 6179.646552204
+J10: '=((D10*E10)*EnvCount/4)*(1+Indexation)^4'  => 6365.035948770119
+K10: '=SUM(F10:J10)'  => 30024.50090777412
+L10: 'ASSUMPTION'
+M10: 'Rate VERIFIED. 1 server/env at 4-env baseline; non-prod 12h weekdays ASSUMPTION.'
+A11: 'PostgreSQL provisioned storage'
+B11: 'Azure'
+C11: '128 GB x 4 envs x 12 mo = 6,144 GB-months/yr'
+D11: 6144
+E11: '=Rates!$C$15'  => 0.1008
+F11: '=((D11*E11)*EnvCount/4)*(1+Indexation)^0'  => 619.3152
+G11: '=((D11*E11)*EnvCount/4)*(1+Indexation)^1'  => 637.894656
+H11: '=((D11*E11)*EnvCount/4)*(1+Indexation)^2'  => 657.0314956799999
+I11: '=((D11*E11)*EnvCount/4)*(1+Indexation)^3'  => 676.7424405504
+J11: '=((D11*E11)*EnvCount/4)*(1+Indexation)^4'  => 697.044713766912
+K11: '=SUM(F11:J11)'  => 3288.0285059973116
+L11: 'ASSUMPTION'
+M11: 'Rate VERIFIED; sizing ASSUMPTION (no published sizing, F14).'
+A12: 'Azure SQL Database GP 4-vCore - prod 24/7 + non-prod reduced'
+B12: 'Azure'
+C12: '1 prod x 8,760 + 3 non-prod x 3,120 = 18,120 hrs/yr'
+D12: 18120
+E12: '=Rates!$C$16'  => 0.5766
+F12: '=((D12*E12)*EnvCount/4)*(1+Indexation)^0'  => 10447.992
+G12: '=((D12*E12)*EnvCount/4)*(1+Indexation)^1'  => 10761.431760000001
+H12: '=((D12*E12)*EnvCount/4)*(1+Indexation)^2'  => 11084.2747128
+I12: '=((D12*E12)*EnvCount/4)*(1+Indexation)^3'  => 11416.802954184
+J12: '=((D12*E12)*EnvCount/4)*(1+Indexation)^4'  => 11759.30704280952
+K12: '=SUM(F12:J12)'  => 55469.80846979353
+L12: 'ASSUMPTION'
+M12: 'Rate VERIFIED; env pattern ASSUMPTION as R-L5.'
+A13: 'Cosmos DB serverless (MongoDB-API workloads)'
+B13: 'Azure'
+C13: '100 M RU/mo x 12 = 1,200 units of 1M RU/yr'
+D13: 1200
+E13: '=Rates!$C$17'  => 0.225
+F13: '=((D13*E13)*EnvCount/4)*(1+Indexation)^0'  => 270
+G13: '=((D13*E13)*EnvCount/4)*(1+Indexation)^1'  => 278.1
+H13: '=((D13*E13)*EnvCount/4)*(1+Indexation)^2'  => 286.443
+I13: '=((D13*E13)*EnvCount/4)*(1+Indexation)^3'  => 295.03629
+J13: '=((D13*E13)*EnvCount/4)*(1+Indexation)^4'  => 303.8873787
+K13: '=SUM(F13:J13)'  => 1433.4666687000001
+L13: 'ASSUMPTION'
+M13: 'Rate VERIFIED; volume ASSUMPTION - true volume unknowable until R1 use cases land (F5).'
+A14: 'Event Hubs Standard (Kafka endpoint) - prod 24/7 + non-prod reduced'
+B14: 'Azure'
+C14: '1 TU prod x 8,760 + 3 non-prod x 3,120 = 18,120 TU-hrs/yr'
+D14: 18120
+E14: '=Rates!$C$18'  => 0.0227
+F14: '=((D14*E14)*EnvCount/4)*(1+Indexation)^0'  => 411.324
+G14: '=((D14*E14)*EnvCount/4)*(1+Indexation)^1'  => 423.66372
+H14: '=((D14*E14)*EnvCount/4)*(1+Indexation)^2'  => 436.3736316
+I14: '=((D14*E14)*EnvCount/4)*(1+Indexation)^3'  => 449.46484054800004
+J14: '=((D14*E14)*EnvCount/4)*(1+Indexation)^4'  => 462.94878576444
+K14: '=SUM(F14:J14)'  => 2183.77497791244
+L14: 'INDICATIVE'
+M14: 'Rate VERIFIED but HCL matrix marks Event Hubs = N for UnO/CDP/Unica+ - self-hosted Kafka on cluster is the fallback (cost shifts to node pools).'
+A15: 'Azure Cache for Redis Standard C1 - prod 24/7 + non-prod reduced'
+B15: 'Azure'
+C15: '1 prod x 8,760 + 3 non-prod x 3,120 = 18,120 cache-hrs/yr'
+D15: 18120
+E15: '=Rates!$C$19'  => 0.1311
+F15: '=((D15*E15)*EnvCount/4)*(1+Indexation)^0'  => 2375.5319999999997
+G15: '=((D15*E15)*EnvCount/4)*(1+Indexation)^1'  => 2446.79796
+H15: '=((D15*E15)*EnvCount/4)*(1+Indexation)^2'  => 2520.2018987999995
+I15: '=((D15*E15)*EnvCount/4)*(1+Indexation)^3'  => 2595.807955764
+J15: '=((D15*E15)*EnvCount/4)*(1+Indexation)^4'  => 2673.6821944369194
+K15: '=SUM(F15:J15)'  => 12612.022009000917
+L15: 'ASSUMPTION'
+M15: 'Rate VERIFIED; env pattern ASSUMPTION as R-L5.'
+A16: 'Application Gateway WAF_v2 - prod 24/7 + shared non-prod reduced'
+B16: 'Azure'
+C16: '1 prod x 8,760 + 1 non-prod x 3,120 = 11,880 gw-hrs/yr'
+D16: 11880
+E16: '=Rates!$C$23'  => 0.3409
+F16: '=((D16*E16)*EnvCount/4)*(1+Indexation)^0'  => 4049.892
+G16: '=((D16*E16)*EnvCount/4)*(1+Indexation)^1'  => 4171.38876
+H16: '=((D16*E16)*EnvCount/4)*(1+Indexation)^2'  => 4296.5304227999995
+I16: '=((D16*E16)*EnvCount/4)*(1+Indexation)^3'  => 4425.4263354839995
+J16: '=((D16*E16)*EnvCount/4)*(1+Indexation)^4'  => 4558.18912554852
+K16: '=SUM(F16:J16)'  => 21501.42664383252
+L16: 'ASSUMPTION'
+M16: 'Rate VERIFIED; 2-gateway topology ASSUMPTION as P2-L19.'
+A17: 'Application Gateway WAF_v2 - capacity units (prod)'
+B17: 'Azure'
+C17: '10 CU avg x 8,760 h = 87,600 CU-hrs/yr'
+D17: 87600
+E17: '=Rates!$C$24'  => 0.0109
+F17: '=((D17*E17)*EnvCount/4)*(1+Indexation)^0'  => 954.84
+G17: '=((D17*E17)*EnvCount/4)*(1+Indexation)^1'  => 983.4852000000001
+H17: '=((D17*E17)*EnvCount/4)*(1+Indexation)^2'  => 1012.9897559999999
+I17: '=((D17*E17)*EnvCount/4)*(1+Indexation)^3'  => 1043.37944868
+J17: '=((D17*E17)*EnvCount/4)*(1+Indexation)^4'  => 1074.6808321403998
+K17: '=SUM(F17:J17)'  => 5069.3752368204
+L17: 'ASSUMPTION'
+M17: "Rate VERIFIED; 10 CU average ASSUMPTION (azure_infra_rates 'typical small prod ~10 CU')."
+A18: 'API Management Standard unit - 24/7 (marginal; estate APIM may absorb)'
+B18: 'Azure'
+C18: '1 unit x 8,760 h/yr'
+D18: 8760
+E18: '=Rates!$C$25'  => 0.7127
+F18: '=(D18*E18)*(1+Indexation)^0'  => 6243.252
+G18: '=(D18*E18)*(1+Indexation)^1'  => 6430.54956
+H18: '=(D18*E18)*(1+Indexation)^2'  => 6623.4660468
+I18: '=(D18*E18)*(1+Indexation)^3'  => 6822.170028204
+J18: '=(D18*E18)*(1+Indexation)^4'  => 7026.83512905012
+K18: '=SUM(F18:J18)'  => 33146.27276405412
+L18: 'INDICATIVE'
+M18: 'Rate VERIFIED. Set qty 0 if absorbed by existing estate APIM (SEGRO already runs APIM per architecture principles).'
+A19: 'VPN Gateway VpnGw1 - 24/7 (marginal; estate may already carry)'
+B19: 'Azure'
+C19: '1 gateway x 8,760 h/yr'
+D19: 8760
+E19: '=Rates!$C$26'  => 0.1439
+F19: '=(D19*E19)*(1+Indexation)^0'  => 1260.564
+G19: '=(D19*E19)*(1+Indexation)^1'  => 1298.38092
+H19: '=(D19*E19)*(1+Indexation)^2'  => 1337.3323476
+I19: '=(D19*E19)*(1+Indexation)^3'  => 1377.452318028
+J19: '=(D19*E19)*(1+Indexation)^4'  => 1418.77588756884
+K19: '=SUM(F19:J19)'  => 6692.505473196839
+L19: 'INDICATIVE'
+M19: 'Rate VERIFIED; marginal cost may be nil on the existing single-tenant estate - set qty 0 if absorbed.'
+A20: 'Azure Private DNS zones'
+B20: 'Azure'
+C20: '10 zones x 12 mo = 120 zone-months/yr'
+D20: 120
+E20: '=Rates!$C$27'  => 0.3788
+F20: '=(D20*E20)*(1+Indexation)^0'  => 45.456
+G20: '=(D20*E20)*(1+Indexation)^1'  => 46.819680000000005
+H20: '=(D20*E20)*(1+Indexation)^2'  => 48.2242704
+I20: '=(D20*E20)*(1+Indexation)^3'  => 49.670998512000004
+J20: '=(D20*E20)*(1+Indexation)^4'  => 51.16112846736
+K20: '=SUM(F20:J20)'  => 241.33207737936004
+L20: 'ASSUMPTION'
+M20: 'Rate VERIFIED; zone count ASSUMPTION as P2-L23. Pennies - completeness.'
+A21: 'Log Analytics ingestion - platform + agent observability (the biggest observability driver)'
+B21: 'Azure'
+C21: '10 GB/day x 365 = 3,650 GB/yr'
+D21: 3650
+E21: '=Rates!$C$31'  => 2.1819
+F21: '=((D21*E21)*EnvCount/4)*(1+Indexation)^0'  => 7963.935
+G21: '=((D21*E21)*EnvCount/4)*(1+Indexation)^1'  => 8202.853050000002
+H21: '=((D21*E21)*EnvCount/4)*(1+Indexation)^2'  => 8448.9386415
+I21: '=((D21*E21)*EnvCount/4)*(1+Indexation)^3'  => 8702.406800745
+J21: '=((D21*E21)*EnvCount/4)*(1+Indexation)^4'  => 8963.47900476735
+K21: '=SUM(F21:J21)'  => 42281.61249701236
+L21: 'ASSUMPTION'
+M21: 'Rate VERIFIED (2.1819/GB PAYG). 10 GB/day ASSUMPTION - agent platforms are log-heavy (azure_infra_rates narrative: budget by GB/day); commitment tiers discount 15-30% at 100 GB/day+.'
+A22: 'Azure Monitor metric alert rules'
+B22: 'Azure'
+C22: '100 metric timeseries x 12 mo = 1,200 metric-months/yr'
+D22: 1200
+E22: '=Rates!$C$32'  => 0.0758
+F22: '=(D22*E22)*(1+Indexation)^0'  => 90.96000000000001
+G22: '=(D22*E22)*(1+Indexation)^1'  => 93.68880000000001
+H22: '=(D22*E22)*(1+Indexation)^2'  => 96.499464
+I22: '=(D22*E22)*(1+Indexation)^3'  => 99.39444792
+J22: '=(D22*E22)*(1+Indexation)^4'  => 102.3762813576
+K22: '=SUM(F22:J22)'  => 482.91899327760007
+L22: 'ASSUMPTION'
+M22: 'Rate VERIFIED; alert-rule count ASSUMPTION for a multi-service platform (first 10 free).'
+A23: 'Key Vault operations'
+B23: 'Azure'
+C23: '5M ops/yr = 500 units of 10k ops'
+D23: 500
+E23: '=Rates!$C$46'  => 0.0227
+F23: '=(D23*E23)*(1+Indexation)^0'  => 11.350000000000001
+G23: '=(D23*E23)*(1+Indexation)^1'  => 11.690500000000002
+H23: '=(D23*E23)*(1+Indexation)^2'  => 12.041215000000001
+I23: '=(D23*E23)*(1+Indexation)^3'  => 12.402451450000001
+J23: '=(D23*E23)*(1+Indexation)^4'  => 12.7745249935
+K23: '=SUM(F23:J23)'  => 60.258691443500005
+L23: 'ASSUMPTION'
+M23: 'Rate VERIFIED; negligible (a few GBP/yr) - completeness.'
+A24: 'Microsoft Defender for Cloud workload protection'
+B24: 'Azure'
+C24: '40 resources x 12 mo = 480 resource-months x rate GBP 0'
+D24: 480
+E24: '=Rates!$C$47'  => 0
+F24: '=((D24*E24)*EnvCount/4)*(1+Indexation)^0'  => 0
+G24: '=((D24*E24)*EnvCount/4)*(1+Indexation)^1'  => 0
+H24: '=((D24*E24)*EnvCount/4)*(1+Indexation)^2'  => 0
+I24: '=((D24*E24)*EnvCount/4)*(1+Indexation)^3'  => 0
+J24: '=((D24*E24)*EnvCount/4)*(1+Indexation)^4'  => 0
+K24: '=SUM(F24:J24)'  => 0
+L24: 'RATE_MISSING'
+M24: 'Rate not priced in fact files - GBP 0 adjustable until priced; will appear on a real bill.'
+A25: 'Azure OpenAI - input tokens (placeholder until R1 use cases land)'
+B25: 'Azure'
+C25: '50M tokens/mo x 12 = 600 units of 1M/yr'
+D25: 600
+E25: '=Rates!$C$131'  => 1.9
+F25: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4o",D25*E25,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 1140
+G25: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4o",D25*E25,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 1174.2
+H25: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4o",D25*E25,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 1209.426
+I25: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4o",D25*E25,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 1245.70878
+J25: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4o",D25*E25,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 1283.0800433999998
+K25: '=SUM(F25:J25)'  => 6052.414823399999
+L25: 'ASSUMPTION'
+M25: 'Rate VERIFIED (uksouth meter). Volume is a placeholder ASSUMPTION: F5 - the POAP delivers zero business-facing use cases at go-live, so token spend is near-zero until R1; adjust when R1 scope lands. GPT-4.1/4.1-mini are cheaper per the same fact file.'
+A26: 'Azure OpenAI - output tokens (placeholder until R1 use cases land)'
+B26: 'Azure'
+C26: '10M tokens/mo x 12 = 120 units of 1M/yr'
+D26: 120
+E26: '=Rates!$C$132'  => 7.6
+F26: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4o",D26*E26,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 912
+G26: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4o",D26*E26,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 939.36
+H26: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4o",D26*E26,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 967.5408
+I26: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4o",D26*E26,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 996.567024
+J26: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4o",D26*E26,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 1026.46403472
+K26: '=SUM(F26:J26)'  => 4841.9318587200005
+L26: 'ASSUMPTION'
+M26: 'As R-L20; Batch API halves the rate.'
+A27: 'SEGRO platform run team - support & maintain, patching, upgrades, evals'
+B27: 'SEGRO'
+C27: '2 FTE x 220 working d/yr = 440 days/yr'
+D27: 440
+E27: '=Rates!$C$92'  => 525
+F27: '=(D27*E27)*(1+Indexation)^0'  => 231000
+G27: '=(D27*E27)*(1+Indexation)^1'  => 237930
+H27: '=(D27*E27)*(1+Indexation)^2'  => 245067.9
+I27: '=(D27*E27)*(1+Indexation)^3'  => 252419.937
+J27: '=(D27*E27)*(1+Indexation)^4'  => 259992.53510999997
+K27: '=SUM(F27:J27)'  => 1226410.37211
+L27: 'ASSUMPTION'
+M27: "2 FTE ongoing ASSUMPTION (~GBP 231k/yr at the VERIFIED 525/day median). Context: the 15-22%-of-build annual S&M benchmark implies GBP 125-183k/yr on the default GBP 830k build - the 2-FTE line sits above that band because it also covers evals/upgrades, and full Y1 run (~GBP 312k incl. Azure) is 37.6% of build. Adjust the qty to taste. Rate VERIFIED. The run team also owns the agent-learning-to-rules feedback loop the architect flagged (F24, 18 Jul 2026) - evals/golden-set refresh is already within this line's scope."
+A28: 'ServiceNow ITSM - platform support fulfilers'
+B28: 'SEGRO'
+C28: '20 fulfilers x 12 mo = 240 user-months/yr'
+D28: 240
+E28: '=Rates!$C$118'  => 74.02
+F28: '=(D28*E28)*(1+Indexation)^0'  => 17764.8
+G28: '=(D28*E28)*(1+Indexation)^1'  => 18297.744
+H28: '=(D28*E28)*(1+Indexation)^2'  => 18846.67632
+I28: '=(D28*E28)*(1+Indexation)^3'  => 19412.0766096
+J28: '=(D28*E28)*(1+Indexation)^4'  => 19994.438907887998
+K28: '=SUM(F28:J28)'  => 94315.735837488
+L28: 'INDICATIVE'
+M28: 'Rate INDICATIVE (aggregator USD 100/user/mo converted at 0.74015; ServiceNow publishes no list prices; packaging moved Apr 2026). 20 fulfilers fixed ASSUMPTION (OrgSize-agnostic). SEGRO already runs ServiceNow - marginal seats only.'
+A29: 'HCL AMS / ongoing support & maintenance contract'
+B29: 'HCL'
+C29: '1 year x rate GBP 0 until contract shared'
+D29: 1
+E29: '=Rates!$C$127'  => 0
+F29: '=(IF(HCL_Toggle="Include",D29*E29,0))*(1+Indexation)^0'  => 0
+G29: '=(IF(HCL_Toggle="Include",D29*E29,0))*(1+Indexation)^1'  => 0
+H29: '=(IF(HCL_Toggle="Include",D29*E29,0))*(1+Indexation)^2'  => 0
+I29: '=(IF(HCL_Toggle="Include",D29*E29,0))*(1+Indexation)^3'  => 0
+J29: '=(IF(HCL_Toggle="Include",D29*E29,0))*(1+Indexation)^4'  => 0
+K29: '=SUM(F29:J29)'  => 0
+L29: 'RATE_MISSING'
+M29: 'HCL contract pricing not shared. GBP 0 adjustable - HCL run totals are a FLOOR. Green Book outsourcing opex optimism bias +41% upper bound applies once a real figure lands.'
+A30: 'HCL UnO platform licence renewal'
+B30: 'HCL'
+C30: '1 year x rate GBP 0 until contract shared'
+D30: 1
+E30: '=Rates!$C$119'  => 0
+F30: '=(IF(HCL_Toggle="Include",D30*E30,0))*(1+Indexation)^0'  => 0
+G30: '=(IF(HCL_Toggle="Include",D30*E30,0))*(1+Indexation)^1'  => 0
+H30: '=(IF(HCL_Toggle="Include",D30*E30,0))*(1+Indexation)^2'  => 0
+I30: '=(IF(HCL_Toggle="Include",D30*E30,0))*(1+Indexation)^3'  => 0
+J30: '=(IF(HCL_Toggle="Include",D30*E30,0))*(1+Indexation)^4'  => 0
+K30: '=SUM(F30:J30)'  => 0
+L30: 'RATE_MISSING'
+M30: 'As R-L24.'
+A31: 'HCL Unica+ licence renewal'
+B31: 'HCL'
+C31: '1 year x rate GBP 0 until contract shared'
+D31: 1
+E31: '=Rates!$C$120'  => 0
+F31: '=(IF(HCL_Toggle="Include",D31*E31,0))*(1+Indexation)^0'  => 0
+G31: '=(IF(HCL_Toggle="Include",D31*E31,0))*(1+Indexation)^1'  => 0
+H31: '=(IF(HCL_Toggle="Include",D31*E31,0))*(1+Indexation)^2'  => 0
+I31: '=(IF(HCL_Toggle="Include",D31*E31,0))*(1+Indexation)^3'  => 0
+J31: '=(IF(HCL_Toggle="Include",D31*E31,0))*(1+Indexation)^4'  => 0
+K31: '=SUM(F31:J31)'  => 0
+L31: 'RATE_MISSING'
+M31: 'As R-L24.'
+A32: 'HCL CDP licence renewal'
+B32: 'HCL'
+C32: '1 year x rate GBP 0 until contract shared'
+D32: 1
+E32: '=Rates!$C$121'  => 0
+F32: '=(IF(HCL_Toggle="Include",D32*E32,0))*(1+Indexation)^0'  => 0
+G32: '=(IF(HCL_Toggle="Include",D32*E32,0))*(1+Indexation)^1'  => 0
+H32: '=(IF(HCL_Toggle="Include",D32*E32,0))*(1+Indexation)^2'  => 0
+I32: '=(IF(HCL_Toggle="Include",D32*E32,0))*(1+Indexation)^3'  => 0
+J32: '=(IF(HCL_Toggle="Include",D32*E32,0))*(1+Indexation)^4'  => 0
+K32: '=SUM(F32:J32)'  => 0
+L32: 'RATE_MISSING'
+M32: 'As R-L24.'
+A33: 'HCL DX licence renewal'
+B33: 'HCL'
+C33: '1 year x rate GBP 0 until contract shared'
+D33: 1
+E33: '=Rates!$C$122'  => 0
+F33: '=(IF(HCL_Toggle="Include",D33*E33,0))*(1+Indexation)^0'  => 0
+G33: '=(IF(HCL_Toggle="Include",D33*E33,0))*(1+Indexation)^1'  => 0
+H33: '=(IF(HCL_Toggle="Include",D33*E33,0))*(1+Indexation)^2'  => 0
+I33: '=(IF(HCL_Toggle="Include",D33*E33,0))*(1+Indexation)^3'  => 0
+J33: '=(IF(HCL_Toggle="Include",D33*E33,0))*(1+Indexation)^4'  => 0
+K33: '=SUM(F33:J33)'  => 0
+L33: 'RATE_MISSING'
+M33: 'As R-L24.'
+A34: 'Third-party licence renewals - Oracle 19 + Aerospike (+ any MinIO successor)'
+B34: 'ThirdParty'
+C34: '1 bundle/yr x rate GBP 0 until quoted'
+D34: 1
+E34: 0
+F34: '=(D34*E34)*(1+Indexation)^0'  => 0
+G34: '=(D34*E34)*(1+Indexation)^1'  => 0
+H34: '=(D34*E34)*(1+Indexation)^2'  => 0
+I34: '=(D34*E34)*(1+Indexation)^3'  => 0
+J34: '=(D34*E34)*(1+Indexation)^4'  => 0
+K34: '=SUM(F34:J34)'  => 0
+L34: 'RATE_MISSING'
+M34: 'F10 procurement items (HCL_V1 brief): prices not shared/published. GBP 0 adjustable.'
+A35: 'FinOps / cost optimisation review cadence'
+B35: 'SEGRO'
+C35: '1 day/mo x 12 = 12 days/yr'
+D35: 12
+E35: '=Rates!$C$93'  => 525
+F35: '=(D35*E35)*(1+Indexation)^0'  => 6300
+G35: '=(D35*E35)*(1+Indexation)^1'  => 6489
+H35: '=(D35*E35)*(1+Indexation)^2'  => 6683.67
+I35: '=(D35*E35)*(1+Indexation)^3'  => 6884.1801
+J35: '=(D35*E35)*(1+Indexation)^4'  => 7090.705502999999
+K35: '=SUM(F35:J35)'  => 33447.55560299999
+L35: 'ASSUMPTION'
+M35: "ASSUMPTION per sizing_updates_missed 'post go-live run-rate FinOps review cadence' - POAP shows none. Rate VERIFIED. Typically self-funding against PAYG list prices (reservations save 30-60%)."
+A36: 'Recurring AI red-team / audit dry-run cadence (annual refresh as agent surfaces and edge cases grow - F24/F26)'
+B36: 'ThirdParty'
+C36: '1 engagement/yr x ~5 tester-days = 5 days/yr'
+D36: 5
+E36: '=Rates!$C$126'  => 950
+F36: '=(D36*E36)*(1+Indexation)^0'  => 4750
+G36: '=(D36*E36)*(1+Indexation)^1'  => 4892.5
+H36: '=(D36*E36)*(1+Indexation)^2'  => 5039.275
+I36: '=(D36*E36)*(1+Indexation)^3'  => 5190.45325
+J36: '=(D36*E36)*(1+Indexation)^4'  => 5346.1668475
+K36: '=SUM(F36:J36)'  => 25218.3950975
+L36: 'INDICATIVE'
+M36: "Annual cadence is an ASSUMPTION. Rate: DERIVED CREST pen-test day rate (950) used as an INDICATIVE proxy for a specialist AI red-team rate - no published AI-red-team rate exists in the fact files. Ties to the architect's point that agent learning / edge-case transfer is ongoing, so red-team scope grows with the agent surface (F24; senior architect review 18 Jul 2026, F26). Lifecycle framing reinforced 18 Jul 2026: red-team scope grows with the agent surface, so this is a standing annual cadence, not a one-off — pairs with the widened pre-go-live two-touch range on P4-L8."
+A37: 'Claude Sonnet — input tokens (ModelSKU=Claude-Sonnet-5; mirrors R-L20 volume)'
+B37: 'Azure'
+C37: '50M tokens/mo x 12 = 600 units of 1M/yr (same volume, Claude list rate)'
+D37: 600
+E37: '=Rates!$C$57'  => 2.22
+F37: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Sonnet-5",D37*E37,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G37: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Sonnet-5",D37*E37,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H37: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Sonnet-5",D37*E37,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I37: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Sonnet-5",D37*E37,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J37: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Sonnet-5",D37*E37,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K37: '=SUM(F37:J37)'  => 0
+L37: 'INDICATIVE'
+M37: 'CLAUDE branch of the ModelChoice toggle: same token VOLUME as the GPT-4o line it mirrors, priced at the Anthropic Claude Sonnet LIST rate (INDICATIVE, no committed-use discount; durable standard rate, not the intro rate that expires 31 Aug 2026). Active only when ModelChoice=Claude. Verified fragment: model_serving_rates.json (APPROVE). v3: ClaudeOnAzure / ModelSKU=Claude-Sonnet-5 (was ModelChoice=Claude).'
+A38: 'Claude Sonnet — output tokens (ModelSKU=Claude-Sonnet-5; mirrors R-L21 volume)'
+B38: 'Azure'
+C38: '10M tokens/mo x 12 = 120 units of 1M/yr (same volume, Claude list rate)'
+D38: 120
+E38: '=Rates!$C$58'  => 11.1
+F38: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Sonnet-5",D38*E38,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G38: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Sonnet-5",D38*E38,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H38: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Sonnet-5",D38*E38,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I38: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Sonnet-5",D38*E38,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J38: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Sonnet-5",D38*E38,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K38: '=SUM(F38:J38)'  => 0
+L38: 'INDICATIVE'
+M38: 'CLAUDE branch of the ModelChoice toggle: same token VOLUME as the GPT-4o line it mirrors, priced at the Anthropic Claude Sonnet LIST rate (INDICATIVE, no committed-use discount; durable standard rate, not the intro rate that expires 31 Aug 2026). Active only when ModelChoice=Claude. Verified fragment: model_serving_rates.json (APPROVE). v3: ClaudeOnAzure / ModelSKU=Claude-Sonnet-5 (was ModelChoice=Claude).'
+A39: 'Self-hosted model serving — GPU node 24/7 (ModelChoice=Llama; A100 single-model pool)'
+B39: 'Azure'
+C39: '1 x NC24ads_A100_v4 node x 8,760 hr/yr (24/7 prod serving)'
+D39: 8760
+E39: '=Rates!$C$51'  => 3.4782
+F39: '=(IF(ModelVendor="Llama",IF(ModelSKU="Llama",D39*E39,0),0))*(1+Indexation)^0'  => 0
+G39: '=(IF(ModelVendor="Llama",IF(ModelSKU="Llama",D39*E39,0),0))*(1+Indexation)^1'  => 0
+H39: '=(IF(ModelVendor="Llama",IF(ModelSKU="Llama",D39*E39,0),0))*(1+Indexation)^2'  => 0
+I39: '=(IF(ModelVendor="Llama",IF(ModelSKU="Llama",D39*E39,0),0))*(1+Indexation)^3'  => 0
+J39: '=(IF(ModelVendor="Llama",IF(ModelSKU="Llama",D39*E39,0),0))*(1+Indexation)^4'  => 0
+K39: '=SUM(F39:J39)'  => 0
+L39: 'ASSUMPTION'
+M39: 'LLAMA branch: 24/7 production inference serving on a single A100 80GB node (GBP 3.4782/hr VERIFIED, Azure Retail API uksouth). PAYG list is the ceiling — 1yr/3yr reservations and spot cut it materially. This is the run-time cost the self-host argument must show: unlike a hosted API, you pay for the GPU whether or not tokens flow. Active only when ModelChoice=Llama. Fragment: model_serving_rates.json.'
+A40: 'Inference-ops run-team uplift for self-hosted serving (ModelChoice=Llama)'
+B40: 'SEGRO'
+C40: 'FTE fraction x 231 billable d/yr — ships at 0 (adjustable): 0.2–0.5 FTE illustrative'
+D40: 0
+E40: '=Rates!$C$75'  => 575
+F40: '=(IF(ModelVendor="Llama",IF(ModelSKU="Llama",D40*E40,0),0))*(1+Indexation)^0'  => 0
+G40: '=(IF(ModelVendor="Llama",IF(ModelSKU="Llama",D40*E40,0),0))*(1+Indexation)^1'  => 0
+H40: '=(IF(ModelVendor="Llama",IF(ModelSKU="Llama",D40*E40,0),0))*(1+Indexation)^2'  => 0
+I40: '=(IF(ModelVendor="Llama",IF(ModelSKU="Llama",D40*E40,0),0))*(1+Indexation)^3'  => 0
+J40: '=(IF(ModelVendor="Llama",IF(ModelSKU="Llama",D40*E40,0),0))*(1+Indexation)^4'  => 0
+K40: '=SUM(F40:J40)'  => 0
+L40: 'ASSUMPTION'
+M40: 'LLAMA branch ONLY. Ships at qty 0 so no invented headcount enters a total; the MLOps day rate (GBP 575, VERIFIED ITJobsWatch median) is the basis, the 0.2–0.5 FTE fraction is the ASSUMPTION (set the qty to fraction x 231). INCREMENTAL to the R-L22 platform run team — do not double-count. Self-hosting adds GPU/driver/CUDA lifecycle, quantisation & throughput tuning, 24/7 serving health that a hosted API removes. Active only when ModelChoice=Llama. Fragment: model_serving_rates.json.'
+A41: 'Datadog Infrastructure Monitoring — per-host, ADDITIVE on top of Azure-native (Observability=Datadog)'
+B41: 'Azure'
+C41: '12 worker hosts (3/env x 4 envs, matching R-L2) x 12 mo = 144 host-months/yr; scales with EnvCount'
+D41: 144
+E41: '=Rates!$C$41'  => 11.1
+F41: '=(IF(Observability="Datadog",(D41*E41)*EnvCount/4,0))*(1+Indexation)^0'  => 0
+G41: '=(IF(Observability="Datadog",(D41*E41)*EnvCount/4,0))*(1+Indexation)^1'  => 0
+H41: '=(IF(Observability="Datadog",(D41*E41)*EnvCount/4,0))*(1+Indexation)^2'  => 0
+I41: '=(IF(Observability="Datadog",(D41*E41)*EnvCount/4,0))*(1+Indexation)^3'  => 0
+J41: '=(IF(Observability="Datadog",(D41*E41)*EnvCount/4,0))*(1+Indexation)^4'  => 0
+K41: '=SUM(F41:J41)'  => 0
+L41: 'INDICATIVE'
+M41: "DATADOG branch: Infrastructure Monitoring Pro GBP 11.10/host/mo (committed annual, INDICATIVE list). Host count is DERIVED from the same worker-node estate as the run compute line R-L2 (3 nodes/env x 4 envs = 12 hosts) x 12 months = 144 host-months, and scales with EnvCount (env_scaling) so it tracks the node model rather than a static guess (fact file: 'size against the AKS/ARO node count'). APM is priced SEPARATELY on the same hosts (R-L39) — not conflated here. List price is a CEILING; the negotiated discount tier is RATE_MISSING (datadog_committed_annual_spend_tier). Active only when Observability=Datadog. Fragment: observability_datadog_rates.json."
+A42: 'Datadog APM — per traced host, ADDITIVE (Observability=Datadog; attached rate, pairs with R-L36 Infra)'
+B42: 'Azure'
+C42: 'Same 12-host estate as R-L36 (3/env x 4 envs) x 12 mo = 144 host-months/yr; scales with EnvCount'
+D42: 144
+E42: '=Rates!$C$39'  => 22.94
+F42: '=(IF(Observability="Datadog",(D42*E42)*EnvCount/4,0))*(1+Indexation)^0'  => 0
+G42: '=(IF(Observability="Datadog",(D42*E42)*EnvCount/4,0))*(1+Indexation)^1'  => 0
+H42: '=(IF(Observability="Datadog",(D42*E42)*EnvCount/4,0))*(1+Indexation)^2'  => 0
+I42: '=(IF(Observability="Datadog",(D42*E42)*EnvCount/4,0))*(1+Indexation)^3'  => 0
+J42: '=(IF(Observability="Datadog",(D42*E42)*EnvCount/4,0))*(1+Indexation)^4'  => 0
+K42: '=SUM(F42:J42)'  => 0
+L42: 'INDICATIVE'
+M42: "DATADOG branch: APM GBP 22.94/host/mo (committed annual, INFRA-ATTACHED rate, INDICATIVE list). Datadog's attached APM rate REQUIRES a paired Infra Pro subscription on the same host — so R-L36 Infra (GBP 11.10) + R-L39 APM (GBP 22.94) = GBP 34.04/host is the CORRECT additive total (USD 15 + USD 31), NOT a double-count (verified against datadoghq.com/pricing: attached APM USD 31 is cheaper than standalone USD 36 precisely because it mandates the separate Infra line). Same host count as R-L36 (144 host-months, scales with EnvCount). List price is a CEILING; negotiated tier RATE_MISSING. Active only when Observability=Datadog. Fragment: observability_datadog_rates.json."
+A43: 'Datadog LLM Observability — base 100K LLM spans/mo (Observability=Datadog; committed)'
+B43: 'Azure'
+C43: '12 months of the committed 100K-span base tier'
+D43: 12
+E43: '=Rates!$C$36'  => 118.42
+F43: '=(IF(Observability="Datadog",D43*E43,0))*(1+Indexation)^0'  => 0
+G43: '=(IF(Observability="Datadog",D43*E43,0))*(1+Indexation)^1'  => 0
+H43: '=(IF(Observability="Datadog",D43*E43,0))*(1+Indexation)^2'  => 0
+I43: '=(IF(Observability="Datadog",D43*E43,0))*(1+Indexation)^3'  => 0
+J43: '=(IF(Observability="Datadog",D43*E43,0))*(1+Indexation)^4'  => 0
+K43: '=SUM(F43:J43)'  => 0
+L43: 'INDICATIVE'
+M43: 'ADDITIVE on top of the Azure-native lines (which stay on): LLM Observability Pro base tier GBP 118.42/mo committed (up to 100K LLM spans, INDICATIVE). The metered SKU Azure Monitor does NOT charge for — this is exactly why the Azure-only run floor understated observability, so selecting Datadog RAISES the floor. Overage (GBP 3.70 per 10K additional LLM spans) is the volume driver at agent scale, carried as the adjustable overage line R-L38. Active only when Observability=Datadog. Fragment: observability_datadog_rates.json.'
+A44: 'Datadog LLM Observability — span overage (Observability=Datadog; ships at 0, adjustable)'
+B44: 'Azure'
+C44: '10K-span overage blocks/yr beyond the 100K base — ships at 0 (volume unknown until R1)'
+D44: 0
+E44: '=Rates!$C$38'  => 3.7
+F44: '=(IF(Observability="Datadog",D44*E44,0))*(1+Indexation)^0'  => 0
+G44: '=(IF(Observability="Datadog",D44*E44,0))*(1+Indexation)^1'  => 0
+H44: '=(IF(Observability="Datadog",D44*E44,0))*(1+Indexation)^2'  => 0
+I44: '=(IF(Observability="Datadog",D44*E44,0))*(1+Indexation)^3'  => 0
+J44: '=(IF(Observability="Datadog",D44*E44,0))*(1+Indexation)^4'  => 0
+K44: '=SUM(F44:J44)'  => 0
+L44: 'ASSUMPTION'
+M44: 'DATADOG branch: the true volume driver. GBP 3.70 per 10K LLM spans over the 100K base (INDICATIVE). Ships at 0 because agent call volume is unknown until R1 use cases land (F5) — the same reason the Azure token lines are placeholders. Illustrative: 1M LLM calls/mo ~= 90 blocks x 12 = ~GBP 4,000/yr. Adjustable. Active only when Observability=Datadog. Fragment: observability_datadog_rates.json.'
+A45: 'GPT-4.1 — input tokens (ModelSKU=GPT-4.1; mirrors R-L20)'
+B45: 'Azure'
+C45: '50M tokens/mo x 12 = 600 units of 1M/yr (same volume, GPT-4.1 rate)'
+D45: 600
+E45: '=Rates!$C$59'  => 1.5
+F45: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4.1",D45*E45,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G45: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4.1",D45*E45,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H45: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4.1",D45*E45,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I45: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4.1",D45*E45,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J45: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4.1",D45*E45,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K45: '=SUM(F45:J45)'  => 0
+L45: 'INDICATIVE'
+M45: 'GPT-4.1 branch (ModelVendor=AzureOpenAI, ModelSKU=GPT-4.1): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=GPT-4.1. Fragment: azure_model_sku_rates.json.'
+A46: 'GPT-4.1 — output tokens (ModelSKU=GPT-4.1; mirrors R-L21)'
+B46: 'Azure'
+C46: '10M tokens/mo x 12 = 120 units of 1M/yr (same volume, GPT-4.1 rate)'
+D46: 120
+E46: '=Rates!$C$60'  => 6.1
+F46: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4.1",D46*E46,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G46: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4.1",D46*E46,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H46: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4.1",D46*E46,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I46: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4.1",D46*E46,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J46: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-4.1",D46*E46,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K46: '=SUM(F46:J46)'  => 0
+L46: 'INDICATIVE'
+M46: 'GPT-4.1 branch (ModelVendor=AzureOpenAI, ModelSKU=GPT-4.1): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=GPT-4.1. Fragment: azure_model_sku_rates.json.'
+A47: 'GPT-5.6-Terra — input tokens (ModelSKU=GPT-5.6-Terra; mirrors R-L20)'
+B47: 'Azure'
+C47: '50M tokens/mo x 12 = 600 units of 1M/yr (same volume, GPT-5.6-Terra rate)'
+D47: 600
+E47: '=Rates!$C$61'  => 1.8504
+F47: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Terra",D47*E47,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G47: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Terra",D47*E47,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H47: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Terra",D47*E47,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I47: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Terra",D47*E47,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J47: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Terra",D47*E47,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K47: '=SUM(F47:J47)'  => 0
+L47: 'INDICATIVE'
+M47: 'GPT-5.6-Terra branch (ModelVendor=AzureOpenAI, ModelSKU=GPT-5.6-Terra): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=GPT-5.6-Terra. Fragment: azure_model_sku_rates.json.'
+A48: 'GPT-5.6-Terra — output tokens (ModelSKU=GPT-5.6-Terra; mirrors R-L21)'
+B48: 'Azure'
+C48: '10M tokens/mo x 12 = 120 units of 1M/yr (same volume, GPT-5.6-Terra rate)'
+D48: 120
+E48: '=Rates!$C$62'  => 11.1022
+F48: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Terra",D48*E48,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G48: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Terra",D48*E48,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H48: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Terra",D48*E48,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I48: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Terra",D48*E48,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J48: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Terra",D48*E48,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K48: '=SUM(F48:J48)'  => 0
+L48: 'INDICATIVE'
+M48: 'GPT-5.6-Terra branch (ModelVendor=AzureOpenAI, ModelSKU=GPT-5.6-Terra): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=GPT-5.6-Terra. Fragment: azure_model_sku_rates.json.'
+A49: 'GPT-5.6-Sol — input tokens (ModelSKU=GPT-5.6-Sol; mirrors R-L20)'
+B49: 'Azure'
+C49: '50M tokens/mo x 12 = 600 units of 1M/yr (same volume, GPT-5.6-Sol rate)'
+D49: 600
+E49: '=Rates!$C$63'  => 3.7007
+F49: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Sol",D49*E49,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G49: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Sol",D49*E49,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H49: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Sol",D49*E49,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I49: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Sol",D49*E49,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J49: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Sol",D49*E49,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K49: '=SUM(F49:J49)'  => 0
+L49: 'INDICATIVE'
+M49: 'GPT-5.6-Sol branch (ModelVendor=AzureOpenAI, ModelSKU=GPT-5.6-Sol): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=GPT-5.6-Sol. Fragment: azure_model_sku_rates.json.'
+A50: 'GPT-5.6-Sol — output tokens (ModelSKU=GPT-5.6-Sol; mirrors R-L21)'
+B50: 'Azure'
+C50: '10M tokens/mo x 12 = 120 units of 1M/yr (same volume, GPT-5.6-Sol rate)'
+D50: 120
+E50: '=Rates!$C$64'  => 22.2045
+F50: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Sol",D50*E50,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G50: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Sol",D50*E50,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H50: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Sol",D50*E50,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I50: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Sol",D50*E50,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J50: '=((IF(ModelVendor="AzureOpenAI",IF(ModelSKU="GPT-5.6-Sol",D50*E50,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K50: '=SUM(F50:J50)'  => 0
+L50: 'INDICATIVE'
+M50: 'GPT-5.6-Sol branch (ModelVendor=AzureOpenAI, ModelSKU=GPT-5.6-Sol): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=GPT-5.6-Sol. Fragment: azure_model_sku_rates.json.'
+A51: 'Claude-Fable-5 — input tokens (ModelSKU=Claude-Fable-5; mirrors R-L20)'
+B51: 'Azure'
+C51: '50M tokens/mo x 12 = 600 units of 1M/yr (same volume, Claude-Fable-5 rate)'
+D51: 600
+E51: '=Rates!$C$65'  => 7.4015
+F51: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Fable-5",D51*E51,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G51: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Fable-5",D51*E51,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H51: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Fable-5",D51*E51,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I51: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Fable-5",D51*E51,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J51: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Fable-5",D51*E51,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K51: '=SUM(F51:J51)'  => 0
+L51: 'INDICATIVE'
+M51: 'Claude-Fable-5 branch (ModelVendor=ClaudeOnAzure, ModelSKU=Claude-Fable-5): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=Claude-Fable-5. Fragment: azure_model_sku_rates.json.'
+A52: 'Claude-Fable-5 — output tokens (ModelSKU=Claude-Fable-5; mirrors R-L21)'
+B52: 'Azure'
+C52: '10M tokens/mo x 12 = 120 units of 1M/yr (same volume, Claude-Fable-5 rate)'
+D52: 120
+E52: '=Rates!$C$66'  => 37.0075
+F52: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Fable-5",D52*E52,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G52: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Fable-5",D52*E52,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H52: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Fable-5",D52*E52,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I52: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Fable-5",D52*E52,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J52: '=((IF(ModelVendor="ClaudeOnAzure",IF(ModelSKU="Claude-Fable-5",D52*E52,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K52: '=SUM(F52:J52)'  => 0
+L52: 'INDICATIVE'
+M52: 'Claude-Fable-5 branch (ModelVendor=ClaudeOnAzure, ModelSKU=Claude-Fable-5): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=Claude-Fable-5. Fragment: azure_model_sku_rates.json.'
+A53: 'Grok-4.3 — input tokens (ModelSKU=Grok-4.3; mirrors R-L20)'
+B53: 'Azure'
+C53: '50M tokens/mo x 12 = 600 units of 1M/yr (same volume, Grok-4.3 rate)'
+D53: 600
+E53: '=Rates!$C$67'  => 0.9252
+F53: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.3",D53*E53,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G53: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.3",D53*E53,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H53: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.3",D53*E53,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I53: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.3",D53*E53,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J53: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.3",D53*E53,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K53: '=SUM(F53:J53)'  => 0
+L53: 'INDICATIVE'
+M53: 'Grok-4.3 branch (ModelVendor=GrokOnAzure, ModelSKU=Grok-4.3): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=Grok-4.3. Fragment: azure_model_sku_rates.json.'
+A54: 'Grok-4.3 — output tokens (ModelSKU=Grok-4.3; mirrors R-L21)'
+B54: 'Azure'
+C54: '10M tokens/mo x 12 = 120 units of 1M/yr (same volume, Grok-4.3 rate)'
+D54: 120
+E54: '=Rates!$C$68'  => 1.8504
+F54: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.3",D54*E54,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G54: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.3",D54*E54,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H54: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.3",D54*E54,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I54: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.3",D54*E54,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J54: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.3",D54*E54,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K54: '=SUM(F54:J54)'  => 0
+L54: 'INDICATIVE'
+M54: 'Grok-4.3 branch (ModelVendor=GrokOnAzure, ModelSKU=Grok-4.3): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=Grok-4.3. Fragment: azure_model_sku_rates.json.'
+A55: 'Grok-4.5 — input tokens (ModelSKU=Grok-4.5; mirrors R-L20)'
+B55: 'Azure'
+C55: '50M tokens/mo x 12 = 600 units of 1M/yr (same volume, Grok-4.5 rate)'
+D55: 600
+E55: '=Rates!$C$69'  => 1.4803
+F55: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.5",D55*E55,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G55: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.5",D55*E55,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H55: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.5",D55*E55,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I55: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.5",D55*E55,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J55: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.5",D55*E55,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K55: '=SUM(F55:J55)'  => 0
+L55: 'INDICATIVE'
+M55: 'Grok-4.5 branch (ModelVendor=GrokOnAzure, ModelSKU=Grok-4.5): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=Grok-4.5. Fragment: azure_model_sku_rates.json.'
+A56: 'Grok-4.5 — output tokens (ModelSKU=Grok-4.5; mirrors R-L21)'
+B56: 'Azure'
+C56: '10M tokens/mo x 12 = 120 units of 1M/yr (same volume, Grok-4.5 rate)'
+D56: 120
+E56: '=Rates!$C$70'  => 4.4409
+F56: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.5",D56*E56,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^0'  => 0
+G56: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.5",D56*E56,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^1'  => 0
+H56: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.5",D56*E56,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^2'  => 0
+I56: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.5",D56*E56,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^3'  => 0
+J56: '=((IF(ModelVendor="GrokOnAzure",IF(ModelSKU="Grok-4.5",D56*E56,0),0))*IF(AgentStack="Include",AgentCount,1))*(1+Indexation)^4'  => 0
+K56: '=SUM(F56:J56)'  => 0
+L56: 'INDICATIVE'
+M56: 'Grok-4.5 branch (ModelVendor=GrokOnAzure, ModelSKU=Grok-4.5): same token VOLUME as the GPT-4o line it mirrors; Azure-served meter. Active only when ModelSKU=Grok-4.5. Fragment: azure_model_sku_rates.json.'
+A57: 'MCP hosting — Container Apps vCPU-seconds × McpServerCount'
+B57: 'Azure'
+C57: 'McpServerCount × always-on 0.5 vCPU floor (ASSUMPTION)'
+D57: 15768000
+E57: '=Rates!$C$80'  => 2e-05
+F57: '=(IF(AgentStack="Include",(D57*McpServerCount)*E57,0))*(1+Indexation)^0'  => 0
+G57: '=(IF(AgentStack="Include",(D57*McpServerCount)*E57,0))*(1+Indexation)^1'  => 0
+H57: '=(IF(AgentStack="Include",(D57*McpServerCount)*E57,0))*(1+Indexation)^2'  => 0
+I57: '=(IF(AgentStack="Include",(D57*McpServerCount)*E57,0))*(1+Indexation)^3'  => 0
+J57: '=(IF(AgentStack="Include",(D57*McpServerCount)*E57,0))*(1+Indexation)^4'  => 0
+K57: '=SUM(F57:J57)'  => 0
+L57: 'INDICATIVE'
+M57: 'AGENT STACK MCP on ACA. Fragment: agent_runtime_azure_rates.json.'
+A58: 'MCP hosting — Container Apps GiB-seconds × McpServerCount'
+B58: 'Azure'
+C58: 'McpServerCount × 1 GiB floor (ASSUMPTION)'
+D58: 31536000
+E58: '=Rates!$C$81'  => 2.5e-06
+F58: '=(IF(AgentStack="Include",(D58*McpServerCount)*E58,0))*(1+Indexation)^0'  => 0
+G58: '=(IF(AgentStack="Include",(D58*McpServerCount)*E58,0))*(1+Indexation)^1'  => 0
+H58: '=(IF(AgentStack="Include",(D58*McpServerCount)*E58,0))*(1+Indexation)^2'  => 0
+I58: '=(IF(AgentStack="Include",(D58*McpServerCount)*E58,0))*(1+Indexation)^3'  => 0
+J58: '=(IF(AgentStack="Include",(D58*McpServerCount)*E58,0))*(1+Indexation)^4'  => 0
+K58: '=SUM(F58:J58)'  => 0
+L58: 'INDICATIVE'
+M58: 'Paired memory with R-L40.'
+A59: 'APIM fronting MCP tool calls × McpServerCount'
+B59: 'Azure'
+C59: 'McpServerCount × calls/server/yr / 1000 (ASSUMPTION unit)'
+D59: 120
+E59: '=Rates!$C$82'  => 0.043
+F59: '=(IF(AgentStack="Include",(D59*McpServerCount)*E59,0))*(1+Indexation)^0'  => 0
+G59: '=(IF(AgentStack="Include",(D59*McpServerCount)*E59,0))*(1+Indexation)^1'  => 0
+H59: '=(IF(AgentStack="Include",(D59*McpServerCount)*E59,0))*(1+Indexation)^2'  => 0
+I59: '=(IF(AgentStack="Include",(D59*McpServerCount)*E59,0))*(1+Indexation)^3'  => 0
+J59: '=(IF(AgentStack="Include",(D59*McpServerCount)*E59,0))*(1+Indexation)^4'  => 0
+K59: '=SUM(F59:J59)'  => 0
+L59: 'ASSUMPTION'
+M59: 'All MCP behind APIM (SEGRO principle). apim_call_unit is ASSUMPTION.'
+A60: 'RAG embeddings — Ada tokens × AgentCount'
+B60: 'Azure'
+C60: 'AgentCount × embedding placeholder/yr'
+D60: 50
+E60: '=Rates!$C$71'  => 0.1
+F60: '=(IF(AgentStack="Include",(D60*AgentCount)*E60,0))*(1+Indexation)^0'  => 0
+G60: '=(IF(AgentStack="Include",(D60*AgentCount)*E60,0))*(1+Indexation)^1'  => 0
+H60: '=(IF(AgentStack="Include",(D60*AgentCount)*E60,0))*(1+Indexation)^2'  => 0
+I60: '=(IF(AgentStack="Include",(D60*AgentCount)*E60,0))*(1+Indexation)^3'  => 0
+J60: '=(IF(AgentStack="Include",(D60*AgentCount)*E60,0))*(1+Indexation)^4'  => 0
+K60: '=SUM(F60:J60)'  => 0
+L60: 'ASSUMPTION'
+M60: 'RAG embedding meter (VERIFIED). Active when AgentStack=Include.'
+A61: 'Azure AI Search Basic unit (RagMemoryShape=AISearch_Cosmos)'
+B61: 'Azure'
+C61: '1× Basic search unit × 8760h (floor)'
+D61: 8760
+E61: '=Rates!$C$83'  => 0.0842
+F61: '=(IF(RagMemoryShape="AISearch_Cosmos",IF(AgentStack="Include",D61*E61,0),0))*(1+Indexation)^0'  => 0
+G61: '=(IF(RagMemoryShape="AISearch_Cosmos",IF(AgentStack="Include",D61*E61,0),0))*(1+Indexation)^1'  => 0
+H61: '=(IF(RagMemoryShape="AISearch_Cosmos",IF(AgentStack="Include",D61*E61,0),0))*(1+Indexation)^2'  => 0
+I61: '=(IF(RagMemoryShape="AISearch_Cosmos",IF(AgentStack="Include",D61*E61,0),0))*(1+Indexation)^3'  => 0
+J61: '=(IF(RagMemoryShape="AISearch_Cosmos",IF(AgentStack="Include",D61*E61,0),0))*(1+Indexation)^4'  => 0
+K61: '=SUM(F61:J61)'  => 0
+L61: 'VERIFIED'
+M61: 'VERIFIED AI Search Basic. Zero when CosmosOnly.'
+A62: 'Cosmos Mongo agent memory — 100 RU/s × AgentCount'
+B62: 'Azure'
+C62: 'AgentCount × 8760h × 100 RU/s unit'
+D62: 8760
+E62: '=Rates!$C$84'  => 0.0091
+F62: '=(IF(AgentStack="Include",(D62*AgentCount)*E62,0))*(1+Indexation)^0'  => 0
+G62: '=(IF(AgentStack="Include",(D62*AgentCount)*E62,0))*(1+Indexation)^1'  => 0
+H62: '=(IF(AgentStack="Include",(D62*AgentCount)*E62,0))*(1+Indexation)^2'  => 0
+I62: '=(IF(AgentStack="Include",(D62*AgentCount)*E62,0))*(1+Indexation)^3'  => 0
+J62: '=(IF(AgentStack="Include",(D62*AgentCount)*E62,0))*(1+Indexation)^4'  => 0
+K62: '=SUM(F62:J62)'  => 0
+L62: 'ASSUMPTION'
+M62: 'VERIFIED Cosmos autoscale meter. Memory always when Include; also vectors if CosmosOnly.'
+A63: 'TOTAL RUN (per year / 5-yr)'
+F63: '=SUM(F5:F62)'  => 312073.8242
+G63: '=SUM(G5:G62)'  => 321436.038926
+H63: '=SUM(H5:H62)'  => 331079.12009378005
+I63: '=SUM(I5:I62)'  => 341011.4936965934
+J63: '=SUM(J5:J62)'  => 351241.8385074912
+K63: '=SUM(K5:K62)'  => 1656842.3154238646
+A64: 'Agent-stack run Y1 (MCP+RAG+memory subset)'
+F64: '=F57+F58+F59+F60+F61+F62'  => 0
+A65: '· of which MCP-driven (scales with McpServerCount)'
+F65: '=F57+F58+F59'  => 0
+A66: '· of which agent-driven (scales with AgentCount)'
+F66: '=F60+F62'  => 0
+A67: '· of which fixed (AI Search — flat with 1 stack)'
+F67: '=F61'  => 0
+A69: '▪ Run totals EXCLUDE SEGRO business-user time (UAT, agent adoption, process change) throughout - consistent with the TCO workbook convention.'
+A70: '▪ HCL-side run cost is a FLOOR: AMS + all four licence renewals are RATE_MISSING at GBP 0 because HCL has not shared contract pricing. Never present the run total as the expected HCL cost.'
+A71: "▪ Support & maintain context: R-L22 (2 FTE platform run team ~GBP 231k/yr) is ABOVE the 15-22%-of-build annual S&M band (GBP 125-183k/yr on the default GBP 830k build) because it also covers evals and upgrades; the band itself is an ASSUMPTION anchored to SAP's VERIFIED 22% list ra"
+A72: '▪ Azure figures are PAYG list-price ceilings (uksouth, GBP, Retail Prices API): EA/MACC discounts, 1-3 yr reservations (30-60% off VMs/DBs) and Log Analytics commitment tiers all reduce them.'
+A73: '▪ Excluded Azure meters that will appear on a real bill: managed disks, bandwidth/egress, Azure Firewall, Private Link endpoints, backup storage (azure_infra_rates narrative). Defender for Cloud is carried explicitly as RATE_MISSING.'
+A74: '▪ Azure OpenAI token lines are placeholders: the POAP delivers no business-facing use case at go-live (F5), so real token volumes await R1 scope.'
+A75: '▪ Non-prod reduced-hours pattern (12h weekdays = 3,120 h/yr) is an ASSUMPTION; running non-prod 24/7 roughly triples those components.'
+A76: '▪ M365/Copilot are existing SEGRO baseline (ARA25: Copilot rolled out to all employees 2025) - deliberately NOT carried as incremental run lines.'

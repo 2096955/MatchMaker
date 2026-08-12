@@ -1,0 +1,937 @@
+A1: 'POAP Build Cost — phase by phase (aligned to POAP slide 3)'
+A2: '="Scenario: effort = "&EffortBasis&" · HCL = "&HCL_Toggle&" · platform = "&Platform&" · sku = "&ModelSKU&" · agents = "&AgentStack&" · obs = "&Observability&" · envs = "&EnvCount&" · clusters = "&ClusterCount&" · node size = "&NodeSize&" · day rate £"&TEXT(DayRate,"#,##0")&" · slip = "&SlipWeeks&" wk · overlap = "&OverlapWeeks&" wk"'  => 'Scenario: effort = Likely · HCL = Include · platform = AKS · sku = GPT-4o · agents = Exclude · obs = Azure · envs = 4 · clusters = Single · node size = M · day rate £850 · slip = 0 wk · overlap = 0 wk'
+A4: "P1 — DESIGN & PLAN  (5 wk, from 2026-07-13, Slide 3: Design & Plan bar '5 weeks' x=1.98-4.52; workshop chain (Arch kick-off, Sizing, Cyber, IAM, Data Mgmt); KDD + procurement lane)"
+A5: 'Cost line'
+B5: 'Side'
+C5: 'Quantity model'
+D5: 'Qty Low'
+E5: 'Qty Likely'
+F5: 'Qty High'
+G5: 'Qty (live)'
+H5: 'Rate/unit £'
+I5: 'Cost £ (live)'
+J5: 'Status'
+K5: 'Basis / source'
+L5: 'Schedule'
+A6: 'Solutions architect - workshop lead, HLD/LLD, target arch for EA, KDD papers (AKS v ARO, env count, cluster topology)'
+B6: 'SEGRO'
+C6: '1 FTE x 5 wk x 5 d = 25 days'
+D6: 20
+E6: 25
+F6: 30
+G6: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D6,E6,F6)'  => 25
+H6: '=Rates!$C$96'  => 625
+I6: '=G6*Rates!$C$96'  => 15625
+J6: 'ASSUMPTION'
+K6: 'Team size ASSUMPTION: slide 3 workshop chain + slide 5 doc list (HLD, LLD, TCO for options, KDDs) need a full-time architect for the 5-wk phase. Rate VERIFIED (ITJobsWatch median).'
+L6: 'TD'
+A7: 'Platform engineer - sizing workshop, physical infrastructure diagrams, physical sizing of infrastructure'
+B7: 'SEGRO'
+C7: '0.6 FTE x 5 wk x 5 d = 15 days'
+D7: 10
+E7: 15
+F7: 25
+G7: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D7,E7,F7)'  => 15
+H7: '=Rates!$C$92'  => 525
+I7: '=G7*Rates!$C$92'  => 7875
+J7: 'ASSUMPTION'
+K7: "ASSUMPTION: slide 5 requires 'Physical sizing of infrastructure' + 'Physical Low Level Technical Arch Diagrams'. Rate VERIFIED."
+L7: 'TD'
+A8: 'Cloud security - Cyber Sec Workshop, cyber security impact analysis + diagrams'
+B8: 'SEGRO'
+C8: '0.4 FTE x 5 wk x 5 d = 10 days'
+D8: 5
+E8: 10
+F8: 15
+G8: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D8,E8,F8)'  => 10
+H8: '=Rates!$C$95'  => 550
+I8: '=G8*Rates!$C$95'  => 5500
+J8: 'ASSUMPTION'
+K8: 'ASSUMPTION sized to slide 5 cyber deliverables (impact analysis, diagrams). Rate VERIFIED.'
+L8: 'TD'
+A9: 'Data engineer - Data Mgmt Workshop, data flow design, data governance principles input'
+B9: 'SEGRO'
+C9: '0.4 FTE x 5 wk x 5 d = 10 days'
+D9: 5
+E9: 10
+F9: 15
+G9: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D9,E9,F9)'  => 10
+H9: '=Rates!$C$100'  => 500
+I9: '=G9*Rates!$C$100'  => 5000
+J9: 'ASSUMPTION'
+K9: "ASSUMPTION sized to slide 5 'Data flow design' + slide 3 Data Mgmt workshop. Rate VERIFIED."
+L9: 'TD'
+A10: 'Business analyst - Use case scope for Release 1 Agreed, KDD documentation, DRG/ARG approval pack'
+B10: 'SEGRO'
+C10: '0.4 FTE x 5 wk x 5 d = 10 days'
+D10: 5
+E10: 10
+F10: 15
+G10: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D10,E10,F10)'  => 10
+H10: '=Rates!$C$101'  => 500
+I10: '=G10*Rates!$C$101'  => 5000
+J10: 'ASSUMPTION'
+K10: "ASSUMPTION: slide 3 'Use case scope for Release 1 Agreed' milestone + 'Arch decisions for DRG / ARG'. Rate VERIFIED."
+L10: 'TD'
+A11: 'Project manager - mobilisation, delivery plan, procurement specification and coordination'
+B11: 'SEGRO'
+C11: '1 FTE x 5 wk x 5 d = 25 days'
+D11: 15
+E11: 25
+F11: 30
+G11: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D11,E11,F11)'  => 25
+H11: '=Rates!$C$97'  => 535
+I11: '=G11*Rates!$C$97'  => 13375
+J11: 'ASSUMPTION'
+K11: "ASSUMPTION: slide 5 'Delivery plan' + 'Procurement specification' deliverables. Rate VERIFIED."
+L11: 'TD'
+A12: 'HCL architecture/product SME input to design workshops (UnO/TX/Unica/CDP sizing and prerequisites)'
+B12: 'HCL'
+C12: '0.6 FTE x 5 wk x 5 d = 15 days'
+D12: 10
+E12: 15
+F12: 25
+G12: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D12,E12,F12)'  => 15
+H12: '=Rates!$C$106'  => 950
+I12: '=IF(HCL_Toggle="Include",G12*Rates!$C$106,0)'  => 14250
+J12: 'INDICATIVE'
+K12: "Rate = HCL's own published G-Cloud 14 SFIA card (Solution dev L3 950/day, VERIFIED); grade mix and attendance ASSUMPTION. HCL named team incl. product SMEs per HCL_V1 brief; Platform Architect still TBD."
+L12: 'TD'
+A13: 'Oracle 19 licence (mandatory for Unica+ MaxAI CDM) - procurement item, price not shared'
+B13: 'ThirdParty'
+C13: '1 licence x rate GBP 0 until quoted'
+D13: 1
+E13: 1
+F13: 1
+G13: '=E13'  => 1
+H13: 0
+I13: '=G13*H13'  => 0
+J13: 'RATE_MISSING'
+K13: 'HCL Support Matrix (HCL_V1 brief section 3.7): Oracle 19 mandatory for Unica+ MaxAI CDM; absent from POAP Decisions & procurement lane (F10). GBP 0 adjustable input - FLOOR until quoted.'
+L13: 'FIXED'
+A14: 'Aerospike edition/licence (CDP caching, V6.3.0.35 disclosed, edition/licence unstated) - procurement item'
+B14: 'ThirdParty'
+C14: '1 licence x rate GBP 0 until quoted'
+D14: 1
+E14: 1
+F14: 1
+G14: '=E14'  => 1
+H14: 0
+I14: '=G14*H14'  => 0
+J14: 'RATE_MISSING'
+K14: 'HCL Support Matrix (HCL_V1 brief section 2 blocker 7): Aerospike version disclosed, edition/licence still unstated; absent from POAP procurement lane (F10). GBP 0 adjustable input.'
+L14: 'FIXED'
+A15: 'SUBTOTAL — Design & Plan'
+I15: '=SUM(I6:I14)'  => 66625
+A17: "P2 — BUILD - SEGRO (AZURE FOUNDATIONS, AKS, SHARED SERVICES)  (10 wk, from 2026-08-17, Slide 3: 'SEGRO 10 weeks' bar x=4.55-8.86 (start DERIVED from bar geometry ~ late Aug); items 1-6 incl. cyber design + data governance; 'To be validated based on Arch workshop' annotation (F14))"
+A18: 'Cost line'
+B18: 'Side'
+C18: 'Quantity model'
+D18: 'Qty Low'
+E18: 'Qty Likely'
+F18: 'Qty High'
+G18: 'Qty (live)'
+H18: 'Rate/unit £'
+I18: 'Cost £ (live)'
+J18: 'Status'
+K18: 'Basis / source'
+L18: 'Schedule'
+A19: 'Azure foundations - env segregation, networking, subscriptions, Private DNS, VPN tunnel connectivity, workspaces'
+B19: 'SEGRO'
+C19: '2 FTE x 10 wk x 5 d = 100 days'
+D19: 80
+E19: 100
+F19: 130
+G19: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D19,E19,F19)'  => 100
+H19: '=Rates!$C$92'  => 525
+I19: '=G19*Rates!$C$92'  => 52500
+J19: 'ASSUMPTION'
+K19: 'Squad shape ASSUMPTION anchored to platform.json 5.5-effective-FTE squad convention (2 of 5.5 FTE on foundations). Scope = slide 3 build item 1. Rate VERIFIED.'
+L19: 'TD'
+A20: 'Build and harden AKS platform - cluster ops processes, node pools, RBAC, Entra ID integration, backup strategy'
+B20: 'SEGRO'
+C20: '1 FTE x 10 wk x 5 d = 50 days'
+D20: 40
+E20: 50
+F20: 70
+G20: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D20,E20,F20)'  => 50
+H20: '=Rates!$C$94'  => 535
+I20: '=G20*Rates!$C$94'  => 26750
+J20: 'ASSUMPTION'
+K20: 'Squad shape ASSUMPTION (1 of 5.5 FTE). Scope = slide 3 build item 2. Kubernetes-skill rate VERIFIED (ITJobsWatch median 535).'
+L20: 'TD'
+A21: 'Deploy shared platform services - PostgreSQL, SQL Server, MongoDB/Cosmos, Kafka, Redis, monitoring stack, ingress, cert mgmt'
+B21: 'SEGRO'
+C21: '1.5 FTE x 10 wk x 5 d = 75 days'
+D21: 60
+E21: 75
+F21: 100
+G21: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D21,E21,F21)'  => 75
+H21: '=Rates!$C$93'  => 525
+I21: '=G21*Rates!$C$93'  => 39375
+J21: 'ASSUMPTION'
+K21: 'Squad shape ASSUMPTION (1.5 of 5.5 FTE). Scope = slide 3 build item 3 (8 named services). Rate VERIFIED.'
+L21: 'TD'
+A22: 'Complete cyber security design - managed identities, Key Vault, secrets mgmt, network segmentation, WAF, API security, PAM'
+B22: 'SEGRO'
+C22: '0.5 FTE x 10 wk x 5 d = 25 days'
+D22: 20
+E22: 25
+F22: 40
+G22: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D22,E22,F22)'  => 25
+H22: '=Rates!$C$95'  => 550
+I22: '=G22*Rates!$C$95'  => 13750
+J22: 'ASSUMPTION'
+K22: 'Squad shape ASSUMPTION (0.5 of 5.5 FTE). Scope = slide 3 build item 4. Rate VERIFIED.'
+L22: 'TD'
+A23: 'Data mgmt & governance principles - classification, ownership, retention, lineage, master data, information architecture'
+B23: 'SEGRO'
+C23: '0.5 FTE x 10 wk x 5 d = 25 days'
+D23: 15
+E23: 25
+F23: 35
+G23: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D23,E23,F23)'  => 25
+H23: '=Rates!$C$100'  => 500
+I23: '=G23*Rates!$C$100'  => 12500
+J23: 'ASSUMPTION'
+K23: 'Squad shape ASSUMPTION (0.5 of 5.5 FTE). Scope = slide 3 build item 6. Rate VERIFIED.'
+L23: 'TD'
+A24: 'FND-4 Agent eval harness & observability - golden sets, scored promotion gates, run-trace logging, eval dashboard (absent from POAP, F13)'
+B24: 'SEGRO'
+C24: '20 pd (range 12-25) per platform.json FND-4'
+D24: 12
+E24: 20
+F24: 25
+G24: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D24,E24,F24)'  => 20
+H24: '=Rates!$C$102'  => 850
+I24: '=G24*Rates!$C$102'  => 17000
+J24: 'ASSUMPTION'
+K24: 'Quantity traced to platform.json FND-4 (12/20/25 pd, 0.44 FTE/wk over 9 wks) - the source itself labels the task ASSUMPTION, so it is carried as ASSUMPTION here. F13: no eval workstream anywhere in the POAP. Rate = blended GBP 850 ASSUMPTION placeholder (RATE_MISSING in sources).'
+L24: 'TD'
+A25: 'Project/delivery management across SEGRO build'
+B25: 'SEGRO'
+C25: '1 FTE x 10 wk x 5 d = 50 days'
+D25: 40
+E25: 50
+F25: 60
+G25: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D25,E25,F25)'  => 50
+H25: '=Rates!$C$97'  => 535
+I25: '=G25*Rates!$C$97'  => 26750
+J25: 'ASSUMPTION'
+K25: 'ASSUMPTION: 1 PM on a 6-workstream build phase. Rate VERIFIED. PM-as-%-of-delivery benchmark is RATE_MISSING in programme_benchmarks - sized bottom-up instead.'
+L25: 'TD'
+A26: 'Book CREST pen test + hold remediation window (F7: 4-8 wk booking lead time, must start by ~Oct)'
+B26: 'SEGRO'
+C26: '2 days procurement admin'
+D26: 1
+E26: 2
+F26: 4
+G26: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D26,E26,F26)'  => 2
+H26: '=Rates!$C$97'  => 535
+I26: '=G26*Rates!$C$97'  => 1070
+J26: 'ASSUMPTION'
+K26: "F7 recommendation: add a 'book pen test' task in October; POAP shows none. Trivial cost, scheduled-risk critical."
+L26: 'TD'
+A27: 'AKS cluster management fee (Standard tier) - commissioning window'
+B27: 'Azure'
+C27: '1 cluster x 22 wk x 168 h x 50% ramp = 1,848 hrs'
+D27: 1109
+E27: 1848
+F27: 2587
+G27: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D27,E27,F27)'  => 1848
+H27: '=Rates!$C$6'  => 0.0758
+I27: '=IF(Platform="AKS",(G27*Rates!$C$6)*IF(ClusterCount="Dual",2,1),0)'  => 140.07840000000002
+J27: 'ASSUMPTION'
+K27: 'Rate VERIFIED (Azure Retail Prices API uksouth). Ramp ASSUMPTION: envs commissioned progressively Sep 2026-Jan 2027 (~22 wk pre-go-live window), average 50% of full-estate hours (low 30%, high 70%). Dual-cluster KDD flexes via ClusterCount.'
+L27: 'TD'
+A28: 'AKS worker node pools - D4s_v5 class (M) - commissioning window'
+B28: 'Azure'
+C28: '12 nodes (3/env x 4 envs) x 3,696 h x 50% ramp = 22,176 node-hrs'
+D28: 13306
+E28: 22176
+F28: 31046
+G28: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D28,E28,F28)'  => 22176
+H28: '=Rates!$C$7'  => 0.1682
+I28: '=IF(Platform="AKS",(G28*Rates!$C$7)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0)'  => 3730.0031999999997
+J28: 'ASSUMPTION'
+K28: 'Rate VERIFIED. Node count ASSUMPTION: 3 workers/env x 4 envs (SEGRO standard) - no sizing published; POAP itself defers to Arch workshop (F14). Same 50% ramp ASSUMPTION as P2-L9. NodeSize toggle flexes S/M/L.'
+L28: 'TD'
+A29: 'ARO worker node pools - D4ds_v5 class (ARO minimum worker family) - commissioning window'
+B29: 'Azure'
+C29: '12 nodes (3/env x 4 envs) x 3,696 h x 50% ramp = 22,176 node-hrs'
+D29: 13306
+E29: 22176
+F29: 31046
+G29: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D29,E29,F29)'  => 22176
+H29: '=Rates!$C$8'  => 0.1985
+I29: '=IF(Platform="ARO",(G29*Rates!$C$8)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0)'  => 0
+J29: 'ASSUMPTION'
+K29: 'Rate VERIFIED (azure_infra_rates: Ddsv5 with local disk is the ARO minimum-spec worker family). Node count/ramp ASSUMPTION as P2-L10; scales with EnvCount and NodeSize. Priced only when Platform=ARO.'
+L29: 'TD'
+A30: 'ARO OpenShift worker licence uplift (only if ARO wins KDD-1)'
+B30: 'Azure'
+C30: '48 vCPU (12 nodes x 4 vCPU) x 3,696 h x 50% ramp = 88,704 vCPU-hrs'
+D30: 53222
+E30: 88704
+F30: 124186
+G30: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D30,E30,F30)'  => 88704
+H30: '=Rates!$C$10'  => 0.0324
+I30: '=IF(Platform="ARO",(G30*Rates!$C$10)*EnvCount/4*CHOOSE(MATCH(NodeSize,{"S","M","L"},0),0.5,1,2),0)'  => 0
+J30: 'ASSUMPTION'
+K30: "Rate VERIFIED (0.0324/vCPU-hr on top of VM). Volume follows P2-L10 node ASSUMPTION. F3: KDD 'TCO AKS v ARO' open while build text pre-commits to AKS; this line prices the ARO branch."
+L30: 'TD'
+A31: 'ARO control-plane nodes - 3x D8s_v5 (required by ARO, no licence uplift on masters)'
+B31: 'Azure'
+C31: '3 masters x 3,696 h x 50% ramp = 5,544 node-hrs'
+D31: 3326
+E31: 5544
+F31: 7762
+G31: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D31,E31,F31)'  => 5544
+H31: '=Rates!$C$9'  => 0.3364
+I31: '=IF(Platform="ARO",(G31*Rates!$C$9)*IF(ClusterCount="Dual",2,1),0)'  => 0
+J31: 'ASSUMPTION'
+K31: 'Rate VERIFIED. ARO requires 3 control-plane nodes billed as plain VMs (azure_infra_rates narrative). Ramp ASSUMPTION as P2-L9.'
+L31: 'TD'
+A32: 'PostgreSQL Flexible Server GP 4-vCore - one per environment - commissioning window'
+B32: 'Azure'
+C32: '4 envs x 3,696 h x 50% ramp = 7,392 hrs'
+D32: 4435
+E32: 7392
+F32: 10349
+G32: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D32,E32,F32)'  => 7392
+H32: '=Rates!$C$14'  => 0.3121
+I32: '=(G32*Rates!$C$14)*EnvCount/4'  => 2307.0432
+J32: 'ASSUMPTION'
+K32: "Rate VERIFIED. 1 server/env ASSUMPTION (UnO auto-installs Percona PGVector vs Unica+ 'Percona not supported' - HCL_V1 brief 3.4 - may force 2 flavours; high band covers). Ramp ASSUMPTION as P2-L9."
+L32: 'TD'
+A33: 'PostgreSQL provisioned storage - commissioning window'
+B33: 'Azure'
+C33: '128 GB/env x 4 envs x 5 mo x 50% ramp = 1,280 GB-months'
+D33: 768
+E33: 1280
+F33: 1792
+G33: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D33,E33,F33)'  => 1280
+H33: '=Rates!$C$15'  => 0.1008
+I33: '=(G33*Rates!$C$15)*EnvCount/4'  => 129.024
+J33: 'ASSUMPTION'
+K33: 'Rate VERIFIED. 128 GB/env sizing ASSUMPTION (no sizing published; F14).'
+L33: 'TD'
+A34: 'Azure SQL Database GP 4-vCore - one per environment - commissioning window'
+B34: 'Azure'
+C34: '4 envs x 3,696 h x 50% ramp = 7,392 hrs'
+D34: 4435
+E34: 7392
+F34: 10349
+G34: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D34,E34,F34)'  => 7392
+H34: '=Rates!$C$16'  => 0.5766
+I34: '=(G34*Rates!$C$16)*EnvCount/4'  => 4262.2272
+J34: 'ASSUMPTION'
+K34: 'Rate VERIFIED. 1 DB/env ASSUMPTION per slide 3 shared-services list. Ramp ASSUMPTION as P2-L9.'
+L34: 'TD'
+A35: 'Cosmos DB serverless (MongoDB-API workloads) - commissioning window'
+B35: 'Azure'
+C35: '50 M RU/env/mo x 4 envs x 5 mo x 50% ramp = 500 units of 1M RU'
+D35: 250
+E35: 500
+F35: 1000
+G35: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D35,E35,F35)'  => 500
+H35: '=Rates!$C$17'  => 0.225
+I35: '=(G35*Rates!$C$17)*EnvCount/4'  => 112.5
+J35: 'ASSUMPTION'
+K35: 'Rate VERIFIED. RU volume ASSUMPTION - serverless chosen for low/spiky pre-go-live load; no workload sizing published (F14).'
+L35: 'TD'
+A36: 'Event Hubs Standard (Kafka endpoint) - commissioning window'
+B36: 'Azure'
+C36: '1 TU/env x 4 envs x 3,696 h x 50% ramp = 7,392 TU-hrs'
+D36: 4435
+E36: 7392
+F36: 10349
+G36: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D36,E36,F36)'  => 7392
+H36: '=Rates!$C$18'  => 0.0227
+I36: '=(G36*Rates!$C$18)*EnvCount/4'  => 167.79840000000002
+J36: 'INDICATIVE'
+K36: "Rate VERIFIED but HCL's own matrix marks Event Hubs = N for UnO/CDP/Unica+ (HCL_V1 brief 3.3) - Kafka may be forced self-hosted on the cluster (cost then shifts into node pools). Carried as the Azure-native branch."
+L36: 'TD'
+A37: 'Azure Cache for Redis Standard C1 - one per environment - commissioning window'
+B37: 'Azure'
+C37: '4 envs x 3,696 h x 50% ramp = 7,392 cache-hrs'
+D37: 4435
+E37: 7392
+F37: 10349
+G37: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D37,E37,F37)'  => 7392
+H37: '=Rates!$C$19'  => 0.1311
+I37: '=(G37*Rates!$C$19)*EnvCount/4'  => 969.0912
+J37: 'ASSUMPTION'
+K37: 'Rate VERIFIED. 1 cache/env ASSUMPTION per slide 3 shared-services list. Ramp ASSUMPTION as P2-L9.'
+L37: 'TD'
+A38: 'Application Gateway WAF_v2 - fixed gateway fee (prod + shared non-prod) - commissioning window'
+B38: 'Azure'
+C38: '2 gateways x 3,696 h x 50% ramp = 3,696 gw-hrs'
+D38: 2218
+E38: 3696
+F38: 5174
+G38: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D38,E38,F38)'  => 3696
+H38: '=Rates!$C$23'  => 0.3409
+I38: '=(G38*Rates!$C$23)*EnvCount/4'  => 1259.9664
+J38: 'ASSUMPTION'
+K38: 'Rate VERIFIED. 2 gateways ASSUMPTION (1 prod + 1 shared non-prod) at the 4-env baseline; scales with EnvCount. Slide 3 cyber item names WAF explicitly.'
+L38: 'TD'
+A39: 'Application Gateway WAF_v2 - capacity units - commissioning window'
+B39: 'Azure'
+C39: '2 gw x 5 CU avg x 3,696 h x 50% ramp = 18,480 CU-hrs'
+D39: 11088
+E39: 18480
+F39: 25872
+G39: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D39,E39,F39)'  => 18480
+H39: '=Rates!$C$24'  => 0.0109
+I39: '=(G39*Rates!$C$24)*EnvCount/4'  => 201.432
+J39: 'ASSUMPTION'
+K39: 'Rate VERIFIED. 5 CU avg per gateway during build ASSUMPTION (light pre-go-live traffic).'
+L39: 'TD'
+A40: 'API Management Standard unit (marginal - estate APIM may absorb) - commissioning window'
+B40: 'Azure'
+C40: '1 unit x 3,696 h x 50% ramp = 1,848 unit-hrs'
+D40: 0
+E40: 1848
+F40: 3696
+G40: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D40,E40,F40)'  => 1848
+H40: '=Rates!$C$25'  => 0.7127
+I40: '=G40*Rates!$C$25'  => 1317.0696
+J40: 'INDICATIVE'
+K40: 'Rate VERIFIED. SEGRO principle: all integration via APIM with OAuth; estate already runs APIM so marginal cost may be nil (low = 0). Carried so the toggle maths is complete.'
+L40: 'TD'
+A41: 'VPN Gateway VpnGw1 (tunnel connectivity per slide 3 item 1) - commissioning window'
+B41: 'Azure'
+C41: '1 gateway x 3,696 h x 50% ramp = 1,848 hrs'
+D41: 0
+E41: 1848
+F41: 3696
+G41: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D41,E41,F41)'  => 1848
+H41: '=Rates!$C$26'  => 0.1439
+I41: '=G41*Rates!$C$26'  => 265.9272
+J41: 'INDICATIVE'
+K41: 'Rate VERIFIED. SEGRO single-tenant estate likely already has connectivity - marginal cost may be nil (low = 0). Named in slide 3 build item 1.'
+L41: 'TD'
+A42: 'Azure Private DNS zones - commissioning window'
+B42: 'Azure'
+C42: '10 zones x 5 mo = 50 zone-months'
+D42: 25
+E42: 50
+F42: 75
+G42: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D42,E42,F42)'  => 50
+H42: '=Rates!$C$27'  => 0.3788
+I42: '=G42*Rates!$C$27'  => 18.94
+J42: 'ASSUMPTION'
+K42: 'Rate VERIFIED. 10 zones ASSUMPTION (privatelink zones for AKS, PG, SQL, KV, ACR etc). Named in slide 3 build item 1. Pennies - carried for completeness.'
+L42: 'TD'
+A43: 'Log Analytics ingestion during build (monitoring stack commissioning)'
+B43: 'Azure'
+C43: '5 GB/day x 150 days x 50% ramp = 375 GB'
+D43: 150
+E43: 375
+F43: 750
+G43: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D43,E43,F43)'  => 375
+H43: '=Rates!$C$31'  => 2.1819
+I43: '=(G43*Rates!$C$31)*EnvCount/4'  => 818.2125000000001
+J43: 'ASSUMPTION'
+K43: 'Rate VERIFIED (2.1819/GB). Volume ASSUMPTION - pre-go-live estate at reduced telemetry; run-phase volume is the bigger driver (see run model).'
+L43: 'TD'
+A44: 'Key Vault operations - commissioning window'
+B44: 'Azure'
+C44: '1M ops = 100 units of 10k ops'
+D44: 50
+E44: 100
+F44: 200
+G44: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D44,E44,F44)'  => 100
+H44: '=Rates!$C$46'  => 0.0227
+I44: '=G44*Rates!$C$46'  => 2.27
+J44: 'ASSUMPTION'
+K44: 'Rate VERIFIED; negligible at platform scale (a few GBP) - carried for completeness per slide 3 cyber item (Key Vault integration).'
+L44: 'TD'
+A45: 'Microsoft Defender for Cloud workload protection - commissioning window'
+B45: 'Azure'
+C45: '40 resources x 5 mo = 200 resource-months x rate GBP 0'
+D45: 100
+E45: 200
+F45: 300
+G45: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D45,E45,F45)'  => 200
+H45: '=Rates!$C$47'  => 0
+I45: '=(G45*Rates!$C$47)*EnvCount/4'  => 0
+J45: 'RATE_MISSING'
+K45: 'Rate not priced in fact files (explicitly excluded from azure_infra_rates scope) - GBP 0 adjustable until priced. Will appear on a real bill.'
+L45: 'TD'
+A46: 'DevSecOps automation - IaC pipelines, policy-as-code, image scanning, CI/CD for infra + agent deployment (absent from POAP, F19)'
+B46: 'SEGRO'
+C46: '0.6 FTE x 10 wk x 5 d = 30 days (range 0.4-0.8 FTE)'
+D46: 20
+E46: 30
+F46: 40
+G46: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D46,E46,F46)'  => 30
+H46: '=Rates!$C$93'  => 525
+I46: '=G46*Rates!$C$93'  => 15750
+J46: 'ASSUMPTION'
+K46: "Quantity is an ASSUMPTION pending the Arch workshop: slide 7 names a 'CI/CD Configuration Document' deliverable but the POAP contains no build task behind it anywhere. Sized as a fraction of the 10-wk build for one DevOps engineer (20/30/40 pd = 0.4-0.8 FTE). Trigger: 'Lack of any DevSecOps automation for Infra, Systems or Agents' - senior architect review 18 Jul 2026 (F19). Rate VERIFIED. Boundary vs P5-L2: this line BUILDS the pipelines/policy gates during P2; P5-L2 EXECUTES the CI/CD cutover and release automation at deploy - no double count."
+L46: 'TD'
+A47: 'Data integration to MRI / SAMA / Anaplan — NOT in the POAP (scope gap, F15/F5)'
+B47: 'SEGRO'
+C47: 'Integration build to the systems of record — absent from the POAP'
+D47: 0
+E47: 0
+F47: 0
+G47: '=E47'  => 0
+H47: 0
+I47: '=G47*H47'  => 0
+J47: 'RATE_MISSING'
+K47: 'VISIBLE ZERO — the HCL-floor discipline applied to scope. The POAP costs the platform but no integration to MRI (the critical backbone), SAMA or Anaplan; agents with no data path to the systems of record cannot deliver business value. A delivery prerequisite, not adoption time. £0 here means UN-COSTED, not free. Absent from POAP (F15).'
+L47: 'FIXED'
+A48: 'GPU pool commissioning for model bring-up & eval (ModelChoice=Llama; bounded window, not 24/7)'
+B48: 'Azure'
+C48: '1 A100 node x ~12h/day x 6 wk bring-up = ~500 node-hrs (low 250 / high 1000)'
+D48: 250
+E48: 500
+F48: 1000
+G48: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D48,E48,F48)'  => 500
+H48: '=Rates!$C$51'  => 3.4782
+I48: '=IF(ModelVendor="Llama",IF(ModelSKU="Llama",G48*Rates!$C$51,0),0)'  => 0
+J48: 'ASSUMPTION'
+K48: "LLAMA branch build cost: the same A100 meter (GBP 3.4782/hr VERIFIED) spun up for a BOUNDED commissioning/eval window during P2 bring-up (not the 24/7 prod serving in R-L34). Hours are an ASSUMPTION range. Fixes the reviewer gap that Llama moved run cost but left the build unchanged despite the fact fragment's stated dual use. Active only when ModelChoice=Llama. Fragment: model_serving_rates.json."
+L48: 'TD'
+A49: 'GPU capacity procurement — quota / reserved-capacity commitment (ModelChoice=Llama)'
+B49: 'Azure'
+C49: '1 x GPU quota request / reserved-capacity commitment — Rates cell £0 until quoted'
+D49: 1
+E49: 1
+F49: 1
+G49: '=E49'  => 1
+H49: '=Rates!$C$53'  => 0
+I49: '=IF(ModelVendor="Llama",IF(ModelSKU="Llama",G49*Rates!$C$53,0),0)'  => 0
+J49: 'RATE_MISSING'
+K49: 'LLAMA branch: Azure GPU (NC/ND) capacity needs a quota request and, at scale, a reserved-capacity commitment negotiated per subscription — no public unit price, so visible £0 adjustable, SAME family as Oracle 19 (P1-L8) / Aerospike (P1-L9). Also a schedule risk (lead time to grant). Any Llama total excluding it is a FLOOR. Active only when ModelChoice=Llama. Fragment: model_serving_rates.json (model_serving_gpu_quota_procurement).'
+L49: 'FIXED'
+A50: 'SUBTOTAL — Build - SEGRO (Azure foundations, AKS, shared services)'
+I50: '=SUM(I19:I49)'  => 221146.58329999997
+A52: "P3 — BUILD - HCL (UNO + TX INSTALL, UNICA+/CDP DEPLOY)  (6 wk, from 2026-10-26, Slide 3: 'HCL 6 weeks' bar x=8.91-10.78, drawn strictly sequential after SEGRO bar (F2: 2-4 wk overlap realistic via OverlapWeeks toggle); gated on open KDD AKS v ARO (F3))"
+A53: 'Cost line'
+B53: 'Side'
+C53: 'Quantity model'
+D53: 'Qty Low'
+E53: 'Qty Likely'
+F53: 'Qty High'
+G53: 'Qty (live)'
+H53: 'Rate/unit £'
+I53: 'Cost £ (live)'
+J53: 'Status'
+K53: 'Basis / source'
+L53: 'Schedule'
+A54: 'HCL install & configure base UnO platform + TX components (DX, Foundry) onto AKS - platform validation, connectivity, observability integration'
+B54: 'HCL'
+C54: '3 FTE x 6 wk x 5 d = 90 days'
+D54: 60
+E54: 90
+F54: 135
+G54: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D54,E54,F54)'  => 90
+H54: '=Rates!$C$106'  => 950
+I54: '=IF(HCL_Toggle="Include",G54*Rates!$C$106,0)'  => 85500
+J54: 'INDICATIVE'
+K54: "Rate = HCL published G-Cloud SFIA L3 (VERIFIED); team size & grade mix ASSUMPTION. Low anchored to HCL's own D-025 '20-30 day core-install' agreed-in-principle x 3-person team floor. F3: install pre-commits to AKS while KDD open and HCL's matrix says AKS x CDP = N."
+L54: 'TD'
+A55: 'HCL deploy Unica+ & CDP services - routing, application gateways, certificates'
+B55: 'HCL'
+C55: '2 FTE x 6 wk x 5 d = 60 days'
+D55: 40
+E55: 60
+F55: 90
+G55: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D55,E55,F55)'  => 60
+H55: '=Rates!$C$106'  => 950
+I55: '=IF(HCL_Toggle="Include",G55*Rates!$C$106,0)'  => 57000
+J55: 'INDICATIVE'
+K55: "Rate VERIFIED (HCL's own card); team size & grade mix ASSUMPTION. Slide 3 HCL bar second block. CDP 2-env exception (F9) reduces scope but weakens Dec testing."
+L55: 'TD'
+A56: 'SEGRO platform/security engineers supporting HCL install (access, networking, reviews)'
+B56: 'SEGRO'
+C56: '1 FTE x 6 wk x 5 d = 30 days'
+D56: 20
+E56: 30
+F56: 45
+G56: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D56,E56,F56)'  => 30
+H56: '=Rates!$C$92'  => 525
+I56: '=G56*Rates!$C$92'  => 15750
+J56: 'ASSUMPTION'
+K56: 'ASSUMPTION: vendor installs on a SEGRO-run cluster always consume platform-team time (RBAC, network paths, secrets). Rate VERIFIED.'
+L56: 'TD'
+A57: 'HCL UnO platform licence/subscription - initial year'
+B57: 'HCL'
+C57: '1 year x rate GBP 0 until contract shared'
+D57: 1
+E57: 1
+F57: 1
+G57: '=E57'  => 1
+H57: '=Rates!$C$119'  => 0
+I57: '=IF(HCL_Toggle="Include",G57*Rates!$C$119,0)'  => 0
+J57: 'RATE_MISSING'
+K57: 'HCL contract pricing not shared with SEGRO. GBP 0 adjustable input - all HCL-side totals are a FLOOR while this holds.'
+L57: 'FIXED'
+A58: 'HCL Unica+ licence/subscription - initial year'
+B58: 'HCL'
+C58: '1 year x rate GBP 0 until contract shared'
+D58: 1
+E58: 1
+F58: 1
+G58: '=E58'  => 1
+H58: '=Rates!$C$120'  => 0
+I58: '=IF(HCL_Toggle="Include",G58*Rates!$C$120,0)'  => 0
+J58: 'RATE_MISSING'
+K58: 'As P3-L4.'
+L58: 'FIXED'
+A59: 'HCL CDP licence/subscription - initial year'
+B59: 'HCL'
+C59: '1 year x rate GBP 0 until contract shared'
+D59: 1
+E59: 1
+F59: 1
+G59: '=E59'  => 1
+H59: '=Rates!$C$121'  => 0
+I59: '=IF(HCL_Toggle="Include",G59*Rates!$C$121,0)'  => 0
+J59: 'RATE_MISSING'
+K59: "As P3-L4. Note AKS x CDP = N in HCL's own matrix - CDP scope interacts with the Platform toggle (F3)."
+L59: 'FIXED'
+A60: 'HCL DX licence/subscription - initial year'
+B60: 'HCL'
+C60: '1 year x rate GBP 0 until contract shared'
+D60: 1
+E60: 1
+F60: 1
+G60: '=E60'  => 1
+H60: '=Rates!$C$122'  => 0
+I60: '=IF(HCL_Toggle="Include",G60*Rates!$C$122,0)'  => 0
+J60: 'RATE_MISSING'
+K60: 'As P3-L4.'
+L60: 'FIXED'
+A61: "MinIO EOL remediation (community edition EOL Apr 2026; HCL: 'Do not assume replaceable')"
+B61: 'HCL'
+C61: '1 remediation package x rate GBP 0 until scoped'
+D61: 1
+E61: 1
+F61: 1
+G61: '=E61'  => 1
+H61: 0
+I61: '=IF(HCL_Toggle="Include",G61*H61,0)'  => 0
+J61: 'RATE_MISSING'
+K61: 'HCL_V1 brief blocker 6: CDP mandates MinIO v5.0.15, community edition EOL upstream Apr 2026, Azure First tab walks back Blob substitution. Absent from POAP procurement lane (F10). GBP 0 adjustable.'
+L61: 'FIXED'
+A62: 'SUBTOTAL — Build - HCL (UnO + TX install, Unica+/CDP deploy)'
+I62: '=SUM(I54:I61)'  => 158250
+A64: "P4 — TESTING (SIT, PEN TEST, UAT, PERFORMANCE)  (4 wk, from 2026-12-07, Slide 3: Testing bar x=11.19-12.9 (Dec 2026); 'Test phase complete' milestone adjacent to Christmas marker (F1: peak-leave compression risk))"
+A65: 'Cost line'
+B65: 'Side'
+C65: 'Quantity model'
+D65: 'Qty Low'
+E65: 'Qty Likely'
+F65: 'Qty High'
+G65: 'Qty (live)'
+H65: 'Rate/unit £'
+I65: 'Cost £ (live)'
+J65: 'Status'
+K65: 'Basis / source'
+L65: 'Schedule'
+A66: 'System Integration Testing - test engineers'
+B66: 'SEGRO'
+C66: '2 FTE x 4 wk x 5 d = 40 days'
+D66: 30
+E66: 40
+F66: 60
+G66: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D66,E66,F66)'  => 40
+H66: '=Rates!$C$98'  => 431
+I66: '=G66*Rates!$C$98'  => 17240
+J66: 'ASSUMPTION'
+K66: 'Team size ASSUMPTION; slide 9 requires SIT report + regression test report with evidence. Rate VERIFIED. High band covers F1 Christmas compression re-runs.'
+L66: 'TD'
+A67: 'Test management - plan, defect register, release readiness'
+B67: 'SEGRO'
+C67: '1 FTE x 4 wk x 5 d = 20 days'
+D67: 15
+E67: 20
+F67: 30
+G67: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D67,E67,F67)'  => 20
+H67: '=Rates!$C$99'  => 515
+I67: '=G67*Rates!$C$99'  => 10300
+J67: 'ASSUMPTION'
+K67: 'ASSUMPTION: slide 9 deliverables (defect register & resolution log, UAT plan & sign off). Rate VERIFIED.'
+L67: 'TD'
+A68: 'CREST penetration test engagement (cloud platform scope)'
+B68: 'ThirdParty'
+C68: '~10 tester-days (5-day light to 15-day deep scope)'
+D68: 5
+E68: 10
+F68: 15
+G68: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D68,E68,F68)'  => 10
+H68: '=Rates!$C$126'  => 950
+I68: '=G68*Rates!$C$126'  => 9500
+J68: 'INDICATIVE'
+K68: 'Rate = mid of two VERIFIED published G-Cloud CREST bands (650-1250/day); 10-day scope typical for a new cloud platform per people_rates derivation (GBP 7k-12.5k engagement). F7: needs booking by ~Oct + named Jan remediation window.'
+L68: 'FIXED'
+A69: 'UAT coordination & business-readiness liaison (BA)'
+B69: 'SEGRO'
+C69: '1 FTE x 4 wk x 5 d = 20 days'
+D69: 10
+E69: 20
+F69: 25
+G69: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D69,E69,F69)'  => 20
+H69: '=Rates!$C$101'  => 500
+I69: '=G69*Rates!$C$101'  => 10000
+J69: 'ASSUMPTION'
+K69: 'ASSUMPTION: UAT & release readiness item on slide 3. SEGRO business-user UAT time itself is NOT costed (see notes). Rate VERIFIED.'
+L69: 'TD'
+A70: 'Performance & resilience testing (incl. DR test execution - DR Test Report is a named deliverable)'
+B70: 'SEGRO'
+C70: '0.75 FTE x 4 wk x 5 d = 15 days'
+D70: 10
+E70: 15
+F70: 25
+G70: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D70,E70,F70)'  => 15
+H70: '=Rates!$C$93'  => 525
+I70: '=G70*Rates!$C$93'  => 7875
+J70: 'ASSUMPTION'
+K70: "ASSUMPTION: slide 9 'Performance resilience test report' + 'Disaster Recovery Test Report'. DR infrastructure itself remains uncosted (sizing_updates_missed) - see notes. Rate VERIFIED."
+L70: 'TD'
+A71: 'HCL defect-fix & SIT/UAT support (their stack, their fixes)'
+B71: 'HCL'
+C71: '1 FTE x 4 wk x 5 d = 20 days'
+D71: 10
+E71: 20
+F71: 40
+G71: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D71,E71,F71)'  => 20
+H71: '=Rates!$C$106'  => 950
+I71: '=IF(HCL_Toggle="Include",G71*Rates!$C$106,0)'  => 19000
+J71: 'INDICATIVE'
+K71: 'Rate VERIFIED (HCL card); allocation ASSUMPTION - vendor stack defects during SIT need vendor fixes; high band covers the F1 compressed-December scenario.'
+L71: 'TD'
+A72: 'SEGRO platform team support during test phase (env fixes, redeploys)'
+B72: 'SEGRO'
+C72: '1 FTE x 4 wk x 5 d = 20 days'
+D72: 15
+E72: 20
+F72: 30
+G72: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D72,E72,F72)'  => 20
+H72: '=Rates!$C$92'  => 525
+I72: '=G72*Rates!$C$92'  => 10500
+J72: 'ASSUMPTION'
+K72: 'ASSUMPTION: standard test-phase platform support. Azure consumption for Dec is inside the P2 commissioning-window ramp lines. Rate VERIFIED.'
+L72: 'TD'
+A73: 'AI red-team exercise + audit dry-run before go-live - prompt injection, tool-abuse/data-exfiltration, jailbreak testing on agent surfaces (absent from POAP, F26)'
+B73: 'ThirdParty'
+C73: '3/5/13 days — one-off at Likely; the HIGH case is a two-touch lifecycle red-team (a pre-UAT touch + the pre-go-live exercise)'
+D73: 3
+E73: 5
+F73: 13
+G73: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D73,E73,F73)'  => 5
+H73: '=Rates!$C$126'  => 950
+I73: '=G73*Rates!$C$126'  => 4750
+J73: 'INDICATIVE'
+K73: "Engagement size is an ASSUMPTION range (3/5/13 days). Rate: the DERIVED CREST pen-test day rate (950) is used as an INDICATIVE proxy for a specialist AI red-team rate - no published AI-red-team rate exists in the fact files. Trigger: 'Red Teaming or Audit Dry runs for AI not in plan' - senior architect review 18 Jul 2026 (F26). Fixed engagement like P4-L3 - does not stretch with schedule slip. WIDENED (18 Jul 2026 review): Microsoft/industry guidance treats AI red-teaming as lifecycle-iterative, not one-shot — the HIGH effort case (13 d) prices a second, pre-UAT touch on top of the pre-go-live exercise; the annual cadence line R-L31 carries the ongoing lifecycle. Likely unchanged (5 d) so the default headline holds."
+L73: 'FIXED'
+A74: 'Eval golden-set labelling by business SMEs — EXCLUDED (scope gap, F13)'
+B74: 'SEGRO'
+C74: 'SME weeks to label the eval golden sets FND-4 consumes — not costed'
+D74: 0
+E74: 0
+F74: 0
+G74: '=E74'  => 0
+H74: 0
+I74: '=G74*H74'  => 0
+J74: 'RATE_MISSING'
+K74: 'VISIBLE ZERO. FND-4 costs the eval-harness MACHINERY; nobody has costed the business-SME weeks that label the golden sets it scores against. Without labelled goldens the promotion gates are hollow. A delivery prerequisite. £0 = un-costed, not free. Absent from POAP (F13).'
+L74: 'FIXED'
+A75: 'SUBTOTAL — Testing (SIT, pen test, UAT, performance)'
+I75: '=SUM(I66:I74)'  => 89165
+A77: 'P5 — DEPLOY (PROD READINESS, MIGRATION, GO-LIVE)  (4 wk, from 2027-01-04, Slide 3: Deploy bar x=13.23-14.9 (Jan 2027); production readiness review, smoke test/stage gates, go/no-go x=13.99, migration execution, go-live ~end Jan/Feb 2027)'
+A78: 'Cost line'
+B78: 'Side'
+C78: 'Quantity model'
+D78: 'Qty Low'
+E78: 'Qty Likely'
+F78: 'Qty High'
+G78: 'Qty (live)'
+H78: 'Rate/unit £'
+I78: 'Cost £ (live)'
+J78: 'Status'
+K78: 'Basis / source'
+L78: 'Schedule'
+A79: 'Production readiness, smoke tests, stage gates, migration execution, go-live'
+B79: 'SEGRO'
+C79: '2 FTE x 4 wk x 5 d = 40 days'
+D79: 30
+E79: 40
+F79: 55
+G79: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D79,E79,F79)'  => 40
+H79: '=Rates!$C$92'  => 525
+I79: '=G79*Rates!$C$92'  => 21000
+J79: 'ASSUMPTION'
+K79: 'Team size ASSUMPTION; scope = slide 3 Deploy items 1-5 + slide 10 deploy docs (release plan, cutover, rollback, smoke report). Rate VERIFIED.'
+L79: 'TD'
+A80: 'CI/CD cutover, release automation, operational handover pack'
+B80: 'SEGRO'
+C80: '1 FTE x 4 wk x 5 d = 20 days'
+D80: 15
+E80: 20
+F80: 30
+G80: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D80,E80,F80)'  => 20
+H80: '=Rates!$C$93'  => 525
+I80: '=G80*Rates!$C$93'  => 10500
+J80: 'ASSUMPTION'
+K80: "ASSUMPTION: slide 10 'Operational handover pack' + CI/CD configuration doc (slide 7). Rate VERIFIED. Boundary vs P2-L27: that line builds the DevSecOps pipelines in P2; this line is the deploy-phase cutover/release execution only - no double count."
+L80: 'TD'
+A81: 'Release/project management - go/no-go pack, cutover comms'
+B81: 'SEGRO'
+C81: '1 FTE x 4 wk x 5 d = 20 days'
+D81: 15
+E81: 20
+F81: 25
+G81: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D81,E81,F81)'  => 20
+H81: '=Rates!$C$97'  => 535
+I81: '=G81*Rates!$C$97'  => 10700
+J81: 'ASSUMPTION'
+K81: 'ASSUMPTION: go/no-go decision milestone (slide 3, x=13.99). Rate VERIFIED.'
+L81: 'TD'
+A82: 'Pen-test remediation + retest sign-off before go/no-go (F7)'
+B82: 'SEGRO'
+C82: '0.5 FTE x 4 wk x 5 d = 10 days'
+D82: 5
+E82: 10
+F82: 20
+G82: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D82,E82,F82)'  => 10
+H82: '=Rates!$C$95'  => 550
+I82: '=G82*Rates!$C$95'  => 5500
+J82: 'ASSUMPTION'
+K82: 'F7: remediation + retest must land before the January go/no-go; POAP holds no named window. High band = material findings. Rate VERIFIED.'
+L82: 'TD'
+A83: 'HCL go-live support (their components through cutover)'
+B83: 'HCL'
+C83: '1 FTE x 4 wk x 5 d = 20 days'
+D83: 10
+E83: 20
+F83: 30
+G83: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D83,E83,F83)'  => 20
+H83: '=Rates!$C$106'  => 950
+I83: '=IF(HCL_Toggle="Include",G83*Rates!$C$106,0)'  => 19000
+J83: 'INDICATIVE'
+K83: 'Rate VERIFIED (HCL card); allocation ASSUMPTION.'
+L83: 'TD'
+A84: 'R1 use-case delivery lane — ABSENT from the POAP (scope gap, F5)'
+B84: 'SEGRO'
+C84: 'Building the first business-facing use cases against the platform — no lane in the POAP'
+D84: 0
+E84: 0
+F84: 0
+G84: '=E84'  => 0
+H84: 0
+I84: '=G84*H84'  => 0
+J84: 'RATE_MISSING'
+K84: 'VISIBLE ZERO. A101: £830k buys a platform with zero business-facing capability at go-live. There is no R1 use-case delivery lane in the POAP (F5) — the £37k supervised September pilot (see the R1 Pilot block) is the costed alternative. £0 = un-costed, not free.'
+L84: 'FIXED'
+A85: 'SUBTOTAL — Deploy (prod readiness, migration, go-live)'
+I85: '=SUM(I79:I84)'  => 66700
+A87: "P6 — HYPERCARE / PGLS + BUSINESS READINESS CLOSE-OUT  (6 wk, from 2027-02-01, Slide 3: 'PGLS + Hypercare' bar from go-live (x=15.41, Feb 2027); duration 6 wk ASSUMPTION from the 4-8 wk hypercare norm (programme_benchmarks, Microsoft guidance: short fixed-end-date, criteria-based exit))"
+A88: 'Cost line'
+B88: 'Side'
+C88: 'Quantity model'
+D88: 'Qty Low'
+E88: 'Qty Likely'
+F88: 'Qty High'
+G88: 'Qty (live)'
+H88: 'Rate/unit £'
+I88: 'Cost £ (live)'
+J88: 'Status'
+K88: 'Basis / source'
+L88: 'Schedule'
+A89: 'Hypercare squad - declining coverage, average 1.5 FTE across 6 weeks'
+B89: 'SEGRO'
+C89: 'avg 1.5 FTE x 6 wk x 5 d = 45 days'
+D89: 30
+E89: 45
+F89: 60
+G89: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D89,E89,F89)'  => 45
+H89: '=Rates!$C$92'  => 525
+I89: '=G89*Rates!$C$92'  => 23625
+J89: 'ASSUMPTION'
+K89: 'Duration ASSUMPTION per programme_benchmarks hypercare norm (4-8 wk, criteria-exited fixed window); average 1.5 FTE across the window is a coverage ASSUMPTION (not a % of the build squad). Rate VERIFIED.'
+L89: 'TD'
+A90: 'HCL PGLS / hypercare support on HCL components'
+B90: 'HCL'
+C90: '1 FTE x 6 wk x 5 d = 30 days'
+D90: 15
+E90: 30
+F90: 45
+G90: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D90,E90,F90)'  => 30
+H90: '=Rates!$C$106'  => 950
+I90: '=IF(HCL_Toggle="Include",G90*Rates!$C$106,0)'  => 28500
+J90: 'INDICATIVE'
+K90: 'Rate VERIFIED (HCL card); allocation ASSUMPTION. If PGLS is inside a fixed-price contract this double-counts - flexes to 0 via qty or HCL_Toggle.'
+L90: 'TD'
+A91: 'Change management, comms, training delivery & business readiness (spread P2-P6, booked here)'
+B91: 'SEGRO'
+C91: '10% of ~GBP 600k delivery floor / BA rate 500 = ~120 days'
+D91: 80
+E91: 120
+F91: 160
+G91: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D91,E91,F91)'  => 120
+H91: '=Rates!$C$101'  => 500
+I91: '=G91*Rates!$C$101'  => 60000
+J91: 'ASSUMPTION'
+K91: 'Sized from the VERIFIED Prosci benchmark: most common change-mgmt allocation = 10% of project budget (programme_benchmarks). Covers slide 3 Business readiness lane (change mgmt, training, comms, stakeholder engagement). Effort spans P2-P6; booked in one line here.'
+L91: 'TD'
+A92: 'End-user training materials/licence cost per employee (per-rollout unit cost unpublished)'
+B92: 'SEGRO'
+C92: 'OrgSize employees x per-rollout rate GBP 0 (live headcount = the single OrgSize input; ARA25 VERIFIED = 463, brief = 700)'
+D92: 463
+E92: 463
+F92: 463
+G92: '=OrgSize'  => 700
+H92: '=Rates!$C$133'  => 0
+I92: '=G92*Rates!$C$133'  => 0
+J92: 'RATE_MISSING'
+K92: 'Headcount now follows the single OrgSize input (default 700 per brief; SEGRO ARA25 VERIFIED = 463 — set OrgSize to 463 for the ARA-anchored run). Reconciles the previous two-headcounts issue (this line hardcoded 463 while TCO/employee used OrgSize). Per-rollout training unit cost is RATE_MISSING (£0 adjustable), so the live cost is unchanged. Trainer delivery days already inside P6-L3.'
+L92: 'FIXED'
+A93: 'Service transition & application support model into ITIL/ServiceNow (transition pack, RACI, ownership matrix)'
+B93: 'SEGRO'
+C93: '0.5 FTE x 6 wk x 5 d = 15 days'
+D93: 10
+E93: 15
+F93: 25
+G93: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D93,E93,F93)'  => 15
+H93: '=Rates!$C$97'  => 535
+I93: '=G93*Rates!$C$97'  => 8025
+J93: 'ASSUMPTION'
+K93: 'ASSUMPTION: slide 3 Business readiness item 1 + slide 8 docs (Support RACI, Service ownership matrix); SEGRO principle - ITIL/ServiceNow service transition for everything. Rate VERIFIED.'
+L93: 'TD'
+A94: 'SUBTOTAL — Hypercare / PGLS + business readiness close-out'
+I94: '=SUM(I89:I93)'  => 120150
+A96: 'LOADINGS & SENSITIVITY (formula-driven)'
+A97: 'Build subtotal (all phases)'
+I97: '=I15+I50+I62+I75+I85+I94'  => 722036.5832999999
+A98: 'Contingency on build'
+I98: '=I97*ContingencyPct'  => 108305.487495
+J98: 'DERIVED'
+K98: 'ContingencyPct applied once to the build subtotal (default 15% ASSUMPTION; Green Book ICT capex optimism-bias starting range is 10-200%).'
+A99: 'Weekly time-driven burn (P1–P5 average)'
+I99: '=(SUMIF($L$6:$L$14,"TD",$I$6:$I$14)+SUMIF($L$19:$L$49,"TD",$I$19:$I$49)+SUMIF($L$54:$L$61,"TD",$I$54:$I$61)+SUMIF($L$66:$L$74,"TD",$I$66:$I$74)+SUMIF($L$79:$L$84,"TD",$I$79:$I$84))/29'  => 20263.330458620687
+J99: 'DERIVED'
+K99: 'Average weekly run-rate of time-driven P1–P5 work; drives slip cost.'
+A100: 'Slip cost (SlipWeeks × weekly time-driven P1–P5 burn)'
+I100: '=SlipWeeks*WeeklyBurn'  => 0
+J100: 'DERIVED'
+K100: 'SlipWeeks x (time-driven P1-P5 cost / 29 wks). Time-driven = lines flagged time_driven (SEGRO/HCL people + Azure commissioning); RATE_MISSING licences'
+A101: 'Overlap saving — F2 (Azure double-running only, per parallel week)'
+I101: '=-OverlapWeeks*(SUMIFS($I$6:$I$14,$B$6:$B$14,"Azure",$L$6:$L$14,"TD")+SUMIFS($I$19:$I$49,$B$19:$B$49,"Azure",$L$19:$L$49,"TD")+SUMIFS($I$54:$I$61,$B$54:$B$61,"Azure",$L$54:$L$61,"TD")+SUMIFS($I$66:$I$74,$B$66:$B$74,"Azure",$L$66:$L$74,"TD")+SUMIFS($I$79:$I$84,$B$79:$B$84,"Azure",$L$79:$L$84,"TD"))/29'  => 0
+J101: 'DERIVED'
+K101: 'OverlapWeeks x (P1-P5 Azure time-driven lines / 29 wks). Parallel SEGRO/HCL working saves Azure environment DOUBLE-RUNNING cost only; it is a COST lev'
+A102: 'TOTAL BUILD (phases + contingency + slip − overlap)'
+I102: '=I97+I98+I100+I101'  => 830342.070795
+A104: '▪ HCL FLOOR: every HCL licence/subscription/AMS line is RATE_MISSING at GBP 0 (contract not shared) - any total including the HCL side is a FLOOR, not an estimate.'
+A105: '▪ Run cost excludes SEGRO business-user time (UAT, adoption, process change) throughout.'
+A106: "▪ Build durations are the POAP's own, marked 'To be validated based on Arch workshop' on the plan itself (F14) - price slips via SlipWeeks; go-live is better presented as a range (Feb-Apr 2027)."
+A107: '▪ F5 value gap: ~30 weeks and the full build spend deliver zero business-facing capability at go-live - no R1 use-case delivery lane exists in the POAP; run-model token lines are placeholders until R1 lands.'
+A108: '▪ Azure quantities are list-price PAYG ceilings at stated volume ASSUMPTIONS; EA/MACC discounts and reservations (30-60% off) reduce them. Managed disks, egress, Azure Firewall, Private Link and backup storage are not priced (fact-file scope) and will appear on a real bill.'
+A109: "▪ DR: 'Disaster Recovery Test Report' is a named POAP deliverable and its test execution is costed (P4-L5), but DR infrastructure itself is not costed anywhere in the POAP or this model (sizing_updates_missed) - a named gap."
+A110: "▪ Kafka: HCL's matrix marks Event Hubs = N for UnO/CDP/Unica+ - the Event Hubs lines are the Azure-native branch; self-hosted Kafka on the cluster is the fallback and shifts that cost into node pools."
+A111: "▪ Phase start dates are a strictly-sequential reconstruction from the POAP's own week labels (5/10/6/4/4 + 6 wk hypercare from 13 Jul 2026, go-live ~end Jan/Feb 2027). The drawn bar geometry does NOT reconcile with these labels (HCL bar drawn ~3.8 wk vs labelled 6; 'Test phase comp"

@@ -1,0 +1,105 @@
+A1: 'R1 September Pilot — one supervised Content Agent (the costed alternative)'
+A2: '="Basis: effort = "&EffortBasis&"  ·  OUT OF TOTAL (not in TotalBuild / TotalRun5yr)  ·  interim infra, ~6 weeks, September"'  => 'Basis: effort = Likely  ·  OUT OF TOTAL (not in TotalBuild / TotalRun5yr)  ·  interim infra, ~6 weeks, September'
+A4: '▪ OUT OF TOTAL — this is the costed ALTERNATIVE to the full HCL mobilisation: one supervised Content Agent on interim infra, ~6 weeks, September. It is NOT added to TotalBuild or TotalRun5yr (those are the POAP-as-drawn figures). Every rate is VERIFIED and inherited from the Rates tab; every quantity is an ASSUMPTION low/likely/high range. ~£37k at Likely — a rounding error against the £830k build FLOOR, which is the whole point of the offer. Fragment: r1_pilot_scope.json (APPROVE).'
+A8: 'Pilot line'
+B8: 'Side'
+C8: 'Quantity model'
+D8: 'Qty Low'
+E8: 'Qty Likely'
+F8: 'Qty High'
+G8: 'Qty (live)'
+H8: 'Rate/unit £'
+I8: 'Cost £ (live)'
+J8: 'Status'
+K8: 'Basis / source'
+A9: 'A couple of agent/AI engineers - build & supervise ONE Content Agent (prompt/tooling, content-source connectors, guardrails, eval harness for the single agent) on interim infra'
+B9: 'SEGRO'
+C9: '2 agent/AI engineers x 30 days each = 60 person-days over ~6 wk; low 40 (2 x 20 d, tighter scope/ramp) / high 80 (2 x 40 d, overrun or a 3rd pair of hands)'
+D9: 40
+E9: 60
+F9: 80
+G9: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D9,E9,F9)'  => 60
+H9: '=Rates!$C$93'  => 525
+I9: '=G9*H9'  => 31500
+J9: 'ASSUMPTION'
+K9: "RATE VERIFIED: contractor_devops_engineer_day = GBP 525/day (spec_rates_control.json, ITJobsWatch UK median). No dedicated 'agent-engineer' or ML-engineer rate exists in the fact files; the DevOps-engineer median is the nearest AI/dev build rate and is already the basis used elsewhere for agent-adjacent build/deploy work (spec_cost_model P2-L27 DevSecOps-for-agents, P5-L2 CI/CD-for-agents). Nearest alternative = contractor_data_engineer_day (GBP 500, VERIFIED) if an ML/data slant is preferred. QUANTITY ASSUMPTION: 2 engineers x ~6 wk; a single supervised Content Agent is a small build, so 60 person-days is the likely, 40-80 the range."
+A10: "Fractional supervising lead - human-in-the-loop oversight, guardrail/eval sign-off, go/no-go on agent outputs (the 'supervised' in the offer)"
+B10: 'SEGRO'
+C10: '0.25 FTE x 6 wk x 5 d = ~8 person-days; low 5 / high 12'
+D10: 5
+E10: 8
+F10: 12
+G10: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D10,E10,F10)'  => 8
+H10: '=Rates!$C$96'  => 625
+I10: '=G10*H10'  => 5000
+J10: 'ASSUMPTION'
+K10: 'RATE VERIFIED: contractor_solutions_architect_day = GBP 625/day (spec_rates_control.json, ITJobsWatch UK median) used as the senior supervising-lead rate. QUANTITY ASSUMPTION: deliberately small fractional oversight (0.25 FTE) - this line embodies the human-in-the-loop supervision that makes the single-agent pilot a controlled release. Optional; set to 0 if the two engineers self-supervise.'
+A11: 'Sandbox worker nodes - a couple of D4s_v5 D-series nodes on an interim AKS Free-tier cluster (cluster-mgmt fee = GBP 0 on Free tier, so only node compute is costed)'
+B11: 'Azure'
+C11: '2 x D4s_v5 nodes x 6 wk; likely 1008 node-hrs (2 nodes x 84 h/wk = 12h x 7d), low 720 (12h x 5 weekdays), high 2016 (24/7)'
+D11: 720
+E11: 1008
+F11: 2016
+G11: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D11,E11,F11)'  => 1008
+H11: '=Rates!$C$7'  => 0.1682
+I11: '=G11*H11'  => 169.54559999999998
+J11: 'ASSUMPTION'
+K11: 'RATE VERIFIED: vm_d4s_v5_node_hr = GBP 0.1682/node-hr (spec_rates_control.json, Azure Retail Prices API uksouth PAYG). INTERIM infra: sandbox cluster uses AKS Free tier (azure_infra_rates.json Free tier = GBP 0.0, dev/test) so no aks_standard_mgmt_hr fee applies. QUANTITY ASSUMPTION: 2 small nodes is the minimal footprint for one low-throughput agent; running-hours range spans weekday-only to 24/7. ~GBP 170 at likely - trivially small vs people cost.'
+A12: 'Minimal PaaS - one small PostgreSQL Flexible Server (4 vCore) for agent state / content metadata store'
+B12: 'Azure'
+C12: '1 server x 6 wk; likely 504 server-hrs (84 h/wk), low 360 (12h weekdays), high 1008 (24/7)'
+D12: 360
+E12: 504
+F12: 1008
+G12: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D12,E12,F12)'  => 504
+H12: '=Rates!$C$14'  => 0.3121
+I12: '=G12*H12'  => 157.2984
+J12: 'ASSUMPTION'
+K12: 'RATE VERIFIED: pg_flexible_d4ds_compute_hr = GBP 0.3121/hr (spec_rates_control.json). QUANTITY ASSUMPTION: a single small state store for one agent, on interim infra, same 6-wk window and hours pattern as PILOT-L3. The smallest published SKU in the fact files; storage priced separately (PILOT-L5).'
+A13: 'Minimal PaaS - PostgreSQL provisioned storage for the sandbox state store'
+B13: 'Azure'
+C13: '32 GB x ~1.5 months = 48 GB-months; low 32 / high 96'
+D13: 32
+E13: 48
+F13: 96
+G13: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D13,E13,F13)'  => 48
+H13: '=Rates!$C$15'  => 0.1008
+I13: '=G13*H13'  => 4.8384
+J13: 'ASSUMPTION'
+K13: 'RATE VERIFIED: pg_flexible_storage_gb_mo = GBP 0.1008/GB/mo (spec_rates_control.json). QUANTITY ASSUMPTION: 32 GB is a minimal pilot allocation; ~1.5 months covers the 6-wk window. Pennies - carried for completeness.'
+A14: 'Supervision observability - Log Analytics ingestion of agent run-traces (so a human can watch/audit every action; low volume for a single supervised agent)'
+B14: 'Azure'
+C14: '~0.7 GB/day x 42 days ~= 30 GB over 6 wk; low 10 / high 60 (first 5 GB/mo is free per the meter)'
+D14: 10
+E14: 30
+F14: 60
+G14: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D14,E14,F14)'  => 30
+H14: '=Rates!$C$31'  => 2.1819
+I14: '=G14*H14'  => 65.45700000000001
+J14: 'ASSUMPTION'
+K14: "RATE VERIFIED: log_analytics_gb_ingested = GBP 2.1819/GB (spec_rates_control.json). QUANTITY ASSUMPTION: a single low-throughput supervised agent generates modest run-trace volume; this line makes 'supervised' concrete (human-in-the-loop needs the traces). Gross of the 5 GB/month free allowance."
+A15: 'LLM tokens - Azure OpenAI GPT-4o INPUT tokens for the Content Agent (low pilot throughput, supervised single agent)'
+B15: 'Azure'
+C15: '~10M input tokens/mo x ~1.5 mo = 15 units of 1M; low 5 / high 40'
+D15: 5
+E15: 15
+F15: 40
+G15: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D15,E15,F15)'  => 15
+H15: '=Rates!$C$131'  => 1.9
+I15: '=G15*H15'  => 28.5
+J15: 'ASSUMPTION'
+K15: "RATE VERIFIED: aoai_gpt4o_input_1m_tokens = GBP 1.90 per 1M input tokens (spec_rates_control.json, Azure Retail Prices API uksouth meter 'gpt 4o 1120 Inp glbl'). QUANTITY ASSUMPTION: deliberately low - one supervised content agent at low throughput. GPT-4o-mini (GBP 0.10/1M in same fact file) would cut this ~19x if used; carried on GPT-4o as the conservative anchor."
+A16: 'LLM tokens - Azure OpenAI GPT-4o OUTPUT tokens for the Content Agent (generated content, low pilot volume)'
+B16: 'Azure'
+C16: '~3.3M output tokens/mo x ~1.5 mo = 5 units of 1M; low 2 / high 12'
+D16: 2
+E16: 5
+F16: 12
+G16: '=CHOOSE(MATCH(EffortBasis,{"Low","Likely","High"},0),D16,E16,F16)'  => 5
+H16: '=Rates!$C$132'  => 7.6
+I16: '=G16*H16'  => 38
+J16: 'ASSUMPTION'
+K16: "RATE VERIFIED: aoai_gpt4o_output_1m_tokens = GBP 7.60 per 1M output tokens (spec_rates_control.json, meter 'gpt 4o 1120 Outp glbl'). QUANTITY ASSUMPTION: low single-agent output volume; Batch API halves the rate (GBP 3.80/1M) per the fact file if throughput allows."
+A17: 'PILOT TOTAL (out of the POAP total)'
+I17: '=SUM(I9:I16)'  => 36963.6394
+A19: '="Pilot total £"&TEXT(PilotTotal,"#,##0")&"  vs  POAP build FLOOR £"&TEXT(TotalBuild,"#,##0")&"  —  the price of saying yes to one supervised agent in September."'  => 'Pilot total £36,964  vs  POAP build FLOOR £830,342  —  the price of saying yes to one supervised agent in September.'

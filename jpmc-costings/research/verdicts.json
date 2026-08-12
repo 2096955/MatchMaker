@@ -1,0 +1,354 @@
+[
+ {
+  "meter": "Bedrock AgentCore Gateway | Search API invocations",
+  "original_usd": 0.025,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS AgentCore pricing page (aws.amazon.com/bedrock/agentcore/pricing/) lists Search API at $0.025 per 1,000 invocations, matching exactly."
+ },
+ {
+  "meter": "Bedrock AgentCore Gateway | Tool indexing",
+  "original_usd": 0.02,
+  "verdict": "CONFIRMED",
+  "evidence": "Same AWS AgentCore pricing page lists Tool indexing at $0.02 per 100 tools indexed per month, matching exactly."
+ },
+ {
+  "meter": "Bedrock AgentCore Gateway | Data egress (VPC target)",
+  "original_usd": 0.006,
+  "verdict": "CONFIRMED",
+  "evidence": "Same AWS AgentCore pricing page lists data egress to customer VPCs at $0.006 per GB in commercial AWS Regions, matching exactly."
+ },
+ {
+  "meter": "Bedrock AgentCore Identity | OAuth token / API key requests",
+  "original_usd": 0.01,
+  "verdict": "CONFIRMED",
+  "evidence": "Same AWS AgentCore pricing page lists Identity token/API key requests at $0.010 per 1,000 token or API keys requested by the agent. Note: AWS states this is waived (no additional charge) when accessed through AgentCore Runtime or Gateway, but the standalone list price matches $0.01/1,000."
+ },
+ {
+  "meter": "Bedrock Evaluations (Model Evaluation) | LLM-as-a-judge token usage",
+  "original_usd": 0,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Bedrock pricing page (aws.amazon.com/bedrock/pricing/) states tokens used by a judge model in LLM-as-a-judge/RAG evaluation scenarios are charged at the judge model's on-demand standard tier token prices \u2014 confirming there is no separate evaluation-specific meter."
+ },
+ {
+  "meter": "Bedrock Evaluations (Model Evaluation) | Human-based evaluation task",
+  "original_usd": 0.21,
+  "verdict": "CONFIRMED",
+  "evidence": "Same AWS Bedrock pricing page states a charge of $0.21 per completed human task for human-based model evaluation, matching exactly."
+ },
+ {
+  "meter": "Bedrock Guardrails | Content filters (text)",
+  "original_usd": 0.15,
+  "verdict": "CONFIRMED",
+  "evidence": "Same AWS Bedrock pricing page lists Guardrails content filters (text content) at $0.15 per 1,000 text units (same for standard and classic tier), matching exactly."
+ },
+ {
+  "meter": "Bedrock Guardrails | Content filters (image)",
+  "original_usd": 0.75,
+  "verdict": "CONFIRMED",
+  "evidence": "Same page lists the per-unit rate as $0.00075 per image processed, which equals $0.75 per 1,000 images processed (0.00075 x 1000 = 0.75) \u2014 mathematically identical to the claimed figure, just expressed per-image rather than per-1,000."
+ },
+ {
+  "meter": "Amazon Neptune | db.r6g.large (Multi-AZ, Standard)",
+  "original_usd": 0.3287,
+  "corrected_usd": 0.3287,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API bulk offer file (AmazonNeptune/current/us-east-1/index.json), SKU RVRXTXGRCHV39AZZ: instanceType=db.r6g.large, deploymentOption=Multi-AZ, volumeType=Standard, usagetype=InstanceUsage:db.r6g.large. priceDimension description: '$0.3287 per Hrs for Neptune-DB-Instance:db.r6g.large in US East (N. Virginia)', pricePerUnit USD 0.3287000000 per Hrs. Exact match."
+ },
+ {
+  "meter": "Amazon Neptune | Storage",
+  "original_usd": 0.1,
+  "corrected_usd": 0.1,
+  "verdict": "CONFIRMED",
+  "evidence": "Same Neptune pricing file, SKU DC9Z9FKX6DYNCP6Q, usagetype=StorageUsage, US East (N. Virginia): '$0.100 per GB / month (Amazon Neptune)', pricePerUnit USD 0.1000000000 per GB-Mo. Exact match (this is the Standard-configuration storage rate; note the I/O-Optimized storage rate is separately $0.225/GB-mo, a different SKU, not applicable here since the row is paired with the Standard I/O rate below)."
+ },
+ {
+  "meter": "Amazon Neptune | I/O requests (Standard)",
+  "original_usd": 0.2,
+  "corrected_usd": 0.2,
+  "verdict": "CONFIRMED",
+  "evidence": "Same Neptune pricing file, SKU BUH7XHYZ78RFMC5N, usagetype=StorageIOUsage, US East (N. Virginia): '$0.20 per 1 million I/O requests (Amazon Neptune)', pricePerUnit USD 0.0000002000 per IO = $0.20 per 1,000,000 IOs. Exact match."
+ },
+ {
+  "meter": "Amazon ECS on Fargate | vCPU-hour (Linux/x86)",
+  "original_usd": 0.04048,
+  "corrected_usd": 0.04048,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API bulk offer file (AmazonECS/current/us-east-1/index.json), SKU 8CESGAFWKAJ98PME, usagetype=USE1-Fargate-vCPU-Hours:perCPU (non-ARM = x86): 'AWS Fargate - vCPU - US East (N.Virginia)', pricePerUnit USD 0.0404800000 per hours. Exact match."
+ },
+ {
+  "meter": "Amazon ECS on Fargate | GB-hour memory (Linux/x86)",
+  "original_usd": 0.004445,
+  "corrected_usd": 0.004445,
+  "verdict": "CONFIRMED",
+  "evidence": "Same ECS pricing file, SKU PBZNQUSEXZUC34C9, usagetype=USE1-Fargate-GB-Hours (non-ARM): 'AWS Fargate - Memory - US East (N.Virginia)', pricePerUnit USD 0.0044450000 per hours. Exact match."
+ },
+ {
+  "meter": "Amazon ECS on Fargate | Monthly example: 0.25 vCPU / 0.5 GB always-on task",
+  "original_usd": 9.01,
+  "corrected_usd": 9.01,
+  "verdict": "CONFIRMED",
+  "evidence": "Recomputed independently from the confirmed per-unit rates: (0.25 vCPU * $0.04048 + 0.5 GB * $0.004445) * 730 hrs = (0.01012 + 0.0022225) * 730 = $9.0100, rounds to $9.01. Exact match to AWS's published example."
+ },
+ {
+  "meter": "Amazon ECS on Fargate | Monthly example: 1 vCPU / 2 GB always-on task",
+  "original_usd": 36.04,
+  "corrected_usd": 36.04,
+  "verdict": "CONFIRMED",
+  "evidence": "Recomputed independently: (1 * $0.04048 + 2 * $0.004445) * 730 hrs = (0.04048 + 0.00889) * 730 = $36.0401, rounds to $36.04. Exact match to AWS's published example (0.01 cent rounding artifact is immaterial)."
+ },
+ {
+  "meter": "Amazon RDS Proxy | vCPU-hour (for Aurora PostgreSQL instances)",
+  "original_usd": 0.015,
+  "corrected_usd": 0.015,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API bulk offer file (AmazonRDS/current/us-east-1/index.json), SKU 2ZHR9JHFG9TJUAZB, databaseEngine=Aurora PostgreSQL, usagetype=USE1-RDS:ProxyUsage, operation=CreateDBProxy:0021: '$0.015 per hour per vCPU of the Aurora PostgreSQL instances associated with an RDS Proxy', pricePerUnit USD 0.0150000000 per Hrs. Exact match."
+ },
+ {
+  "meter": "Amazon Aurora PostgreSQL Serverless v2 | ACU-hour (Standard)",
+  "original_usd": 0.12,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API (AmazonRDS/current/us-east-1), SKU AVKW7ZJP8D72HNQC, usagetype Aurora:ServerlessV2Usage: 'USD 0.12 per Aurora Capacity Unit hour running Aurora PostgreSQL Serverless v2' \u2014 exact match. (Note: legacy Aurora Serverless v1 is $0.06/ACU-hr, and Serverless v2 I/O-Optimized is $0.16/ACU-hr, but v2 Standard is confirmed at $0.12.)"
+ },
+ {
+  "meter": "Amazon Aurora PostgreSQL | Database storage (Standard)",
+  "original_usd": 0.1,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API (AmazonRDS/current/us-east-1), SKU 7GYUVAA992PFJPCB, usagetype Aurora:StorageUsage: '$0.10 per GB-month of consumed storage (Aurora PostgreSQL)' \u2014 exact match."
+ },
+ {
+  "meter": "Amazon Aurora PostgreSQL | I/O requests (Standard)",
+  "original_usd": 0.2,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API (AmazonRDS/current/us-east-1), SKU 7JDSZP38DMKT9B86, usagetype Aurora:StorageIOUsage: '$0.20 per 1 million I/O requests (Aurora PostgreSQL)' \u2014 exact match (also mirrored by Aurora:ReplicatedWriteIO at the same $0.20/1M rate)."
+ },
+ {
+  "meter": "Amazon OpenSearch Service (managed domain) | r7g.large.search",
+  "original_usd": 0.178,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API (AmazonES/current/us-east-1), SKU NYSW4QESJJYSRKB8: 'USD $0.178/Hr r7g.large.search - US East (N. Virginia)' \u2014 exact match."
+ },
+ {
+  "meter": "Amazon OpenSearch Service (managed domain) | m7g.large.search",
+  "original_usd": 0.135,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API (AmazonES/current/us-east-1), SKU 768PNTU2J4HAMWC5: 'USD $0.135/Hr m7g.large.search - US East (N. Virginia)' \u2014 exact match."
+ },
+ {
+  "meter": "Amazon OpenSearch Service (managed domain) | t3.small.search (dev/test)",
+  "original_usd": 0.036,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API (AmazonES/current/us-east-1), SKU 5J8PMAEBQ97Q467D: '$0.036 per t3.small.search instance hour (or partial hour)' \u2014 exact match."
+ },
+ {
+  "meter": "Amazon OpenSearch Service (managed domain) | EBS gp3 storage",
+  "original_usd": 0.122,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API (AmazonES/current/us-east-1), SKU AN2E76YS3ZUMQAES, usagetype ES:GP3-Storage: 'USD 0.122/GB-month provisioned gp3 storage' \u2014 exact match."
+ },
+ {
+  "meter": "Amazon OpenSearch Serverless | OCU-hour (Indexing/Search/Semantic/Vector-index-acceleration, all uniform)",
+  "original_usd": 0.24,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List API (AmazonES/current/us-east-1) confirms uniform $0.24/OCU-hour across all listed OCU types in US East (N. Virginia): IndexingOCU, SearchOCU, SemanticSearchOCU, VectorIndexAccelerationOCU each priced at exactly $0.24/OCU-hour (and IngestionOCU/DirectQueryOCU also at $0.24, consistent with the claimed uniformity)."
+ },
+ {
+  "meter": "Bedrock - Amazon Titan Text Embeddings V2 | Input tokens, batch mode | 0.01 USD per 1M input tokens",
+  "original_usd": 0.01,
+  "verdict": "CONFIRMED",
+  "corrected_usd": 0.01,
+  "evidence": "AWS Bedrock official pricing page (aws.amazon.com/bedrock/pricing/) 'On-Demand and Batch pricing for text models' table lists Titan Text Embeddings V2 batch input price. Cross-checked against the raw AWS pricing data feed (b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/bedrock/USD/current/bedrock.json, US East (N. Virginia) region): rate ID arFVCmTlwqUWwFF0QyJNhZ_QRzX-e-pB1756ylu0P_c (the batch-input token price bound to the Titan V2 row) = price 0.0000100000 per token, i.e. $0.01 per 1,000 tokens *1000 = $0.01 per 1M tokens. (On-demand rate for the same model, id eh1KPfqS8SzOcpzykb_8UNOOCmIOCxQthHTL2CoKg_U, = 0.0000200000, i.e. $0.02/1M on-demand, confirming batch = 50% of on-demand as AWS's general batch-discount policy states.)"
+ },
+ {
+  "meter": "Bedrock AgentCore Runtime | vCPU consumption | 0.0895 USD per vCPU-hour",
+  "original_usd": 0.0895,
+  "verdict": "CONFIRMED",
+  "corrected_usd": 0.0895,
+  "evidence": "AWS AgentCore pricing page (aws.amazon.com/bedrock/agentcore/pricing/) Runtime section states '$0.0895 per vCPU-hour' verbatim (appears 3 times in the page HTML, consistent)."
+ },
+ {
+  "meter": "Bedrock AgentCore Runtime | Memory consumption | 0.00945 USD per GB-hour",
+  "original_usd": 0.00945,
+  "verdict": "CONFIRMED",
+  "corrected_usd": 0.00945,
+  "evidence": "AWS AgentCore pricing page states '$0.00945 per GB-hour' verbatim (appears 3 times in the page HTML, consistent) directly alongside the vCPU-hour rate."
+ },
+ {
+  "meter": "Bedrock AgentCore Memory | Short-term memory events | 0.25 USD per 1,000 new events",
+  "original_usd": 0.25,
+  "verdict": "CONFIRMED",
+  "corrected_usd": 0.25,
+  "evidence": "AWS AgentCore pricing page, Memory pricing table row 'Short-Term Memory Event Storage' -> '$0.25 per 1,000 new events' verbatim."
+ },
+ {
+  "meter": "Bedrock AgentCore Memory | Long-term storage, built-in strategies | 0.75 USD per 1,000 memory records stored per month",
+  "original_usd": 0.75,
+  "verdict": "CONFIRMED",
+  "corrected_usd": 0.75,
+  "evidence": "AWS AgentCore pricing page, Memory table: 'Using built-in memory strategies: $0.75 per 1000 memory records stored per month' verbatim (billed hourly assuming a 31-day month)."
+ },
+ {
+  "meter": "Bedrock AgentCore Memory | Long-term storage, custom/self-managed strategies | 0.25 USD per 1,000 memory records stored per month",
+  "original_usd": 0.25,
+  "verdict": "CONFIRMED",
+  "corrected_usd": 0.25,
+  "evidence": "AWS AgentCore pricing page, Memory table: 'Using built-in with override or self-managed memory strategies: $0.25 per 1000 memory records stored per month*' verbatim, in the same row as the built-in-strategies price."
+ },
+ {
+  "meter": "Bedrock AgentCore Memory | Long-term memory retrieval | 0.5 USD per 1,000 memory record retrievals",
+  "original_usd": 0.5,
+  "verdict": "CONFIRMED",
+  "corrected_usd": 0.5,
+  "evidence": "AWS AgentCore pricing page, Memory table row 'Long-Term Memory Retrieval' -> '$0.50 per 1000 memory record retrievals' verbatim."
+ },
+ {
+  "meter": "Bedrock AgentCore Gateway | API invocations | 0.005 USD per 1,000 invocations",
+  "original_usd": 0.005,
+  "verdict": "CONFIRMED",
+  "corrected_usd": 0.005,
+  "evidence": "AWS AgentCore pricing page, Gateway table row 'API Invocations (e.g. ListTools, InvokeTool, Ping)' -> '$0.005 per 1,000 invocations' verbatim (distinct from Search API at $0.025/1,000 and Tool Indexing at $0.02 per 100 tools/month, confirming this specific line item)."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Opus 4.8 | Input tokens (cross-region Global inference profile)",
+  "original_usd": 5,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Bedrock pricing page, \"Anthropic\" > \"Global Cross-region Inference\" table, row \"Claude Opus 4.8\": Price per 1M input tokens live JSON value = 5.0000000000 USD. Verified identical across US East (N. Virginia), US West (Oregon), EU (Frankfurt)."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Opus 4.8 | Output tokens (cross-region Global inference profile)",
+  "original_usd": 25,
+  "verdict": "CONFIRMED",
+  "evidence": "Same table/row, Price per 1M output tokens live JSON value = 25.0000000000 USD."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Opus 4.8 | Prompt cache write, 5-minute TTL",
+  "original_usd": 6.25,
+  "verdict": "CONFIRMED",
+  "evidence": "Same table/row, \"Price per 1M input tokens (5m cache write)\" live JSON value = 6.2500000000 USD."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Opus 4.8 | Prompt cache write, 1-hour TTL",
+  "original_usd": 10,
+  "verdict": "CONFIRMED",
+  "evidence": "Same table/row, \"Price per 1M input tokens (1h cache write)\" live JSON value = 10.0000000000 USD."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Opus 4.8 | Prompt cache read",
+  "original_usd": 0.5,
+  "verdict": "CONFIRMED",
+  "evidence": "Same table/row, \"Price per 1M input tokens (cache read)\" live JSON value = 0.5000000000 USD."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Sonnet 5 | Input tokens (cross-region Global inference profile)",
+  "original_usd": 2,
+  "verdict": "CONFIRMED",
+  "evidence": "Same table, row \"Claude Sonnet 5*\": live JSON value = 2.0000000000 USD. NOTE the asterisk footnote on the page: \"IMPORTANT: Claude Sonnet 5 promotional launch pricing of $2/$10 per million input/output tokens is in effect through August 31, 2026, after which the standard pricing of $3/$15 per million input/output tokens will take effect.\" So $2 is correct today but is time-limited promotional pricing, not the permanent list price."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Sonnet 5 | Output tokens (cross-region Global inference profile)",
+  "original_usd": 10,
+  "verdict": "CONFIRMED",
+  "evidence": "Same row, live JSON value = 10.0000000000 USD. Same promotional-pricing caveat applies (reverts to $15 output after 2026-08-31)."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Sonnet 5 | Prompt cache write, 5-minute TTL",
+  "original_usd": 2.5,
+  "verdict": "CONFIRMED",
+  "evidence": "Same row, \"Price per 1M input tokens (5m cache write)\" live JSON value = 2.5000000000 USD (i.e. 1.25x the current $2 promotional input rate, consistent with Anthropic's standard 1.25x cache-write multiplier)."
+ },
+ {
+  "meter": "AWS Fargate | USE1-Fargate-vCPU-Hours:perCPU (Linux/x86)",
+  "original_usd": 0.04048,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List Bulk API (AmazonECS/current/us-east-1), SKU 8CESGAFWKAJ98PME, usagetype USE1-Fargate-vCPU-Hours:perCPU, description 'AWS Fargate - vCPU - US East (N.Virginia)', pricePerUnit USD 0.0404800000. Exact match."
+ },
+ {
+  "meter": "AWS Fargate | USE1-Fargate-GB-Hours (Linux/x86 Memory)",
+  "original_usd": 0.004445,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List Bulk API (AmazonECS/current/us-east-1), SKU PBZNQUSEXZUC34C9, usagetype USE1-Fargate-GB-Hours, description 'AWS Fargate - Memory - US East (N.Virginia)', pricePerUnit USD 0.0044450000. Exact match."
+ },
+ {
+  "meter": "NAT Gateway | Hourly charge for NAT Gateways",
+  "original_usd": 0.045,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List Bulk API (AmazonEC2/current/us-east-1), SKU M2YSHUBETB3JX4M4, productFamily NAT Gateway, location US East (N. Virginia), groupDescription 'Hourly charge for NAT Gateways', description '$0.045 per NAT Gateway Hour', pricePerUnit USD 0.0450000000, effectiveDate 2026-07-01. Exact match. (Public AWS VPC pricing page's Ohio worked example also shows $0.045/hr, consistent with flat US-region rate.)"
+ },
+ {
+  "meter": "NAT Gateway | Charge for per GB data processed by NatGateways",
+  "original_usd": 0.045,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List Bulk API (AmazonEC2/current/us-east-1), SKU 59S5R83GFPUAGVR5, productFamily NAT Gateway, location US East (N. Virginia), groupDescription 'Charge for per GB data processed by NatGateways', description '$0.045 per GB Data Processed by NAT Gateways', pricePerUnit USD 0.0450000000, effectiveDate 2026-07-01. Exact match."
+ },
+ {
+  "meter": "Amazon Aurora PostgreSQL | db.r6g.2xlarge (Standard, Single-AZ)",
+  "original_usd": 1.038,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List Bulk API (AmazonRDS/current/us-east-1), SKU JAHSHHGJMS588E94, Aurora PostgreSQL, instanceType db.r6g.2xlarge, deploymentOption Single-AZ, storage 'EBS Only' (Aurora Standard), description '$1.038 per RDS db.r6g.2xlarge Single-AZ instance hour (or partial hour) running Aurora PostgreSQL', pricePerUnit USD 1.0380000000. Exact match."
+ },
+ {
+  "meter": "Amazon Aurora PostgreSQL | db.r6g.2xlarge (I/O-Optimized, Single-AZ)",
+  "original_usd": 1.349,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List Bulk API (AmazonRDS/current/us-east-1), SKU EQ9V8JXCN577H9QQ, Aurora PostgreSQL, instanceType db.r6g.2xlarge, deploymentOption Single-AZ, storage 'Aurora IO Optimization Mode', description '$1.349 per RDS db.r6g.2xlarge IO-optimized Single-AZ instance hour (or partial hour) running Aurora PostgreSQL', pricePerUnit USD 1.3490000000. Exact match."
+ },
+ {
+  "meter": "Amazon Aurora PostgreSQL | db.r6g.xlarge (Standard, Single-AZ)",
+  "original_usd": 0.519,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List Bulk API (AmazonRDS/current/us-east-1), SKU WXWNJ3NDMFYNB5RF, Aurora PostgreSQL, instanceType db.r6g.xlarge, deploymentOption Single-AZ, storage 'EBS Only', description '$0.519 per RDS db.r6g.xlarge Single-AZ instance hour (or partial hour) running Aurora PostgreSQL', pricePerUnit USD 0.5190000000. Exact match."
+ },
+ {
+  "meter": "Amazon Aurora PostgreSQL | db.r6g.large (Standard, Single-AZ)",
+  "original_usd": 0.26,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Price List Bulk API (AmazonRDS/current/us-east-1), SKU 4U9P9G87PY8QVQH5, Aurora PostgreSQL, instanceType db.r6g.large, deploymentOption Single-AZ, storage 'EBS Only', description '$0.26 per RDS db.r6g.large Single-AZ instance hour (or partial hour) running Aurora PostgreSQL', pricePerUnit USD 0.2600000000. Exact match."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Sonnet 5 | Prompt cache write, 1-hour TTL",
+  "original_usd": 4,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Bedrock pricing page, Anthropic > Global Cross-region Inference table, US East (N. Virginia), resolved via AWS's live pricing data feed (b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/bedrockfoundationmodels), manifest dated 2026-07-03: Claude Sonnet 5* row, 1h cache-write price = $4.0000000000 per 1M tokens."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Sonnet 5 | Prompt cache read",
+  "original_usd": 0.2,
+  "verdict": "CONFIRMED",
+  "evidence": "Same source/table as above: Claude Sonnet 5* row, cache-read price = $0.2000000000 per 1M tokens."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Haiku 4.5 | Input tokens (cross-region Global inference profile)",
+  "original_usd": 1,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS Bedrock pricing page, Anthropic > 'Global Cross-region Inference' table (explicitly the cross-region/Global profile table), US East (N. Virginia): Claude Haiku 4.5 row, input-token price resolved to $1.0000000000 per 1M tokens."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Haiku 4.5 | Output tokens (cross-region Global inference profile)",
+  "original_usd": 5,
+  "verdict": "CONFIRMED",
+  "evidence": "Same table/row: Claude Haiku 4.5 output-token price resolved to $5.0000000000 per 1M tokens."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Haiku 4.5 | Prompt cache write, 5-minute TTL",
+  "original_usd": 1.25,
+  "verdict": "CONFIRMED",
+  "evidence": "Same table/row: Claude Haiku 4.5 5-minute cache-write price resolved to $1.2500000000 per 1M tokens."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Haiku 4.5 | Prompt cache write, 1-hour TTL",
+  "original_usd": 2,
+  "verdict": "CONFIRMED",
+  "evidence": "Same table/row: Claude Haiku 4.5 1-hour cache-write price resolved to $2.0000000000 per 1M tokens."
+ },
+ {
+  "meter": "Bedrock - Anthropic Claude Haiku 4.5 | Prompt cache read",
+  "original_usd": 0.1,
+  "verdict": "CONFIRMED",
+  "evidence": "Same table/row: Claude Haiku 4.5 cache-read price resolved to $0.1000000000 per 1M tokens."
+ },
+ {
+  "meter": "Bedrock - Amazon Titan Text Embeddings V2 | Input tokens, on-demand",
+  "original_usd": 0.02,
+  "verdict": "CONFIRMED",
+  "evidence": "AWS official Price List Bulk API for AmazonBedrock, us-east-1, version 20260720215247 (effective 2026-07-01): usagetype USE1-TitanEmbeddingV2-Text-input-tokens, on-demand inference, price = $0.00002 per 1K tokens = $0.02 per 1M tokens."
+ }
+]

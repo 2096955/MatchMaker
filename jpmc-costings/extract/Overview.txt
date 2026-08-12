@@ -1,0 +1,281 @@
+A1: 'SEGRO POAP Costings — Summary (all figures recalc live from the Control Panel)'
+A2: '="Active scenario:  effort = "&EffortBasis&"  ·  HCL = "&HCL_Toggle&"  ·  platform = "&Platform&"  ·  vendor = "&ModelVendor&"  ·  sku = "&ModelSKU&"  ·  obs = "&Observability&"  ·  agents = "&AgentStack&"/"&AgentCount&"  ·  mcp = "&McpServerCount&"  ·  rag = "&RagMemoryShape&"  ·  envs = "&EnvCount&"  ·  day rate £"&TEXT(DayRate,"#,##0")&"  ·  contingency "&TEXT(ContingencyPct,"0%")&"  ·  slip "&SlipWeeks&" wk  ·  overlap "&OverlapWeeks&" wk"'  => 'Active scenario:  effort = Likely  ·  HCL = Include  ·  platform = AKS  ·  vendor = AzureOpenAI  ·  sku = GPT-4o  ·  obs = Azure  ·  agents = Exclude/1  ·  mcp = 2  ·  rag = AISearch_Cosmos  ·  envs = 4  ·  day rate £850  ·  contingency 15%  ·  slip 0 wk  ·  overlap 0 wk'
+A4: 'HEADLINES'
+A5: 'Build — POAP phases + loadings (one-off)'
+B5: '=TotalBuild'  => 830342.070795
+A6: 'Run — 5 years (indexed)'
+B6: '=TotalRun5yr'  => 1656842.3154238646
+A7: '5-YEAR TCO (build + run)'
+B7: '=TotalBuild+TotalRun5yr'  => 2487184.3862188645
+A8: 'TCO per employee (OrgSize input)'
+B8: '=(TotalBuild+TotalRun5yr)/OrgSize'  => 3553.120551741235
+A9: 'Y1 cash (build + run Y1)'
+B9: '=TotalBuild+RunY1'  => 1142415.894995
+A11: 'CHART DATA (formula-driven — edit the Control Panel, not these cells)'
+A12: 'Waterfall segment'
+B12: 'Base (invisible)'
+C12: 'Block (visible)'
+D12: 'Delta (signed)'
+E12: 'Cumulative'
+F12: 'Short label'
+H12: 'Reverse label'
+I12: 'Base (invisible)'
+J12: 'Block (visible)'
+K12: 'Cumulative (reverse)'
+A13: 'Design & Plan'
+B13: 0
+C13: '=D13'  => 66625
+D13: "='POAP Build Cost'!I15"  => 66625
+E13: '=D13'  => 66625
+F13: 'Plan'
+H13: '=F22'  => '5-yr TCO'
+I13: 0
+J13: '=D22'  => 2487184.3862188645
+K13: '=I13+J13'  => 2487184.3862188645
+A14: 'Build - SEGRO (Azure foundations, AKS, shared services)'
+B14: '=MIN(E13,E14)'  => 66625
+C14: '=ABS(D14)'  => 221146.58329999997
+D14: "='POAP Build Cost'!I50"  => 221146.58329999997
+E14: '=E13+D14'  => 287771.58329999994
+F14: 'Build'
+H14: '=F13'  => 'Plan'
+I14: '=K14'  => 2420559.3862188645
+J14: '=D13'  => 66625
+K14: '=K13-D13'  => 2420559.3862188645
+A15: 'Build - HCL (UnO + TX install, Unica+/CDP deploy)'
+B15: '=MIN(E14,E15)'  => 287771.58329999994
+C15: '=ABS(D15)'  => 158250
+D15: "='POAP Build Cost'!I62"  => 158250
+E15: '=E14+D15'  => 446021.58329999994
+F15: 'Build'
+H15: '=F14'  => 'Build'
+I15: '=K15'  => 2199412.8029188644
+J15: '=D14'  => 221146.58329999997
+K15: '=K14-D14'  => 2199412.8029188644
+A16: 'Testing (SIT, pen test, UAT, performance)'
+B16: '=MIN(E15,E16)'  => 446021.58329999994
+C16: '=ABS(D16)'  => 89165
+D16: "='POAP Build Cost'!I75"  => 89165
+E16: '=E15+D16'  => 535186.5832999999
+F16: 'Testing'
+H16: '=F15'  => 'Build'
+I16: '=K16'  => 2041162.8029188644
+J16: '=D15'  => 158250
+K16: '=K15-D15'  => 2041162.8029188644
+A17: 'Deploy (prod readiness, migration, go-live)'
+B17: '=MIN(E16,E17)'  => 535186.5832999999
+C17: '=ABS(D17)'  => 66700
+D17: "='POAP Build Cost'!I85"  => 66700
+E17: '=E16+D17'  => 601886.5832999999
+F17: 'Deploy'
+H17: '=F16'  => 'Testing'
+I17: '=K17'  => 1951997.8029188644
+J17: '=D16'  => 89165
+K17: '=K16-D16'  => 1951997.8029188644
+A18: 'Hypercare / PGLS + business readiness close-out'
+B18: '=MIN(E17,E18)'  => 601886.5832999999
+C18: '=ABS(D18)'  => 120150
+D18: "='POAP Build Cost'!I94"  => 120150
+E18: '=E17+D18'  => 722036.5832999999
+F18: 'Maintenance'
+H18: '=F17'  => 'Deploy'
+I18: '=K18'  => 1885297.8029188644
+J18: '=D17'  => 66700
+K18: '=K17-D17'  => 1885297.8029188644
+A19: 'Contingency'
+B19: '=MIN(E18,E19)'  => 722036.5832999999
+C19: '=ABS(D19)'  => 108305.487495
+D19: "='POAP Build Cost'!I98"  => 108305.487495
+E19: '=E18+D19'  => 830342.070795
+F19: 'Contingency'
+H19: '=F18'  => 'Maintenance'
+I19: '=K19'  => 1765147.8029188644
+J19: '=D18'  => 120150
+K19: '=K18-D18'  => 1765147.8029188644
+A20: 'Slip − Overlap'
+B20: '=MIN(E19,E20)'  => 830342.070795
+C20: '=ABS(D20)'  => 0
+D20: "='POAP Build Cost'!I100+'POAP Build Cost'!I101"  => 0
+E20: '=E19+D20'  => 830342.070795
+F20: 'Slip/Overlap'
+H20: '=F19'  => 'Contingency'
+I20: '=K20'  => 1656842.3154238644
+J20: '=D19'  => 108305.487495
+K20: '=K19-D19'  => 1656842.3154238644
+A21: 'Run (5yr)'
+B21: '=MIN(E20,E21)'  => 830342.070795
+C21: '=ABS(D21)'  => 1656842.3154238646
+D21: '=TotalRun5yr'  => 1656842.3154238646
+E21: '=E20+D21'  => 2487184.3862188645
+F21: 'Run (5yr)'
+H21: '=F20'  => 'Slip/Overlap'
+I21: '=K21'  => 1656842.3154238644
+J21: '=D20'  => 0
+K21: '=K20-D20'  => 1656842.3154238644
+A22: '5-yr TCO'
+B22: 0
+C22: '=D22'  => 2487184.3862188645
+D22: '=TotalBuild+TotalRun5yr'  => 2487184.3862188645
+E22: '=D22'  => 2487184.3862188645
+F22: '5-yr TCO'
+H22: '=F21'  => 'Run (5yr)'
+I22: '=K22'  => 0
+J22: '=D21'  => 1656842.3154238646
+K22: '=K21-D21'  => 0
+A24: 'GO-LIVE (live — moves with slip)'
+A25: 'Live go-live week (29 + slip)'
+B25: '=MAX(1,29+SlipWeeks)'  => 29
+D25: 'Nominal 29 wk (Fri wk29 = 29 Jan 2027); slip extends go-live. Overlap is a cost saving (parallel HCL install), not a critical-path compression — matches the Gantt.'
+A26: 'Live go-live date'
+B26: '=DATE(2026,7,13)+((GoLiveWeek-1)*7+4)'  => datetime.datetime(2027, 1, 29, 0, 0)
+D26: 'Anchored to the Gantt week-1 Monday (13 Jul 2026); Friday of the live go-live week.'
+A28: 'GO-LIVE SCENARIOS (Green Book duration band)'
+B28: 'Optimistic'
+C28: 'Green Book lower'
+D28: 'Green Book upper'
+A29: 'Slip applied (weeks)'
+B29: 0
+C29: 3
+D29: 16
+A30: 'Go-live week'
+B30: '=29+0'  => 29
+C30: '=29+3'  => 32
+D30: '=29+16'  => 45
+A31: 'Go-live date'
+B31: '=DATE(2026,7,13)+((29+0-1)*7+4)'  => datetime.datetime(2027, 1, 29, 0, 0)
+C31: '=DATE(2026,7,13)+((29+3-1)*7+4)'  => datetime.datetime(2027, 2, 19, 0, 0)
+D31: '=DATE(2026,7,13)+((29+16-1)*7+4)'  => datetime.datetime(2027, 5, 21, 0, 0)
+A32: 'Weeks later than plan'
+B32: 0
+C32: 3
+D32: 16
+A33: '▪ Scenarios hold overlap at 0. +3 wk ≈ Green Book ICT duration optimism-bias lower bound (+10% of the 29-wk pre-go-live span); +16 wk ≈ upper bound (+54%). The live figures above respond to the actual Control Panel slip/overlap.'
+A35: 'AGENT / MCP CALCULATOR (live — edit Control Panel)'
+A36: 'AgentStack'
+B36: '=AgentStack'  => 'Exclude'
+C36: 'RagMemoryShape'
+D36: '=RagMemoryShape'  => 'AISearch_Cosmos'
+A37: 'AgentCount (intensity)'
+B37: '=AgentCount'  => 1
+C37: 'McpServerCount (app plugs)'
+D37: '=McpServerCount'  => 2
+A38: 'Agent-stack run Y1 (MCP+RAG+memory; £0 when AgentStack=Exclude)'
+B38: '=IFERROR(AgentStackRunY1,0)'  => 0
+A40: 'Reference scenarios (proportional from live stack Y1; does not override Control Panel)'
+B40: 'Agents'
+C40: 'MCP servers'
+D40: 'Est. stack Y1 £'
+A41: 'Scenario 1 agents × 2 MCP'
+B41: 1
+C41: 2
+D41: '=IF(OR(AgentStack="Exclude",AgentCount=0,McpServerCount=0),0,IFERROR(AgentStackMcpY1*(2/McpServerCount)+AgentStackAgentY1*(1/AgentCount)+AgentStackFixedY1,0))'  => 0
+A42: 'Scenario 5 agents × 10 MCP'
+B42: 5
+C42: 10
+D42: '=IF(OR(AgentStack="Exclude",AgentCount=0,McpServerCount=0),0,IFERROR(AgentStackMcpY1*(10/McpServerCount)+AgentStackAgentY1*(5/AgentCount)+AgentStackFixedY1,0))'  => 0
+A43: 'Scenario 30 agents × 50 MCP'
+B43: 30
+C43: 50
+D43: '=IF(OR(AgentStack="Exclude",AgentCount=0,McpServerCount=0),0,IFERROR(AgentStackMcpY1*(50/McpServerCount)+AgentStackAgentY1*(30/AgentCount)+AgentStackFixedY1,0))'  => 0
+A44: '▪ Named agents (which to build) live on the Agents tab and Gantt ASSUMPTION lanes. AgentCount scales intensity; McpServerCount scales application plugs.'
+A46: 'Month (from contract)'
+B46: 'Cumulative spend £'
+C46: 'Go-live marker'
+A47: 1
+B47: "=MAX(0,MIN(MIN(1*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(1*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(1*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(1*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(1*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(1*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(1*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,1*4.33-GoLiveWeek)/4.33/12*RunY1"  => 73868.37968459827
+C47: '=IF(1=ROUNDUP(GoLiveWeek/4.33,0),B47,NA())'  => '#N/A'
+A48: 2
+B48: "=MAX(0,MIN(MIN(2*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(2*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(2*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(2*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(2*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(2*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(2*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,2*4.33-GoLiveWeek)/4.33/12*RunY1"  => 179906.90885699654
+C48: '=IF(2=ROUNDUP(GoLiveWeek/4.33,0),B48,NA())'  => '#N/A'
+A49: 3
+B49: "=MAX(0,MIN(MIN(3*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(3*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(3*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(3*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(3*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(3*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(3*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,3*4.33-GoLiveWeek)/4.33/12*RunY1"  => 291834.5091104948
+C49: '=IF(3=ROUNDUP(GoLiveWeek/4.33,0),B49,NA())'  => '#N/A'
+A50: 4
+B50: "=MAX(0,MIN(MIN(4*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(4*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(4*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(4*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(4*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(4*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(4*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,4*4.33-GoLiveWeek)/4.33/12*RunY1"  => 413646.10203839303
+C50: '=IF(4=ROUNDUP(GoLiveWeek/4.33,0),B50,NA())'  => '#N/A'
+A51: 5
+B51: "=MAX(0,MIN(MIN(5*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(5*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(5*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(5*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(5*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(5*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(5*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,5*4.33-GoLiveWeek)/4.33/12*RunY1"  => 541366.5442229912
+C51: '=IF(5=ROUNDUP(GoLiveWeek/4.33,0),B51,NA())'  => '#N/A'
+A52: 6
+B52: "=MAX(0,MIN(MIN(6*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(6*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(6*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(6*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(6*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(6*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(6*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,6*4.33-GoLiveWeek)/4.33/12*RunY1"  => 648554.8614075896
+C52: '=IF(6=ROUNDUP(GoLiveWeek/4.33,0),B52,NA())'  => '#N/A'
+A53: 7
+B53: "=MAX(0,MIN(MIN(7*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(7*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(7*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(7*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(7*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(7*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(7*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,7*4.33-GoLiveWeek)/4.33/12*RunY1"  => 744292.7328369938
+C53: '=IF(7=ROUNDUP(GoLiveWeek/4.33,0),B53,NA())'  => 744292.7328369938
+A54: 8
+B54: "=MAX(0,MIN(MIN(8*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(8*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(8*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(8*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(8*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(8*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(8*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,8*4.33-GoLiveWeek)/4.33/12*RunY1"  => 857007.1348536605
+C54: '=IF(8=ROUNDUP(GoLiveWeek/4.33,0),B54,NA())'  => '#N/A'
+A55: 9
+B55: "=MAX(0,MIN(MIN(9*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(9*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(9*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(9*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(9*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(9*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(9*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,9*4.33-GoLiveWeek)/4.33/12*RunY1"  => 890222.2868703271
+C55: '=IF(9=ROUNDUP(GoLiveWeek/4.33,0),B55,NA())'  => '#N/A'
+A56: 10
+B56: "=MAX(0,MIN(MIN(10*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(10*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(10*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(10*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(10*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(10*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(10*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,10*4.33-GoLiveWeek)/4.33/12*RunY1"  => 916228.4388869938
+C56: '=IF(10=ROUNDUP(GoLiveWeek/4.33,0),B56,NA())'  => '#N/A'
+A57: 11
+B57: "=MAX(0,MIN(MIN(11*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(11*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(11*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(11*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(11*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(11*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(11*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,11*4.33-GoLiveWeek)/4.33/12*RunY1"  => 942234.5909036605
+C57: '=IF(11=ROUNDUP(GoLiveWeek/4.33,0),B57,NA())'  => '#N/A'
+A58: 12
+B58: "=MAX(0,MIN(MIN(12*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(12*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(12*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(12*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(12*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(12*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(12*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,12*4.33-GoLiveWeek)/4.33/12*RunY1"  => 968240.7429203271
+C58: '=IF(12=ROUNDUP(GoLiveWeek/4.33,0),B58,NA())'  => '#N/A'
+A59: 13
+B59: "=MAX(0,MIN(MIN(13*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(13*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(13*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(13*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(13*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(13*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(13*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,13*4.33-GoLiveWeek)/4.33/12*RunY1"  => 994246.8949369937
+C59: '=IF(13=ROUNDUP(GoLiveWeek/4.33,0),B59,NA())'  => '#N/A'
+A60: 14
+B60: "=MAX(0,MIN(MIN(14*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(14*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(14*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(14*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(14*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(14*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(14*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,14*4.33-GoLiveWeek)/4.33/12*RunY1"  => 1020253.0469536604
+C60: '=IF(14=ROUNDUP(GoLiveWeek/4.33,0),B60,NA())'  => '#N/A'
+A61: 15
+B61: "=MAX(0,MIN(MIN(15*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(15*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(15*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(15*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(15*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(15*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(15*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,15*4.33-GoLiveWeek)/4.33/12*RunY1"  => 1046259.1989703272
+C61: '=IF(15=ROUNDUP(GoLiveWeek/4.33,0),B61,NA())'  => '#N/A'
+A62: 16
+B62: "=MAX(0,MIN(MIN(16*4.33,(GoLiveWeek+6))-0*(GoLiveWeek/29),5*(GoLiveWeek/29)))/(5*(GoLiveWeek/29))*'POAP Build Cost'!I15+MAX(0,MIN(MIN(16*4.33,(GoLiveWeek+6))-5*(GoLiveWeek/29),10*(GoLiveWeek/29)))/(10*(GoLiveWeek/29))*'POAP Build Cost'!I50+MAX(0,MIN(MIN(16*4.33,(GoLiveWeek+6))-15*(GoLiveWeek/29),6*(GoLiveWeek/29)))/(6*(GoLiveWeek/29))*'POAP Build Cost'!I62+MAX(0,MIN(MIN(16*4.33,(GoLiveWeek+6))-21*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I75+MAX(0,MIN(MIN(16*4.33,(GoLiveWeek+6))-25*(GoLiveWeek/29),4*(GoLiveWeek/29)))/(4*(GoLiveWeek/29))*'POAP Build Cost'!I85+MAX(0,MIN(MIN(16*4.33,(GoLiveWeek+6))-GoLiveWeek,6))/6*'POAP Build Cost'!I94+MIN(MIN(16*4.33,(GoLiveWeek+6)),GoLiveWeek)/GoLiveWeek*('POAP Build Cost'!I98+'POAP Build Cost'!I100+'POAP Build Cost'!I101)+MAX(0,16*4.33-GoLiveWeek)/4.33/12*RunY1"  => 1072265.3509869939
+C62: '=IF(16=ROUNDUP(GoLiveWeek/4.33,0),B62,NA())'  => '#N/A'
+A64: 'Phase'
+B64: 'SEGRO'
+C64: 'HCL'
+D64: 'Azure'
+E64: 'ThirdParty'
+A65: 'Design & Plan'
+B65: '=SUMIF(\'POAP Build Cost\'!$B$6:$B$14,"SEGRO",\'POAP Build Cost\'!$I$6:$I$14)'  => 52375
+C65: '=SUMIF(\'POAP Build Cost\'!$B$6:$B$14,"HCL",\'POAP Build Cost\'!$I$6:$I$14)'  => 14250
+D65: '=SUMIF(\'POAP Build Cost\'!$B$6:$B$14,"Azure",\'POAP Build Cost\'!$I$6:$I$14)'  => 0
+E65: '=SUMIF(\'POAP Build Cost\'!$B$6:$B$14,"ThirdParty",\'POAP Build Cost\'!$I$6:$I$14)'  => 0
+A66: 'Build - SEGRO (Azure fou'
+B66: '=SUMIF(\'POAP Build Cost\'!$B$19:$B$49,"SEGRO",\'POAP Build Cost\'!$I$19:$I$49)'  => 205445
+C66: '=SUMIF(\'POAP Build Cost\'!$B$19:$B$49,"HCL",\'POAP Build Cost\'!$I$19:$I$49)'  => 0
+D66: '=SUMIF(\'POAP Build Cost\'!$B$19:$B$49,"Azure",\'POAP Build Cost\'!$I$19:$I$49)'  => 15701.583300000002
+E66: '=SUMIF(\'POAP Build Cost\'!$B$19:$B$49,"ThirdParty",\'POAP Build Cost\'!$I$19:$I$49)'  => 0
+A67: 'Build - HCL (UnO + TX in'
+B67: '=SUMIF(\'POAP Build Cost\'!$B$54:$B$61,"SEGRO",\'POAP Build Cost\'!$I$54:$I$61)'  => 15750
+C67: '=SUMIF(\'POAP Build Cost\'!$B$54:$B$61,"HCL",\'POAP Build Cost\'!$I$54:$I$61)'  => 142500
+D67: '=SUMIF(\'POAP Build Cost\'!$B$54:$B$61,"Azure",\'POAP Build Cost\'!$I$54:$I$61)'  => 0
+E67: '=SUMIF(\'POAP Build Cost\'!$B$54:$B$61,"ThirdParty",\'POAP Build Cost\'!$I$54:$I$61)'  => 0
+A68: 'Testing (SIT, pen test, '
+B68: '=SUMIF(\'POAP Build Cost\'!$B$66:$B$74,"SEGRO",\'POAP Build Cost\'!$I$66:$I$74)'  => 55915
+C68: '=SUMIF(\'POAP Build Cost\'!$B$66:$B$74,"HCL",\'POAP Build Cost\'!$I$66:$I$74)'  => 19000
+D68: '=SUMIF(\'POAP Build Cost\'!$B$66:$B$74,"Azure",\'POAP Build Cost\'!$I$66:$I$74)'  => 0
+E68: '=SUMIF(\'POAP Build Cost\'!$B$66:$B$74,"ThirdParty",\'POAP Build Cost\'!$I$66:$I$74)'  => 14250
+A69: 'Deploy (prod readiness, '
+B69: '=SUMIF(\'POAP Build Cost\'!$B$79:$B$84,"SEGRO",\'POAP Build Cost\'!$I$79:$I$84)'  => 47700
+C69: '=SUMIF(\'POAP Build Cost\'!$B$79:$B$84,"HCL",\'POAP Build Cost\'!$I$79:$I$84)'  => 19000
+D69: '=SUMIF(\'POAP Build Cost\'!$B$79:$B$84,"Azure",\'POAP Build Cost\'!$I$79:$I$84)'  => 0
+E69: '=SUMIF(\'POAP Build Cost\'!$B$79:$B$84,"ThirdParty",\'POAP Build Cost\'!$I$79:$I$84)'  => 0
+A70: 'Hypercare / PGLS + busin'
+B70: '=SUMIF(\'POAP Build Cost\'!$B$89:$B$93,"SEGRO",\'POAP Build Cost\'!$I$89:$I$93)'  => 91650
+C70: '=SUMIF(\'POAP Build Cost\'!$B$89:$B$93,"HCL",\'POAP Build Cost\'!$I$89:$I$93)'  => 28500
+D70: '=SUMIF(\'POAP Build Cost\'!$B$89:$B$93,"Azure",\'POAP Build Cost\'!$I$89:$I$93)'  => 0
+E70: '=SUMIF(\'POAP Build Cost\'!$B$89:$B$93,"ThirdParty",\'POAP Build Cost\'!$I$89:$I$93)'  => 0
+A72: 'Run Y1 by side'
+B72: '£/yr'
+A73: 'SEGRO'
+B73: '=SUMIF(\'5yr Run Cost\'!$B$5:$B$62,"SEGRO",\'5yr Run Cost\'!$F$5:$F$62)'  => 255064.8
+A74: 'HCL'
+B74: '=SUMIF(\'5yr Run Cost\'!$B$5:$B$62,"HCL",\'5yr Run Cost\'!$F$5:$F$62)'  => 0
+A75: 'Azure'
+B75: '=SUMIF(\'5yr Run Cost\'!$B$5:$B$62,"Azure",\'5yr Run Cost\'!$F$5:$F$62)'  => 52259.024199999985
+A76: 'ThirdParty'
+B76: '=SUMIF(\'5yr Run Cost\'!$B$5:$B$62,"ThirdParty",\'5yr Run Cost\'!$F$5:$F$62)'  => 4750
+A79: '▪ Benchmark provenance: all Benchmarks-tab rows are copied from org_it_benchmarks.json and programme_benchmarks.json (both adversarially verified, verdict APPROVE 17 Jul 2026) with their original status labels (VERIFIED / INDICATIVE / ASSUMPTION) carried unchanged; verifier MINORs '
+A80: "▪ Headcount: SEGRO's actual Group headcount is 463 (ARA 2025 p86; FY2025 average 454, of which 168 indirect/administration) versus the ~700 briefed — anchor OrgSize and all per-user maths to ~450-465, with the 168 'office' population available for knowledge-worker-only SKUs."
+A81: '▪ INDICATIVE and list-price rows are vendor list / aggregator figures, not quotes: Microsoft GBP prices are paid-yearly annual-commitment ex-VAT list captured 16 Jul 2026 (a +5% monthly-billing premium applies, and 2026 M365 pricing/packaging updates are announced — re-verify at co'
+A82: '▪ HCL side is a FLOOR: HCL licence and subscription lines are RATE_MISSING (contract not shared) and are carried as clearly-labelled adjustable input cells defaulting to £0 — never presented as verified figures; totals on the HCL branch therefore understate true cost.'
+A83: "▪ Contingency framing: the workbook's ContingencyPct should be read against the HM Treasury Green Book optimism-bias band for ICT (10% floor at contract award with evidenced mitigation, 200% upper at outline-business-case stage) — a flat 10-20% default sits at the optimistic end of"

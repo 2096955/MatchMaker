@@ -1,0 +1,110 @@
+A1: 'Benchmarks — web-verified market data vs this plan (comparisons recalc live)'
+A2: 'Grounding for a ~700-person UK/EU organisation (adjustable OrgSize input; note SEGRO ARA 2025 reports 463 direct employees — SEGRO runs lean with an outsourced supply chain, so per-employee ratios are conservative). All items adversarially verified against live sources 16-17 Jul 2026.'
+A4: 'Benchmark'
+B4: 'Value'
+C4: 'Unit'
+D4: 'Status'
+E4: 'Source'
+F4: 'This plan (live)'
+A5: 'SEGRO plc headcount (Group, year-end basis per governance report)'
+B5: 463
+C5: 'employees'
+D5: 'VERIFIED'
+E5: "SEGRO Annual Report and Accounts 2025, Corporate Governance (p86): 'a non-unionised business with a headcount "
+F5: '=OrgSize'  => 700
+A6: 'SEGRO plc total revenue FY2025'
+B6: 726
+C6: 'GBP million per year (2024: 675)'
+D6: 'VERIFIED'
+E6: 'SEGRO ARA 2025, financial statements (p150). Comparison shows total 5-yr programme cost as a share of one year'
+F6: '=(TotalBuild+TotalRun5yr)/726000000'  => 0.0034258738102188216
+A7: 'IT spend as % of revenue — UK cross-industry typical range (property firms typically 1.5-3'
+B7: '3-6'
+C7: '% of annual revenue'
+D7: 'INDICATIVE'
+E7: 'Start Tech, citing Computer Economics benchmarking (2025; page names Computer Economics only, an Avasant compa'
+F7: '=((TotalBuild+TotalRun5yr)/5)/726000000'  => 0.0006851747620437643
+A8: 'IT operational spend per user per year — cross-industry average (this-plan column = 5-yr T'
+B8: 7614
+C8: 'USD per user per year (~GBP 5,635 at ECB'
+D8: 'INDICATIVE'
+E8: "Avasant IT Spending and Staffing Benchmarks (via VC3 summary). Comparison shows this plan's annualised 5-yr TC"
+F8: '=(TotalBuild+TotalRun5yr)/5/OrgSize'  => 710.624110348247
+A9: 'HM Treasury optimism-bias uplift — Equipment/Development (ICT) capex, lower-to-upper bound'
+B9: '10-200'
+C9: '% uplift on estimated capex (start at UP'
+D9: 'VERIFIED'
+E9: 'HM Treasury, Supplementary Green Book Guidance: Optimism Bias, Table 1 (Mott MacDonald 2002). Current asset UR'
+F9: '=ContingencyPct'  => 0.15
+A10: 'HM Treasury optimism-bias uplift — Equipment/Development (ICT) works duration'
+B10: '10-54'
+C10: '% uplift on estimated duration'
+D10: 'VERIFIED'
+E10: 'HM Treasury Green Book Optimism Bias, Table 1 (same asset URL as capex row).'
+F10: "Applied to the POAP's ~29-week Design-to-Deploy window: +3 weeks (lower) to +16 weeks (upper), pushing Feb 2027 go-live "
+A11: 'Average overrun on large IT projects (>$15M)'
+B11: '45 cost / 7 schedule'
+C11: '% over budget / % over time (average; an'
+D11: 'VERIFIED'
+E11: "McKinsey & Company with University of Oxford, 'Delivering large-scale IT projects on time, on budget, and on v"
+F11: '=ContingencyPct'  => 0.15
+A12: 'IT project fat-tail risk (Flyvbjerg & Budzier, 1,471 projects)'
+B12: '27 average; 1-in-6 projects are black swans averaging +200 cost / +70 schedule'
+C12: '% overrun'
+D12: 'VERIFIED'
+E12: "Flyvbjerg & Budzier, 'Why Your IT Project May Be Riskier Than You Think', HBR 89(9), 2011 (arXiv:1304.0265). C"
+F12: '=TotalBuild*3'  => 2491026.2123849997
+A13: 'Change management budget as % of total project budget (most common allocation)'
+B13: 10
+C13: '% of project budget'
+D13: 'VERIFIED'
+E13: "Prosci, 'How to Budget for Change Management' (pub. 24 May 2023, upd. 17 Oct 2025; Prosci Best Practices resea"
+F13: '=TotalBuild*0.1'  => 83034.2070795
+A14: 'Annual support & maintenance as % of initial build cost (custom software, commercial rule '
+B14: '15-22'
+C14: '% of build cost per year'
+D14: 'ASSUMPTION'
+E14: 'Reasoned from SAP 22% vendor list rate (VERIFIED) and 80-90%-of-lifecycle maintenance literature — no single a'
+F14: '=RunY1/TotalBuild'  => 0.37583766398974466
+A15: 'Enterprise software vendor annual support & maintenance — SAP Enterprise Support list rate'
+B15: 22
+C15: '% of licence fee per year'
+D15: 'VERIFIED'
+E15: "SAP Support Portal: list price 'remains fixed at 22 percent until 2025' (verifier note: quote carries the 'unt"
+F15: 'Verified vendor anchor for the 15-22%/yr S&M assumption above — no separate live comparison.'
+A16: 'Hypercare duration norm for an implementation of this size'
+B16: '4-8'
+C16: 'weeks'
+D16: 'ASSUMPTION'
+E16: 'Reasoned from Microsoft Dynamics 365 implementation guidance (VERIFIED: short, fixed-end-date, criteria-based '
+F16: 'This plan carries 6 wk (within the 4-8 wk norm) at an average 1.5 FTE coverage assumption (build line P6-L1)'
+A17: 'Enterprise GenAI value realisation'
+B17: '74% of companies struggle to achieve and scale value from AI; only 26% move beyond PoC to generate value'
+C17: '% of surveyed companies (1,000 surveyed)'
+D17: 'VERIFIED'
+E17: "BCG press release, 'AI Adoption in 2024', 24 Oct 2024 (verifier: bcg.com bot-blocked on re-fetch; URL slug con"
+F17: 'Benefits-realisation caveat: majority of AI programmes do not scale value — supports F5 (no R1 delivery lane = zero busi'
+A18: 'Microsoft 365 Copilot add-on'
+B18: 23.1
+C18: 'GBP per user per month, annual subscript'
+D18: 'VERIFIED'
+E18: 'Microsoft UK enterprise plans & pricing page, fetched 16 Jul 2026. SEGRO already rolled Copilot out to all emp'
+F18: '=OrgSize*23.1*12'  => 194040.00000000003
+A19: 'ServiceNow ITSM Standard — indicative per-user price'
+B19: 100
+C19: 'USD per user per month (indicative; larg'
+D19: 'INDICATIVE'
+E19: "NowTribe 2026 cost breakdown (per USER per the source page — verifier MINOR corrected from 'per fulfiller'). S"
+F19: 'USD — do not silently convert; if costed, add an explicit FX input cell (ECB ref 0.74015 GBP/USD, 16 Jul 2026).'
+A20: 'AKS Standard tier cluster management fee, UK South'
+B20: 0.0758
+C20: 'GBP per cluster per hour (~GBP 664/clust'
+D20: 'VERIFIED'
+E20: 'Azure Retail Prices API, currencyCode=GBP, uksouth, queried 2026-07-17 (verifier re-queried: exact).'
+F20: 'Feeds the Platform=AKS branch; scales with ClusterCount toggle (dual cluster doubles the management fee).'
+A21: 'Azure Red Hat OpenShift worker licence fee (General Purpose), UK South list'
+B21: 0.0324
+C21: 'GBP per vCPU per hour (~GBP 284/vCPU/yea'
+D21: 'VERIFIED'
+E21: 'Azure Retail Prices API, GBP, queried 2026-07-17 (verifier re-queried: all scale points exact). The auditable '
+F21: 'Feeds the Platform=ARO branch (per-vCPU licence uplift line); the published IDC/Forrester OpenShift studies were unverif'

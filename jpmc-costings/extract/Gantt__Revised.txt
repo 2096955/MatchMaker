@@ -1,0 +1,2439 @@
+A1: 'Gantt - Corrected — technical step decomposition per major line of work'
+A2: 'The corrected sequence implementing review findings (F1/F2/F10/F16/F17/F19/F23/F26). Every window is RECOMMENDED — a proposed re-draw, not a committed plan. Cost totals are unchanged: windows move, quantities do not. The F1 re-anchor moves nominal go-live to week 31 (range weeks 29-33); the sheet renders BOTH the nominal marker and the range band, not a single committed date.  Bars recalc live: SlipWeeks dilates TIME-DRIVEN windows (people + Azure commissioning) pro-rata — the same elongation the slip cost prices; FIXED-fee engagements (licences, third-party pen-test/red-team) shift but keep their duration; hypercare shifts whole. A ▶ in the Slip column flags any bar clipped at the grid edge under a large slip. Milestones: ▲ nominal go-live · ◁▷ F1 range band · ✕ Christmas · ! Bank holiday · ◆ drawn phase gate. Bar colours: SEGRO red · HCL dark blue · Azure mid blue · Third-party purple · corrected bars green (proposed, not committed).'
+L3: 'Jul 26'
+O3: 'Aug 26'
+T3: 'Sep 26'
+X3: 'Oct 26'
+AB3: 'Nov 26'
+AG3: 'Dec 26'
+AK3: 'Jan 27'
+AO3: 'Feb 27'
+AS3: 'Mar 27'
+AX3: 'Apr 27'
+BB3: 'May 27'
+BG3: 'Jun 27'
+BK3: 'Jul 27'
+BO3: 'Aug 27'
+BT3: 'Sep 27'
+A4: 'Id'
+B4: 'Major line of work / technical step'
+C4: 'Side'
+D4: 'Status'
+E4: 'Findings'
+F4: 'Depends on'
+G4: 'Start wk'
+H4: 'Wks'
+I4: 'Live start'
+J4: 'Live end'
+K4: 'Change vs as-drawn (per finding)'
+L4: 1
+M4: 2
+N4: 3
+O4: 4
+P4: 5
+Q4: 6
+R4: 7
+S4: 8
+T4: 9
+U4: 10
+V4: 11
+W4: 12
+X4: 13
+Y4: 14
+Z4: 15
+AA4: 16
+AB4: 17
+AC4: 18
+AD4: 19
+AE4: 20
+AF4: 21
+AG4: 22
+AH4: 23
+AI4: 24
+AJ4: 25
+AK4: 26
+AL4: 27
+AM4: 28
+AN4: 29
+AO4: 30
+AP4: 31
+AQ4: 32
+AR4: 33
+AS4: 34
+AT4: 35
+AU4: 36
+AV4: 37
+AW4: 38
+AX4: 39
+AY4: 40
+AZ4: 41
+BA4: 42
+BB4: 43
+BC4: 44
+BD4: 45
+BE4: 46
+BF4: 47
+BG4: 48
+BH4: 49
+BI4: 50
+BJ4: 51
+BK4: 52
+BL4: 53
+BM4: 54
+BN4: 55
+BO4: 56
+BP4: 57
+BQ4: 58
+BR4: 59
+BS4: 60
+BT4: 61
+BU4: 'Slip'
+BV4: 'Basis / source'
+BX4: '=31+SlipWeeks'  => 31
+BY4: '=29+SlipWeeks'  => 29
+BZ4: '=33+SlipWeeks'  => 33
+B5: 'Go-live range (F1)'
+L5: '=IF(L$4=$BX$4,"▲",IF(L$4=$BY$4,"◁",IF(L$4=$BZ$4,"▷",IF(AND(L$4>$BY$4,L$4<$BZ$4),"·",""))))'  => None
+M5: '=IF(M$4=$BX$4,"▲",IF(M$4=$BY$4,"◁",IF(M$4=$BZ$4,"▷",IF(AND(M$4>$BY$4,M$4<$BZ$4),"·",""))))'  => None
+N5: '=IF(N$4=$BX$4,"▲",IF(N$4=$BY$4,"◁",IF(N$4=$BZ$4,"▷",IF(AND(N$4>$BY$4,N$4<$BZ$4),"·",""))))'  => None
+O5: '=IF(O$4=$BX$4,"▲",IF(O$4=$BY$4,"◁",IF(O$4=$BZ$4,"▷",IF(AND(O$4>$BY$4,O$4<$BZ$4),"·",""))))'  => None
+P5: '=IF(P$4=$BX$4,"▲",IF(P$4=$BY$4,"◁",IF(P$4=$BZ$4,"▷",IF(AND(P$4>$BY$4,P$4<$BZ$4),"·","◆"))))'  => '◆'
+Q5: '=IF(Q$4=$BX$4,"▲",IF(Q$4=$BY$4,"◁",IF(Q$4=$BZ$4,"▷",IF(AND(Q$4>$BY$4,Q$4<$BZ$4),"·",""))))'  => None
+R5: '=IF(R$4=$BX$4,"▲",IF(R$4=$BY$4,"◁",IF(R$4=$BZ$4,"▷",IF(AND(R$4>$BY$4,R$4<$BZ$4),"·",""))))'  => None
+S5: '=IF(S$4=$BX$4,"▲",IF(S$4=$BY$4,"◁",IF(S$4=$BZ$4,"▷",IF(AND(S$4>$BY$4,S$4<$BZ$4),"·","!"))))'  => '!'
+T5: '=IF(T$4=$BX$4,"▲",IF(T$4=$BY$4,"◁",IF(T$4=$BZ$4,"▷",IF(AND(T$4>$BY$4,T$4<$BZ$4),"·",""))))'  => None
+U5: '=IF(U$4=$BX$4,"▲",IF(U$4=$BY$4,"◁",IF(U$4=$BZ$4,"▷",IF(AND(U$4>$BY$4,U$4<$BZ$4),"·",""))))'  => None
+V5: '=IF(V$4=$BX$4,"▲",IF(V$4=$BY$4,"◁",IF(V$4=$BZ$4,"▷",IF(AND(V$4>$BY$4,V$4<$BZ$4),"·",""))))'  => None
+W5: '=IF(W$4=$BX$4,"▲",IF(W$4=$BY$4,"◁",IF(W$4=$BZ$4,"▷",IF(AND(W$4>$BY$4,W$4<$BZ$4),"·",""))))'  => None
+X5: '=IF(X$4=$BX$4,"▲",IF(X$4=$BY$4,"◁",IF(X$4=$BZ$4,"▷",IF(AND(X$4>$BY$4,X$4<$BZ$4),"·",""))))'  => None
+Y5: '=IF(Y$4=$BX$4,"▲",IF(Y$4=$BY$4,"◁",IF(Y$4=$BZ$4,"▷",IF(AND(Y$4>$BY$4,Y$4<$BZ$4),"·",""))))'  => None
+Z5: '=IF(Z$4=$BX$4,"▲",IF(Z$4=$BY$4,"◁",IF(Z$4=$BZ$4,"▷",IF(AND(Z$4>$BY$4,Z$4<$BZ$4),"·",""))))'  => None
+AA5: '=IF(AA$4=$BX$4,"▲",IF(AA$4=$BY$4,"◁",IF(AA$4=$BZ$4,"▷",IF(AND(AA$4>$BY$4,AA$4<$BZ$4),"·",""))))'  => None
+AB5: '=IF(AB$4=$BX$4,"▲",IF(AB$4=$BY$4,"◁",IF(AB$4=$BZ$4,"▷",IF(AND(AB$4>$BY$4,AB$4<$BZ$4),"·",""))))'  => None
+AC5: '=IF(AC$4=$BX$4,"▲",IF(AC$4=$BY$4,"◁",IF(AC$4=$BZ$4,"▷",IF(AND(AC$4>$BY$4,AC$4<$BZ$4),"·",""))))'  => None
+AD5: '=IF(AD$4=$BX$4,"▲",IF(AD$4=$BY$4,"◁",IF(AD$4=$BZ$4,"▷",IF(AND(AD$4>$BY$4,AD$4<$BZ$4),"·",""))))'  => None
+AE5: '=IF(AE$4=$BX$4,"▲",IF(AE$4=$BY$4,"◁",IF(AE$4=$BZ$4,"▷",IF(AND(AE$4>$BY$4,AE$4<$BZ$4),"·",""))))'  => None
+AF5: '=IF(AF$4=$BX$4,"▲",IF(AF$4=$BY$4,"◁",IF(AF$4=$BZ$4,"▷",IF(AND(AF$4>$BY$4,AF$4<$BZ$4),"·","◆"))))'  => '◆'
+AG5: '=IF(AG$4=$BX$4,"▲",IF(AG$4=$BY$4,"◁",IF(AG$4=$BZ$4,"▷",IF(AND(AG$4>$BY$4,AG$4<$BZ$4),"·",""))))'  => None
+AH5: '=IF(AH$4=$BX$4,"▲",IF(AH$4=$BY$4,"◁",IF(AH$4=$BZ$4,"▷",IF(AND(AH$4>$BY$4,AH$4<$BZ$4),"·",""))))'  => None
+AI5: '=IF(AI$4=$BX$4,"▲",IF(AI$4=$BY$4,"◁",IF(AI$4=$BZ$4,"▷",IF(AND(AI$4>$BY$4,AI$4<$BZ$4),"·","✕"))))'  => '✕'
+AJ5: '=IF(AJ$4=$BX$4,"▲",IF(AJ$4=$BY$4,"◁",IF(AJ$4=$BZ$4,"▷",IF(AND(AJ$4>$BY$4,AJ$4<$BZ$4),"·","◆"))))'  => '◆'
+AK5: '=IF(AK$4=$BX$4,"▲",IF(AK$4=$BY$4,"◁",IF(AK$4=$BZ$4,"▷",IF(AND(AK$4>$BY$4,AK$4<$BZ$4),"·",""))))'  => None
+AL5: '=IF(AL$4=$BX$4,"▲",IF(AL$4=$BY$4,"◁",IF(AL$4=$BZ$4,"▷",IF(AND(AL$4>$BY$4,AL$4<$BZ$4),"·",""))))'  => None
+AM5: '=IF(AM$4=$BX$4,"▲",IF(AM$4=$BY$4,"◁",IF(AM$4=$BZ$4,"▷",IF(AND(AM$4>$BY$4,AM$4<$BZ$4),"·",""))))'  => None
+AN5: '=IF(AN$4=$BX$4,"▲",IF(AN$4=$BY$4,"◁",IF(AN$4=$BZ$4,"▷",IF(AND(AN$4>$BY$4,AN$4<$BZ$4),"·",""))))'  => '◁'
+AO5: '=IF(AO$4=$BX$4,"▲",IF(AO$4=$BY$4,"◁",IF(AO$4=$BZ$4,"▷",IF(AND(AO$4>$BY$4,AO$4<$BZ$4),"·",""))))'  => '·'
+AP5: '=IF(AP$4=$BX$4,"▲",IF(AP$4=$BY$4,"◁",IF(AP$4=$BZ$4,"▷",IF(AND(AP$4>$BY$4,AP$4<$BZ$4),"·",""))))'  => '▲'
+AQ5: '=IF(AQ$4=$BX$4,"▲",IF(AQ$4=$BY$4,"◁",IF(AQ$4=$BZ$4,"▷",IF(AND(AQ$4>$BY$4,AQ$4<$BZ$4),"·",""))))'  => '·'
+AR5: '=IF(AR$4=$BX$4,"▲",IF(AR$4=$BY$4,"◁",IF(AR$4=$BZ$4,"▷",IF(AND(AR$4>$BY$4,AR$4<$BZ$4),"·",""))))'  => '▷'
+AS5: '=IF(AS$4=$BX$4,"▲",IF(AS$4=$BY$4,"◁",IF(AS$4=$BZ$4,"▷",IF(AND(AS$4>$BY$4,AS$4<$BZ$4),"·",""))))'  => None
+AT5: '=IF(AT$4=$BX$4,"▲",IF(AT$4=$BY$4,"◁",IF(AT$4=$BZ$4,"▷",IF(AND(AT$4>$BY$4,AT$4<$BZ$4),"·",""))))'  => None
+AU5: '=IF(AU$4=$BX$4,"▲",IF(AU$4=$BY$4,"◁",IF(AU$4=$BZ$4,"▷",IF(AND(AU$4>$BY$4,AU$4<$BZ$4),"·",""))))'  => None
+AV5: '=IF(AV$4=$BX$4,"▲",IF(AV$4=$BY$4,"◁",IF(AV$4=$BZ$4,"▷",IF(AND(AV$4>$BY$4,AV$4<$BZ$4),"·",""))))'  => None
+AW5: '=IF(AW$4=$BX$4,"▲",IF(AW$4=$BY$4,"◁",IF(AW$4=$BZ$4,"▷",IF(AND(AW$4>$BY$4,AW$4<$BZ$4),"·",""))))'  => None
+AX5: '=IF(AX$4=$BX$4,"▲",IF(AX$4=$BY$4,"◁",IF(AX$4=$BZ$4,"▷",IF(AND(AX$4>$BY$4,AX$4<$BZ$4),"·",""))))'  => None
+AY5: '=IF(AY$4=$BX$4,"▲",IF(AY$4=$BY$4,"◁",IF(AY$4=$BZ$4,"▷",IF(AND(AY$4>$BY$4,AY$4<$BZ$4),"·",""))))'  => None
+AZ5: '=IF(AZ$4=$BX$4,"▲",IF(AZ$4=$BY$4,"◁",IF(AZ$4=$BZ$4,"▷",IF(AND(AZ$4>$BY$4,AZ$4<$BZ$4),"·",""))))'  => None
+BA5: '=IF(BA$4=$BX$4,"▲",IF(BA$4=$BY$4,"◁",IF(BA$4=$BZ$4,"▷",IF(AND(BA$4>$BY$4,BA$4<$BZ$4),"·",""))))'  => None
+BB5: '=IF(BB$4=$BX$4,"▲",IF(BB$4=$BY$4,"◁",IF(BB$4=$BZ$4,"▷",IF(AND(BB$4>$BY$4,BB$4<$BZ$4),"·",""))))'  => None
+BC5: '=IF(BC$4=$BX$4,"▲",IF(BC$4=$BY$4,"◁",IF(BC$4=$BZ$4,"▷",IF(AND(BC$4>$BY$4,BC$4<$BZ$4),"·",""))))'  => None
+BD5: '=IF(BD$4=$BX$4,"▲",IF(BD$4=$BY$4,"◁",IF(BD$4=$BZ$4,"▷",IF(AND(BD$4>$BY$4,BD$4<$BZ$4),"·",""))))'  => None
+BE5: '=IF(BE$4=$BX$4,"▲",IF(BE$4=$BY$4,"◁",IF(BE$4=$BZ$4,"▷",IF(AND(BE$4>$BY$4,BE$4<$BZ$4),"·",""))))'  => None
+BF5: '=IF(BF$4=$BX$4,"▲",IF(BF$4=$BY$4,"◁",IF(BF$4=$BZ$4,"▷",IF(AND(BF$4>$BY$4,BF$4<$BZ$4),"·",""))))'  => None
+BG5: '=IF(BG$4=$BX$4,"▲",IF(BG$4=$BY$4,"◁",IF(BG$4=$BZ$4,"▷",IF(AND(BG$4>$BY$4,BG$4<$BZ$4),"·",""))))'  => None
+BH5: '=IF(BH$4=$BX$4,"▲",IF(BH$4=$BY$4,"◁",IF(BH$4=$BZ$4,"▷",IF(AND(BH$4>$BY$4,BH$4<$BZ$4),"·",""))))'  => None
+BI5: '=IF(BI$4=$BX$4,"▲",IF(BI$4=$BY$4,"◁",IF(BI$4=$BZ$4,"▷",IF(AND(BI$4>$BY$4,BI$4<$BZ$4),"·",""))))'  => None
+BJ5: '=IF(BJ$4=$BX$4,"▲",IF(BJ$4=$BY$4,"◁",IF(BJ$4=$BZ$4,"▷",IF(AND(BJ$4>$BY$4,BJ$4<$BZ$4),"·",""))))'  => None
+BK5: '=IF(BK$4=$BX$4,"▲",IF(BK$4=$BY$4,"◁",IF(BK$4=$BZ$4,"▷",IF(AND(BK$4>$BY$4,BK$4<$BZ$4),"·",""))))'  => None
+BL5: '=IF(BL$4=$BX$4,"▲",IF(BL$4=$BY$4,"◁",IF(BL$4=$BZ$4,"▷",IF(AND(BL$4>$BY$4,BL$4<$BZ$4),"·",""))))'  => None
+BM5: '=IF(BM$4=$BX$4,"▲",IF(BM$4=$BY$4,"◁",IF(BM$4=$BZ$4,"▷",IF(AND(BM$4>$BY$4,BM$4<$BZ$4),"·",""))))'  => None
+BN5: '=IF(BN$4=$BX$4,"▲",IF(BN$4=$BY$4,"◁",IF(BN$4=$BZ$4,"▷",IF(AND(BN$4>$BY$4,BN$4<$BZ$4),"·",""))))'  => None
+BO5: '=IF(BO$4=$BX$4,"▲",IF(BO$4=$BY$4,"◁",IF(BO$4=$BZ$4,"▷",IF(AND(BO$4>$BY$4,BO$4<$BZ$4),"·",""))))'  => None
+BP5: '=IF(BP$4=$BX$4,"▲",IF(BP$4=$BY$4,"◁",IF(BP$4=$BZ$4,"▷",IF(AND(BP$4>$BY$4,BP$4<$BZ$4),"·",""))))'  => None
+BQ5: '=IF(BQ$4=$BX$4,"▲",IF(BQ$4=$BY$4,"◁",IF(BQ$4=$BZ$4,"▷",IF(AND(BQ$4>$BY$4,BQ$4<$BZ$4),"·",""))))'  => None
+BR5: '=IF(BR$4=$BX$4,"▲",IF(BR$4=$BY$4,"◁",IF(BR$4=$BZ$4,"▷",IF(AND(BR$4>$BY$4,BR$4<$BZ$4),"·",""))))'  => None
+BS5: '=IF(BS$4=$BX$4,"▲",IF(BS$4=$BY$4,"◁",IF(BS$4=$BZ$4,"▷",IF(AND(BS$4>$BY$4,BS$4<$BZ$4),"·",""))))'  => None
+BT5: '=IF(BT$4=$BX$4,"▲",IF(BT$4=$BY$4,"◁",IF(BT$4=$BZ$4,"▷",IF(AND(BT$4>$BY$4,BT$4<$BZ$4),"·",""))))'  => None
+A6: 'G-P2-L4-R'
+B6: 'Build - SEGRO (pulled forward into Design)  [P2-L4]'
+C6: 'SEGRO'
+D6: 'RECOMMENDED'
+E6: 'F17'
+G6: 3
+H6: 6
+I6: '=MIN(61,IF(G6<=29,ROUND((G6-1)*(29+SlipWeeks)/29,0)+1,G6+SlipWeeks))'  => 3
+J6: '=MIN(61,IF(G6+H6-1<=29,MAX(ROUND((G6+H6-1)*(29+SlipWeeks)/29,0),I6),G6+H6-1+SlipWeeks))'  => 8
+K6: 'Pulled forward from the full P2 span (weeks 6-15) to weeks 3-8 so security design completes before network build-out completes, not weeks after it.'
+L6: '=IF(AND(L$4>=$I6,L$4<=$J6),1,"")'  => None
+M6: '=IF(AND(M$4>=$I6,M$4<=$J6),1,"")'  => None
+N6: '=IF(AND(N$4>=$I6,N$4<=$J6),1,"")'  => 1
+O6: '=IF(AND(O$4>=$I6,O$4<=$J6),1,"")'  => 1
+P6: '=IF(AND(P$4>=$I6,P$4<=$J6),1,"")'  => 1
+Q6: '=IF(AND(Q$4>=$I6,Q$4<=$J6),1,"")'  => 1
+R6: '=IF(AND(R$4>=$I6,R$4<=$J6),1,"")'  => 1
+S6: '=IF(AND(S$4>=$I6,S$4<=$J6),1,"")'  => 1
+T6: '=IF(AND(T$4>=$I6,T$4<=$J6),1,"")'  => None
+U6: '=IF(AND(U$4>=$I6,U$4<=$J6),1,"")'  => None
+V6: '=IF(AND(V$4>=$I6,V$4<=$J6),1,"")'  => None
+W6: '=IF(AND(W$4>=$I6,W$4<=$J6),1,"")'  => None
+X6: '=IF(AND(X$4>=$I6,X$4<=$J6),1,"")'  => None
+Y6: '=IF(AND(Y$4>=$I6,Y$4<=$J6),1,"")'  => None
+Z6: '=IF(AND(Z$4>=$I6,Z$4<=$J6),1,"")'  => None
+AA6: '=IF(AND(AA$4>=$I6,AA$4<=$J6),1,"")'  => None
+AB6: '=IF(AND(AB$4>=$I6,AB$4<=$J6),1,"")'  => None
+AC6: '=IF(AND(AC$4>=$I6,AC$4<=$J6),1,"")'  => None
+AD6: '=IF(AND(AD$4>=$I6,AD$4<=$J6),1,"")'  => None
+AE6: '=IF(AND(AE$4>=$I6,AE$4<=$J6),1,"")'  => None
+AF6: '=IF(AND(AF$4>=$I6,AF$4<=$J6),1,"")'  => None
+AG6: '=IF(AND(AG$4>=$I6,AG$4<=$J6),1,"")'  => None
+AH6: '=IF(AND(AH$4>=$I6,AH$4<=$J6),1,"")'  => None
+AI6: '=IF(AND(AI$4>=$I6,AI$4<=$J6),1,"")'  => None
+AJ6: '=IF(AND(AJ$4>=$I6,AJ$4<=$J6),1,"")'  => None
+AK6: '=IF(AND(AK$4>=$I6,AK$4<=$J6),1,"")'  => None
+AL6: '=IF(AND(AL$4>=$I6,AL$4<=$J6),1,"")'  => None
+AM6: '=IF(AND(AM$4>=$I6,AM$4<=$J6),1,"")'  => None
+AN6: '=IF(AND(AN$4>=$I6,AN$4<=$J6),1,"")'  => None
+AO6: '=IF(AND(AO$4>=$I6,AO$4<=$J6),1,"")'  => None
+AP6: '=IF(AND(AP$4>=$I6,AP$4<=$J6),1,"")'  => None
+AQ6: '=IF(AND(AQ$4>=$I6,AQ$4<=$J6),1,"")'  => None
+AR6: '=IF(AND(AR$4>=$I6,AR$4<=$J6),1,"")'  => None
+AS6: '=IF(AND(AS$4>=$I6,AS$4<=$J6),1,"")'  => None
+AT6: '=IF(AND(AT$4>=$I6,AT$4<=$J6),1,"")'  => None
+AU6: '=IF(AND(AU$4>=$I6,AU$4<=$J6),1,"")'  => None
+AV6: '=IF(AND(AV$4>=$I6,AV$4<=$J6),1,"")'  => None
+AW6: '=IF(AND(AW$4>=$I6,AW$4<=$J6),1,"")'  => None
+AX6: '=IF(AND(AX$4>=$I6,AX$4<=$J6),1,"")'  => None
+AY6: '=IF(AND(AY$4>=$I6,AY$4<=$J6),1,"")'  => None
+AZ6: '=IF(AND(AZ$4>=$I6,AZ$4<=$J6),1,"")'  => None
+BA6: '=IF(AND(BA$4>=$I6,BA$4<=$J6),1,"")'  => None
+BB6: '=IF(AND(BB$4>=$I6,BB$4<=$J6),1,"")'  => None
+BC6: '=IF(AND(BC$4>=$I6,BC$4<=$J6),1,"")'  => None
+BD6: '=IF(AND(BD$4>=$I6,BD$4<=$J6),1,"")'  => None
+BE6: '=IF(AND(BE$4>=$I6,BE$4<=$J6),1,"")'  => None
+BF6: '=IF(AND(BF$4>=$I6,BF$4<=$J6),1,"")'  => None
+BG6: '=IF(AND(BG$4>=$I6,BG$4<=$J6),1,"")'  => None
+BH6: '=IF(AND(BH$4>=$I6,BH$4<=$J6),1,"")'  => None
+BI6: '=IF(AND(BI$4>=$I6,BI$4<=$J6),1,"")'  => None
+BJ6: '=IF(AND(BJ$4>=$I6,BJ$4<=$J6),1,"")'  => None
+BK6: '=IF(AND(BK$4>=$I6,BK$4<=$J6),1,"")'  => None
+BL6: '=IF(AND(BL$4>=$I6,BL$4<=$J6),1,"")'  => None
+BM6: '=IF(AND(BM$4>=$I6,BM$4<=$J6),1,"")'  => None
+BN6: '=IF(AND(BN$4>=$I6,BN$4<=$J6),1,"")'  => None
+BO6: '=IF(AND(BO$4>=$I6,BO$4<=$J6),1,"")'  => None
+BP6: '=IF(AND(BP$4>=$I6,BP$4<=$J6),1,"")'  => None
+BQ6: '=IF(AND(BQ$4>=$I6,BQ$4<=$J6),1,"")'  => None
+BR6: '=IF(AND(BR$4>=$I6,BR$4<=$J6),1,"")'  => None
+BS6: '=IF(AND(BS$4>=$I6,BS$4<=$J6),1,"")'  => None
+BT6: '=IF(AND(BT$4>=$I6,BT$4<=$J6),1,"")'  => None
+BU6: '=IF(IF(G6+H6-1<=29,MAX(ROUND((G6+H6-1)*(29+SlipWeeks)/29,0),$I6),G6+H6-1+SlipWeeks)>61,"▶ clipped","")'  => None
+BV6: "F17: 'Front-load the security-design decisions that constrain network layout (segmentation model, WAF placement, private endpoints, API security) into the design phase or build weeks 1-2; keep only implementation hardening in the parallel bar' - the corrected bar starts week 3 in P1, alongside the Cyber Sec Workshop in the P1 workshop chain, and completes end of week 8 (first 3 weeks of P2), BEFORE the as-drawn network build-out (item 1, first ~half of the 10-week build) completes - avoiding rework of an already-provisioned network layout. Implementation hardening only remains in the parallel build bar per the recommendation. Quantity unchanged (25 pd likely, P2-L4)."
+A7: 'G-P2-L4-R-s1'
+B7: '    • Security-design decisions that constrain network layout - segmentation model, WAF placement, private endpoints, API security - taken in the design phase alongside the Cyber Sec Workshop'
+C7: 'SEGRO'
+D7: 'RECOMMENDED'
+G7: 3
+H7: 3
+I7: '=MEDIAN($I$6,$J$6,$I$6+ROUND((G7-$G$6)/$H$6*($J$6-$I$6+1),0))'  => 3
+J7: '=MEDIAN(I7,$J$6,$I$6+ROUND((G7+H7-$G$6)/$H$6*($J$6-$I$6+1),0)-1)'  => 5
+L7: '=IF(AND(L$4>=$I7,L$4<=$J7),1,"")'  => None
+M7: '=IF(AND(M$4>=$I7,M$4<=$J7),1,"")'  => None
+N7: '=IF(AND(N$4>=$I7,N$4<=$J7),1,"")'  => 1
+O7: '=IF(AND(O$4>=$I7,O$4<=$J7),1,"")'  => 1
+P7: '=IF(AND(P$4>=$I7,P$4<=$J7),1,"")'  => 1
+Q7: '=IF(AND(Q$4>=$I7,Q$4<=$J7),1,"")'  => None
+R7: '=IF(AND(R$4>=$I7,R$4<=$J7),1,"")'  => None
+S7: '=IF(AND(S$4>=$I7,S$4<=$J7),1,"")'  => None
+T7: '=IF(AND(T$4>=$I7,T$4<=$J7),1,"")'  => None
+U7: '=IF(AND(U$4>=$I7,U$4<=$J7),1,"")'  => None
+V7: '=IF(AND(V$4>=$I7,V$4<=$J7),1,"")'  => None
+W7: '=IF(AND(W$4>=$I7,W$4<=$J7),1,"")'  => None
+X7: '=IF(AND(X$4>=$I7,X$4<=$J7),1,"")'  => None
+Y7: '=IF(AND(Y$4>=$I7,Y$4<=$J7),1,"")'  => None
+Z7: '=IF(AND(Z$4>=$I7,Z$4<=$J7),1,"")'  => None
+AA7: '=IF(AND(AA$4>=$I7,AA$4<=$J7),1,"")'  => None
+AB7: '=IF(AND(AB$4>=$I7,AB$4<=$J7),1,"")'  => None
+AC7: '=IF(AND(AC$4>=$I7,AC$4<=$J7),1,"")'  => None
+AD7: '=IF(AND(AD$4>=$I7,AD$4<=$J7),1,"")'  => None
+AE7: '=IF(AND(AE$4>=$I7,AE$4<=$J7),1,"")'  => None
+AF7: '=IF(AND(AF$4>=$I7,AF$4<=$J7),1,"")'  => None
+AG7: '=IF(AND(AG$4>=$I7,AG$4<=$J7),1,"")'  => None
+AH7: '=IF(AND(AH$4>=$I7,AH$4<=$J7),1,"")'  => None
+AI7: '=IF(AND(AI$4>=$I7,AI$4<=$J7),1,"")'  => None
+AJ7: '=IF(AND(AJ$4>=$I7,AJ$4<=$J7),1,"")'  => None
+AK7: '=IF(AND(AK$4>=$I7,AK$4<=$J7),1,"")'  => None
+AL7: '=IF(AND(AL$4>=$I7,AL$4<=$J7),1,"")'  => None
+AM7: '=IF(AND(AM$4>=$I7,AM$4<=$J7),1,"")'  => None
+AN7: '=IF(AND(AN$4>=$I7,AN$4<=$J7),1,"")'  => None
+AO7: '=IF(AND(AO$4>=$I7,AO$4<=$J7),1,"")'  => None
+AP7: '=IF(AND(AP$4>=$I7,AP$4<=$J7),1,"")'  => None
+AQ7: '=IF(AND(AQ$4>=$I7,AQ$4<=$J7),1,"")'  => None
+AR7: '=IF(AND(AR$4>=$I7,AR$4<=$J7),1,"")'  => None
+AS7: '=IF(AND(AS$4>=$I7,AS$4<=$J7),1,"")'  => None
+AT7: '=IF(AND(AT$4>=$I7,AT$4<=$J7),1,"")'  => None
+AU7: '=IF(AND(AU$4>=$I7,AU$4<=$J7),1,"")'  => None
+AV7: '=IF(AND(AV$4>=$I7,AV$4<=$J7),1,"")'  => None
+AW7: '=IF(AND(AW$4>=$I7,AW$4<=$J7),1,"")'  => None
+AX7: '=IF(AND(AX$4>=$I7,AX$4<=$J7),1,"")'  => None
+AY7: '=IF(AND(AY$4>=$I7,AY$4<=$J7),1,"")'  => None
+AZ7: '=IF(AND(AZ$4>=$I7,AZ$4<=$J7),1,"")'  => None
+BA7: '=IF(AND(BA$4>=$I7,BA$4<=$J7),1,"")'  => None
+BB7: '=IF(AND(BB$4>=$I7,BB$4<=$J7),1,"")'  => None
+BC7: '=IF(AND(BC$4>=$I7,BC$4<=$J7),1,"")'  => None
+BD7: '=IF(AND(BD$4>=$I7,BD$4<=$J7),1,"")'  => None
+BE7: '=IF(AND(BE$4>=$I7,BE$4<=$J7),1,"")'  => None
+BF7: '=IF(AND(BF$4>=$I7,BF$4<=$J7),1,"")'  => None
+BG7: '=IF(AND(BG$4>=$I7,BG$4<=$J7),1,"")'  => None
+BH7: '=IF(AND(BH$4>=$I7,BH$4<=$J7),1,"")'  => None
+BI7: '=IF(AND(BI$4>=$I7,BI$4<=$J7),1,"")'  => None
+BJ7: '=IF(AND(BJ$4>=$I7,BJ$4<=$J7),1,"")'  => None
+BK7: '=IF(AND(BK$4>=$I7,BK$4<=$J7),1,"")'  => None
+BL7: '=IF(AND(BL$4>=$I7,BL$4<=$J7),1,"")'  => None
+BM7: '=IF(AND(BM$4>=$I7,BM$4<=$J7),1,"")'  => None
+BN7: '=IF(AND(BN$4>=$I7,BN$4<=$J7),1,"")'  => None
+BO7: '=IF(AND(BO$4>=$I7,BO$4<=$J7),1,"")'  => None
+BP7: '=IF(AND(BP$4>=$I7,BP$4<=$J7),1,"")'  => None
+BQ7: '=IF(AND(BQ$4>=$I7,BQ$4<=$J7),1,"")'  => None
+BR7: '=IF(AND(BR$4>=$I7,BR$4<=$J7),1,"")'  => None
+BS7: '=IF(AND(BS$4>=$I7,BS$4<=$J7),1,"")'  => None
+BT7: '=IF(AND(BT$4>=$I7,BT$4<=$J7),1,"")'  => None
+BV7: "F17: 'Front-load the security-design decisions that constrain network layout (segmentation model, WAF placement, private endpoints, API security) into the design phase or build weeks 1-2' - taken in P1 weeks 3-5 so they are settled before any network provisioning starts in P2."
+A8: 'G-P2-L4-R-s2'
+B8: '    • Complete remaining cyber security design - managed identities, Key Vault, secrets management, PAM - in build weeks 1-3, before network build-out completes'
+C8: 'SEGRO'
+D8: 'RECOMMENDED'
+F8: 'G-P2-L4-R-s1'
+G8: 6
+H8: 3
+I8: '=MEDIAN($I$6,$J$6,$I$6+ROUND((G8-$G$6)/$H$6*($J$6-$I$6+1),0))'  => 6
+J8: '=MEDIAN(I8,$J$6,$I$6+ROUND((G8+H8-$G$6)/$H$6*($J$6-$I$6+1),0)-1)'  => 8
+L8: '=IF(AND(L$4>=$I8,L$4<=$J8),1,"")'  => None
+M8: '=IF(AND(M$4>=$I8,M$4<=$J8),1,"")'  => None
+N8: '=IF(AND(N$4>=$I8,N$4<=$J8),1,"")'  => None
+O8: '=IF(AND(O$4>=$I8,O$4<=$J8),1,"")'  => None
+P8: '=IF(AND(P$4>=$I8,P$4<=$J8),1,"")'  => None
+Q8: '=IF(AND(Q$4>=$I8,Q$4<=$J8),1,"")'  => 1
+R8: '=IF(AND(R$4>=$I8,R$4<=$J8),1,"")'  => 1
+S8: '=IF(AND(S$4>=$I8,S$4<=$J8),1,"")'  => 1
+T8: '=IF(AND(T$4>=$I8,T$4<=$J8),1,"")'  => None
+U8: '=IF(AND(U$4>=$I8,U$4<=$J8),1,"")'  => None
+V8: '=IF(AND(V$4>=$I8,V$4<=$J8),1,"")'  => None
+W8: '=IF(AND(W$4>=$I8,W$4<=$J8),1,"")'  => None
+X8: '=IF(AND(X$4>=$I8,X$4<=$J8),1,"")'  => None
+Y8: '=IF(AND(Y$4>=$I8,Y$4<=$J8),1,"")'  => None
+Z8: '=IF(AND(Z$4>=$I8,Z$4<=$J8),1,"")'  => None
+AA8: '=IF(AND(AA$4>=$I8,AA$4<=$J8),1,"")'  => None
+AB8: '=IF(AND(AB$4>=$I8,AB$4<=$J8),1,"")'  => None
+AC8: '=IF(AND(AC$4>=$I8,AC$4<=$J8),1,"")'  => None
+AD8: '=IF(AND(AD$4>=$I8,AD$4<=$J8),1,"")'  => None
+AE8: '=IF(AND(AE$4>=$I8,AE$4<=$J8),1,"")'  => None
+AF8: '=IF(AND(AF$4>=$I8,AF$4<=$J8),1,"")'  => None
+AG8: '=IF(AND(AG$4>=$I8,AG$4<=$J8),1,"")'  => None
+AH8: '=IF(AND(AH$4>=$I8,AH$4<=$J8),1,"")'  => None
+AI8: '=IF(AND(AI$4>=$I8,AI$4<=$J8),1,"")'  => None
+AJ8: '=IF(AND(AJ$4>=$I8,AJ$4<=$J8),1,"")'  => None
+AK8: '=IF(AND(AK$4>=$I8,AK$4<=$J8),1,"")'  => None
+AL8: '=IF(AND(AL$4>=$I8,AL$4<=$J8),1,"")'  => None
+AM8: '=IF(AND(AM$4>=$I8,AM$4<=$J8),1,"")'  => None
+AN8: '=IF(AND(AN$4>=$I8,AN$4<=$J8),1,"")'  => None
+AO8: '=IF(AND(AO$4>=$I8,AO$4<=$J8),1,"")'  => None
+AP8: '=IF(AND(AP$4>=$I8,AP$4<=$J8),1,"")'  => None
+AQ8: '=IF(AND(AQ$4>=$I8,AQ$4<=$J8),1,"")'  => None
+AR8: '=IF(AND(AR$4>=$I8,AR$4<=$J8),1,"")'  => None
+AS8: '=IF(AND(AS$4>=$I8,AS$4<=$J8),1,"")'  => None
+AT8: '=IF(AND(AT$4>=$I8,AT$4<=$J8),1,"")'  => None
+AU8: '=IF(AND(AU$4>=$I8,AU$4<=$J8),1,"")'  => None
+AV8: '=IF(AND(AV$4>=$I8,AV$4<=$J8),1,"")'  => None
+AW8: '=IF(AND(AW$4>=$I8,AW$4<=$J8),1,"")'  => None
+AX8: '=IF(AND(AX$4>=$I8,AX$4<=$J8),1,"")'  => None
+AY8: '=IF(AND(AY$4>=$I8,AY$4<=$J8),1,"")'  => None
+AZ8: '=IF(AND(AZ$4>=$I8,AZ$4<=$J8),1,"")'  => None
+BA8: '=IF(AND(BA$4>=$I8,BA$4<=$J8),1,"")'  => None
+BB8: '=IF(AND(BB$4>=$I8,BB$4<=$J8),1,"")'  => None
+BC8: '=IF(AND(BC$4>=$I8,BC$4<=$J8),1,"")'  => None
+BD8: '=IF(AND(BD$4>=$I8,BD$4<=$J8),1,"")'  => None
+BE8: '=IF(AND(BE$4>=$I8,BE$4<=$J8),1,"")'  => None
+BF8: '=IF(AND(BF$4>=$I8,BF$4<=$J8),1,"")'  => None
+BG8: '=IF(AND(BG$4>=$I8,BG$4<=$J8),1,"")'  => None
+BH8: '=IF(AND(BH$4>=$I8,BH$4<=$J8),1,"")'  => None
+BI8: '=IF(AND(BI$4>=$I8,BI$4<=$J8),1,"")'  => None
+BJ8: '=IF(AND(BJ$4>=$I8,BJ$4<=$J8),1,"")'  => None
+BK8: '=IF(AND(BK$4>=$I8,BK$4<=$J8),1,"")'  => None
+BL8: '=IF(AND(BL$4>=$I8,BL$4<=$J8),1,"")'  => None
+BM8: '=IF(AND(BM$4>=$I8,BM$4<=$J8),1,"")'  => None
+BN8: '=IF(AND(BN$4>=$I8,BN$4<=$J8),1,"")'  => None
+BO8: '=IF(AND(BO$4>=$I8,BO$4<=$J8),1,"")'  => None
+BP8: '=IF(AND(BP$4>=$I8,BP$4<=$J8),1,"")'  => None
+BQ8: '=IF(AND(BQ$4>=$I8,BQ$4<=$J8),1,"")'  => None
+BR8: '=IF(AND(BR$4>=$I8,BR$4<=$J8),1,"")'  => None
+BS8: '=IF(AND(BS$4>=$I8,BS$4<=$J8),1,"")'  => None
+BT8: '=IF(AND(BT$4>=$I8,BT$4<=$J8),1,"")'  => None
+BV8: "F17: 'keep only implementation hardening in the parallel bar' - the design content completes by week 8, ahead of the network build-out finishing; only implementation hardening continues alongside the rest of the build."
+A10: 'G-P1-REV-R'
+B10: 'Design & Plan'
+C10: 'SEGRO'
+D10: 'RECOMMENDED'
+E10: 'F16'
+G10: 2
+H10: 6
+I10: '=MIN(61,IF(G10<=29,ROUND((G10-1)*(29+SlipWeeks)/29,0)+1,G10+SlipWeeks))'  => 2
+J10: '=MIN(61,IF(G10+H10-1<=29,MAX(ROUND((G10+H10-1)*(29+SlipWeeks)/29,0),I10),G10+H10-1+SlipWeeks))'  => 7
+K10: 'New TAD/HLD/LLD review-and-revision track inside P1 extending 2 weeks into early P2; no as-drawn counterpart exists - the as-drawn plan has no review or revision cycle at all.'
+L10: '=IF(AND(L$4>=$I10,L$4<=$J10),1,"")'  => None
+M10: '=IF(AND(M$4>=$I10,M$4<=$J10),1,"")'  => 1
+N10: '=IF(AND(N$4>=$I10,N$4<=$J10),1,"")'  => 1
+O10: '=IF(AND(O$4>=$I10,O$4<=$J10),1,"")'  => 1
+P10: '=IF(AND(P$4>=$I10,P$4<=$J10),1,"")'  => 1
+Q10: '=IF(AND(Q$4>=$I10,Q$4<=$J10),1,"")'  => 1
+R10: '=IF(AND(R$4>=$I10,R$4<=$J10),1,"")'  => 1
+S10: '=IF(AND(S$4>=$I10,S$4<=$J10),1,"")'  => None
+T10: '=IF(AND(T$4>=$I10,T$4<=$J10),1,"")'  => None
+U10: '=IF(AND(U$4>=$I10,U$4<=$J10),1,"")'  => None
+V10: '=IF(AND(V$4>=$I10,V$4<=$J10),1,"")'  => None
+W10: '=IF(AND(W$4>=$I10,W$4<=$J10),1,"")'  => None
+X10: '=IF(AND(X$4>=$I10,X$4<=$J10),1,"")'  => None
+Y10: '=IF(AND(Y$4>=$I10,Y$4<=$J10),1,"")'  => None
+Z10: '=IF(AND(Z$4>=$I10,Z$4<=$J10),1,"")'  => None
+AA10: '=IF(AND(AA$4>=$I10,AA$4<=$J10),1,"")'  => None
+AB10: '=IF(AND(AB$4>=$I10,AB$4<=$J10),1,"")'  => None
+AC10: '=IF(AND(AC$4>=$I10,AC$4<=$J10),1,"")'  => None
+AD10: '=IF(AND(AD$4>=$I10,AD$4<=$J10),1,"")'  => None
+AE10: '=IF(AND(AE$4>=$I10,AE$4<=$J10),1,"")'  => None
+AF10: '=IF(AND(AF$4>=$I10,AF$4<=$J10),1,"")'  => None
+AG10: '=IF(AND(AG$4>=$I10,AG$4<=$J10),1,"")'  => None
+AH10: '=IF(AND(AH$4>=$I10,AH$4<=$J10),1,"")'  => None
+AI10: '=IF(AND(AI$4>=$I10,AI$4<=$J10),1,"")'  => None
+AJ10: '=IF(AND(AJ$4>=$I10,AJ$4<=$J10),1,"")'  => None
+AK10: '=IF(AND(AK$4>=$I10,AK$4<=$J10),1,"")'  => None
+AL10: '=IF(AND(AL$4>=$I10,AL$4<=$J10),1,"")'  => None
+AM10: '=IF(AND(AM$4>=$I10,AM$4<=$J10),1,"")'  => None
+AN10: '=IF(AND(AN$4>=$I10,AN$4<=$J10),1,"")'  => None
+AO10: '=IF(AND(AO$4>=$I10,AO$4<=$J10),1,"")'  => None
+AP10: '=IF(AND(AP$4>=$I10,AP$4<=$J10),1,"")'  => None
+AQ10: '=IF(AND(AQ$4>=$I10,AQ$4<=$J10),1,"")'  => None
+AR10: '=IF(AND(AR$4>=$I10,AR$4<=$J10),1,"")'  => None
+AS10: '=IF(AND(AS$4>=$I10,AS$4<=$J10),1,"")'  => None
+AT10: '=IF(AND(AT$4>=$I10,AT$4<=$J10),1,"")'  => None
+AU10: '=IF(AND(AU$4>=$I10,AU$4<=$J10),1,"")'  => None
+AV10: '=IF(AND(AV$4>=$I10,AV$4<=$J10),1,"")'  => None
+AW10: '=IF(AND(AW$4>=$I10,AW$4<=$J10),1,"")'  => None
+AX10: '=IF(AND(AX$4>=$I10,AX$4<=$J10),1,"")'  => None
+AY10: '=IF(AND(AY$4>=$I10,AY$4<=$J10),1,"")'  => None
+AZ10: '=IF(AND(AZ$4>=$I10,AZ$4<=$J10),1,"")'  => None
+BA10: '=IF(AND(BA$4>=$I10,BA$4<=$J10),1,"")'  => None
+BB10: '=IF(AND(BB$4>=$I10,BB$4<=$J10),1,"")'  => None
+BC10: '=IF(AND(BC$4>=$I10,BC$4<=$J10),1,"")'  => None
+BD10: '=IF(AND(BD$4>=$I10,BD$4<=$J10),1,"")'  => None
+BE10: '=IF(AND(BE$4>=$I10,BE$4<=$J10),1,"")'  => None
+BF10: '=IF(AND(BF$4>=$I10,BF$4<=$J10),1,"")'  => None
+BG10: '=IF(AND(BG$4>=$I10,BG$4<=$J10),1,"")'  => None
+BH10: '=IF(AND(BH$4>=$I10,BH$4<=$J10),1,"")'  => None
+BI10: '=IF(AND(BI$4>=$I10,BI$4<=$J10),1,"")'  => None
+BJ10: '=IF(AND(BJ$4>=$I10,BJ$4<=$J10),1,"")'  => None
+BK10: '=IF(AND(BK$4>=$I10,BK$4<=$J10),1,"")'  => None
+BL10: '=IF(AND(BL$4>=$I10,BL$4<=$J10),1,"")'  => None
+BM10: '=IF(AND(BM$4>=$I10,BM$4<=$J10),1,"")'  => None
+BN10: '=IF(AND(BN$4>=$I10,BN$4<=$J10),1,"")'  => None
+BO10: '=IF(AND(BO$4>=$I10,BO$4<=$J10),1,"")'  => None
+BP10: '=IF(AND(BP$4>=$I10,BP$4<=$J10),1,"")'  => None
+BQ10: '=IF(AND(BQ$4>=$I10,BQ$4<=$J10),1,"")'  => None
+BR10: '=IF(AND(BR$4>=$I10,BR$4<=$J10),1,"")'  => None
+BS10: '=IF(AND(BS$4>=$I10,BS$4<=$J10),1,"")'  => None
+BT10: '=IF(AND(BT$4>=$I10,BT$4<=$J10),1,"")'  => None
+BU10: '=IF(IF(G10+H10-1<=29,MAX(ROUND((G10+H10-1)*(29+SlipWeeks)/29,0),$I10),G10+H10-1+SlipWeeks)>61,"▶ clipped","")'  => None
+BV10: "F16: 'Publish a review/approval schedule per gating document (owner, turnaround SLA, revision allowance) and hold at least one built-in revision cycle before the build-start gate' - NEW explicit TAD/HLD/LLD review + revision track covering the 14 slide-5 design documents. One full revision loop for 14 documents does not fit inside the 5-week P1 window on top of authoring, so the track runs weeks 2-7, extending 2 weeks into early P2. Build-start impact, stated honestly: SEGRO build tasks gated on an approved TAD/HLD/LLD/DRG pack carry up to a 2-week start risk against the week-6 build start; this risk is absorbed in the go-live range shown in G-TEST-REANCHOR-R. No cost change - review effort sits inside the existing P1 role lines (P1-L1 to P1-L7), which is why no single cost_line is cited."
+A11: 'G-P1-REV-R-s1'
+B11: '    • Publish the review/approval schedule per gating document - owner, turnaround SLA, revision allowance - for all 14 slide-5 design documents (TAD, HLD, LLD, DRG pack and the rest)'
+C11: 'SEGRO'
+D11: 'RECOMMENDED'
+G11: 2
+H11: 1
+I11: '=MEDIAN($I$10,$J$10,$I$10+ROUND((G11-$G$10)/$H$10*($J$10-$I$10+1),0))'  => 2
+J11: '=MEDIAN(I11,$J$10,$I$10+ROUND((G11+H11-$G$10)/$H$10*($J$10-$I$10+1),0)-1)'  => 2
+L11: '=IF(AND(L$4>=$I11,L$4<=$J11),1,"")'  => None
+M11: '=IF(AND(M$4>=$I11,M$4<=$J11),1,"")'  => 1
+N11: '=IF(AND(N$4>=$I11,N$4<=$J11),1,"")'  => None
+O11: '=IF(AND(O$4>=$I11,O$4<=$J11),1,"")'  => None
+P11: '=IF(AND(P$4>=$I11,P$4<=$J11),1,"")'  => None
+Q11: '=IF(AND(Q$4>=$I11,Q$4<=$J11),1,"")'  => None
+R11: '=IF(AND(R$4>=$I11,R$4<=$J11),1,"")'  => None
+S11: '=IF(AND(S$4>=$I11,S$4<=$J11),1,"")'  => None
+T11: '=IF(AND(T$4>=$I11,T$4<=$J11),1,"")'  => None
+U11: '=IF(AND(U$4>=$I11,U$4<=$J11),1,"")'  => None
+V11: '=IF(AND(V$4>=$I11,V$4<=$J11),1,"")'  => None
+W11: '=IF(AND(W$4>=$I11,W$4<=$J11),1,"")'  => None
+X11: '=IF(AND(X$4>=$I11,X$4<=$J11),1,"")'  => None
+Y11: '=IF(AND(Y$4>=$I11,Y$4<=$J11),1,"")'  => None
+Z11: '=IF(AND(Z$4>=$I11,Z$4<=$J11),1,"")'  => None
+AA11: '=IF(AND(AA$4>=$I11,AA$4<=$J11),1,"")'  => None
+AB11: '=IF(AND(AB$4>=$I11,AB$4<=$J11),1,"")'  => None
+AC11: '=IF(AND(AC$4>=$I11,AC$4<=$J11),1,"")'  => None
+AD11: '=IF(AND(AD$4>=$I11,AD$4<=$J11),1,"")'  => None
+AE11: '=IF(AND(AE$4>=$I11,AE$4<=$J11),1,"")'  => None
+AF11: '=IF(AND(AF$4>=$I11,AF$4<=$J11),1,"")'  => None
+AG11: '=IF(AND(AG$4>=$I11,AG$4<=$J11),1,"")'  => None
+AH11: '=IF(AND(AH$4>=$I11,AH$4<=$J11),1,"")'  => None
+AI11: '=IF(AND(AI$4>=$I11,AI$4<=$J11),1,"")'  => None
+AJ11: '=IF(AND(AJ$4>=$I11,AJ$4<=$J11),1,"")'  => None
+AK11: '=IF(AND(AK$4>=$I11,AK$4<=$J11),1,"")'  => None
+AL11: '=IF(AND(AL$4>=$I11,AL$4<=$J11),1,"")'  => None
+AM11: '=IF(AND(AM$4>=$I11,AM$4<=$J11),1,"")'  => None
+AN11: '=IF(AND(AN$4>=$I11,AN$4<=$J11),1,"")'  => None
+AO11: '=IF(AND(AO$4>=$I11,AO$4<=$J11),1,"")'  => None
+AP11: '=IF(AND(AP$4>=$I11,AP$4<=$J11),1,"")'  => None
+AQ11: '=IF(AND(AQ$4>=$I11,AQ$4<=$J11),1,"")'  => None
+AR11: '=IF(AND(AR$4>=$I11,AR$4<=$J11),1,"")'  => None
+AS11: '=IF(AND(AS$4>=$I11,AS$4<=$J11),1,"")'  => None
+AT11: '=IF(AND(AT$4>=$I11,AT$4<=$J11),1,"")'  => None
+AU11: '=IF(AND(AU$4>=$I11,AU$4<=$J11),1,"")'  => None
+AV11: '=IF(AND(AV$4>=$I11,AV$4<=$J11),1,"")'  => None
+AW11: '=IF(AND(AW$4>=$I11,AW$4<=$J11),1,"")'  => None
+AX11: '=IF(AND(AX$4>=$I11,AX$4<=$J11),1,"")'  => None
+AY11: '=IF(AND(AY$4>=$I11,AY$4<=$J11),1,"")'  => None
+AZ11: '=IF(AND(AZ$4>=$I11,AZ$4<=$J11),1,"")'  => None
+BA11: '=IF(AND(BA$4>=$I11,BA$4<=$J11),1,"")'  => None
+BB11: '=IF(AND(BB$4>=$I11,BB$4<=$J11),1,"")'  => None
+BC11: '=IF(AND(BC$4>=$I11,BC$4<=$J11),1,"")'  => None
+BD11: '=IF(AND(BD$4>=$I11,BD$4<=$J11),1,"")'  => None
+BE11: '=IF(AND(BE$4>=$I11,BE$4<=$J11),1,"")'  => None
+BF11: '=IF(AND(BF$4>=$I11,BF$4<=$J11),1,"")'  => None
+BG11: '=IF(AND(BG$4>=$I11,BG$4<=$J11),1,"")'  => None
+BH11: '=IF(AND(BH$4>=$I11,BH$4<=$J11),1,"")'  => None
+BI11: '=IF(AND(BI$4>=$I11,BI$4<=$J11),1,"")'  => None
+BJ11: '=IF(AND(BJ$4>=$I11,BJ$4<=$J11),1,"")'  => None
+BK11: '=IF(AND(BK$4>=$I11,BK$4<=$J11),1,"")'  => None
+BL11: '=IF(AND(BL$4>=$I11,BL$4<=$J11),1,"")'  => None
+BM11: '=IF(AND(BM$4>=$I11,BM$4<=$J11),1,"")'  => None
+BN11: '=IF(AND(BN$4>=$I11,BN$4<=$J11),1,"")'  => None
+BO11: '=IF(AND(BO$4>=$I11,BO$4<=$J11),1,"")'  => None
+BP11: '=IF(AND(BP$4>=$I11,BP$4<=$J11),1,"")'  => None
+BQ11: '=IF(AND(BQ$4>=$I11,BQ$4<=$J11),1,"")'  => None
+BR11: '=IF(AND(BR$4>=$I11,BR$4<=$J11),1,"")'  => None
+BS11: '=IF(AND(BS$4>=$I11,BS$4<=$J11),1,"")'  => None
+BT11: '=IF(AND(BT$4>=$I11,BT$4<=$J11),1,"")'  => None
+BV11: "F16: 'Publish a review/approval schedule per gating document (owner, turnaround SLA, revision allowance)' - schedule issued in week 2 so reviews can start as documents land."
+A12: 'G-P1-REV-R-s2'
+B12: '    • First-pass reviews of the 14 slide-5 design documents as they land through the P1 workshop chain'
+C12: 'SEGRO'
+D12: 'RECOMMENDED'
+F12: 'G-P1-REV-R-s1'
+G12: 3
+H12: 3
+I12: '=MEDIAN($I$10,$J$10,$I$10+ROUND((G12-$G$10)/$H$10*($J$10-$I$10+1),0))'  => 3
+J12: '=MEDIAN(I12,$J$10,$I$10+ROUND((G12+H12-$G$10)/$H$10*($J$10-$I$10+1),0)-1)'  => 5
+L12: '=IF(AND(L$4>=$I12,L$4<=$J12),1,"")'  => None
+M12: '=IF(AND(M$4>=$I12,M$4<=$J12),1,"")'  => None
+N12: '=IF(AND(N$4>=$I12,N$4<=$J12),1,"")'  => 1
+O12: '=IF(AND(O$4>=$I12,O$4<=$J12),1,"")'  => 1
+P12: '=IF(AND(P$4>=$I12,P$4<=$J12),1,"")'  => 1
+Q12: '=IF(AND(Q$4>=$I12,Q$4<=$J12),1,"")'  => None
+R12: '=IF(AND(R$4>=$I12,R$4<=$J12),1,"")'  => None
+S12: '=IF(AND(S$4>=$I12,S$4<=$J12),1,"")'  => None
+T12: '=IF(AND(T$4>=$I12,T$4<=$J12),1,"")'  => None
+U12: '=IF(AND(U$4>=$I12,U$4<=$J12),1,"")'  => None
+V12: '=IF(AND(V$4>=$I12,V$4<=$J12),1,"")'  => None
+W12: '=IF(AND(W$4>=$I12,W$4<=$J12),1,"")'  => None
+X12: '=IF(AND(X$4>=$I12,X$4<=$J12),1,"")'  => None
+Y12: '=IF(AND(Y$4>=$I12,Y$4<=$J12),1,"")'  => None
+Z12: '=IF(AND(Z$4>=$I12,Z$4<=$J12),1,"")'  => None
+AA12: '=IF(AND(AA$4>=$I12,AA$4<=$J12),1,"")'  => None
+AB12: '=IF(AND(AB$4>=$I12,AB$4<=$J12),1,"")'  => None
+AC12: '=IF(AND(AC$4>=$I12,AC$4<=$J12),1,"")'  => None
+AD12: '=IF(AND(AD$4>=$I12,AD$4<=$J12),1,"")'  => None
+AE12: '=IF(AND(AE$4>=$I12,AE$4<=$J12),1,"")'  => None
+AF12: '=IF(AND(AF$4>=$I12,AF$4<=$J12),1,"")'  => None
+AG12: '=IF(AND(AG$4>=$I12,AG$4<=$J12),1,"")'  => None
+AH12: '=IF(AND(AH$4>=$I12,AH$4<=$J12),1,"")'  => None
+AI12: '=IF(AND(AI$4>=$I12,AI$4<=$J12),1,"")'  => None
+AJ12: '=IF(AND(AJ$4>=$I12,AJ$4<=$J12),1,"")'  => None
+AK12: '=IF(AND(AK$4>=$I12,AK$4<=$J12),1,"")'  => None
+AL12: '=IF(AND(AL$4>=$I12,AL$4<=$J12),1,"")'  => None
+AM12: '=IF(AND(AM$4>=$I12,AM$4<=$J12),1,"")'  => None
+AN12: '=IF(AND(AN$4>=$I12,AN$4<=$J12),1,"")'  => None
+AO12: '=IF(AND(AO$4>=$I12,AO$4<=$J12),1,"")'  => None
+AP12: '=IF(AND(AP$4>=$I12,AP$4<=$J12),1,"")'  => None
+AQ12: '=IF(AND(AQ$4>=$I12,AQ$4<=$J12),1,"")'  => None
+AR12: '=IF(AND(AR$4>=$I12,AR$4<=$J12),1,"")'  => None
+AS12: '=IF(AND(AS$4>=$I12,AS$4<=$J12),1,"")'  => None
+AT12: '=IF(AND(AT$4>=$I12,AT$4<=$J12),1,"")'  => None
+AU12: '=IF(AND(AU$4>=$I12,AU$4<=$J12),1,"")'  => None
+AV12: '=IF(AND(AV$4>=$I12,AV$4<=$J12),1,"")'  => None
+AW12: '=IF(AND(AW$4>=$I12,AW$4<=$J12),1,"")'  => None
+AX12: '=IF(AND(AX$4>=$I12,AX$4<=$J12),1,"")'  => None
+AY12: '=IF(AND(AY$4>=$I12,AY$4<=$J12),1,"")'  => None
+AZ12: '=IF(AND(AZ$4>=$I12,AZ$4<=$J12),1,"")'  => None
+BA12: '=IF(AND(BA$4>=$I12,BA$4<=$J12),1,"")'  => None
+BB12: '=IF(AND(BB$4>=$I12,BB$4<=$J12),1,"")'  => None
+BC12: '=IF(AND(BC$4>=$I12,BC$4<=$J12),1,"")'  => None
+BD12: '=IF(AND(BD$4>=$I12,BD$4<=$J12),1,"")'  => None
+BE12: '=IF(AND(BE$4>=$I12,BE$4<=$J12),1,"")'  => None
+BF12: '=IF(AND(BF$4>=$I12,BF$4<=$J12),1,"")'  => None
+BG12: '=IF(AND(BG$4>=$I12,BG$4<=$J12),1,"")'  => None
+BH12: '=IF(AND(BH$4>=$I12,BH$4<=$J12),1,"")'  => None
+BI12: '=IF(AND(BI$4>=$I12,BI$4<=$J12),1,"")'  => None
+BJ12: '=IF(AND(BJ$4>=$I12,BJ$4<=$J12),1,"")'  => None
+BK12: '=IF(AND(BK$4>=$I12,BK$4<=$J12),1,"")'  => None
+BL12: '=IF(AND(BL$4>=$I12,BL$4<=$J12),1,"")'  => None
+BM12: '=IF(AND(BM$4>=$I12,BM$4<=$J12),1,"")'  => None
+BN12: '=IF(AND(BN$4>=$I12,BN$4<=$J12),1,"")'  => None
+BO12: '=IF(AND(BO$4>=$I12,BO$4<=$J12),1,"")'  => None
+BP12: '=IF(AND(BP$4>=$I12,BP$4<=$J12),1,"")'  => None
+BQ12: '=IF(AND(BQ$4>=$I12,BQ$4<=$J12),1,"")'  => None
+BR12: '=IF(AND(BR$4>=$I12,BR$4<=$J12),1,"")'  => None
+BS12: '=IF(AND(BS$4>=$I12,BS$4<=$J12),1,"")'  => None
+BT12: '=IF(AND(BT$4>=$I12,BT$4<=$J12),1,"")'  => None
+BV12: "F16: reviews executed against the published schedule's 'turnaround SLA' during weeks 3-5, while the documents are being authored - not deferred past 'Design phase complete'."
+A13: 'G-P1-REV-R-s3'
+B13: '    • Built-in revision cycle: revise, re-review and approve the gating documents (TAD, HLD, LLD, DRG approval) before the build-start gate'
+C13: 'SEGRO'
+D13: 'RECOMMENDED'
+F13: 'G-P1-REV-R-s2'
+G13: 6
+H13: 2
+I13: '=MEDIAN($I$10,$J$10,$I$10+ROUND((G13-$G$10)/$H$10*($J$10-$I$10+1),0))'  => 6
+J13: '=MEDIAN(I13,$J$10,$I$10+ROUND((G13+H13-$G$10)/$H$10*($J$10-$I$10+1),0)-1)'  => 7
+L13: '=IF(AND(L$4>=$I13,L$4<=$J13),1,"")'  => None
+M13: '=IF(AND(M$4>=$I13,M$4<=$J13),1,"")'  => None
+N13: '=IF(AND(N$4>=$I13,N$4<=$J13),1,"")'  => None
+O13: '=IF(AND(O$4>=$I13,O$4<=$J13),1,"")'  => None
+P13: '=IF(AND(P$4>=$I13,P$4<=$J13),1,"")'  => None
+Q13: '=IF(AND(Q$4>=$I13,Q$4<=$J13),1,"")'  => 1
+R13: '=IF(AND(R$4>=$I13,R$4<=$J13),1,"")'  => 1
+S13: '=IF(AND(S$4>=$I13,S$4<=$J13),1,"")'  => None
+T13: '=IF(AND(T$4>=$I13,T$4<=$J13),1,"")'  => None
+U13: '=IF(AND(U$4>=$I13,U$4<=$J13),1,"")'  => None
+V13: '=IF(AND(V$4>=$I13,V$4<=$J13),1,"")'  => None
+W13: '=IF(AND(W$4>=$I13,W$4<=$J13),1,"")'  => None
+X13: '=IF(AND(X$4>=$I13,X$4<=$J13),1,"")'  => None
+Y13: '=IF(AND(Y$4>=$I13,Y$4<=$J13),1,"")'  => None
+Z13: '=IF(AND(Z$4>=$I13,Z$4<=$J13),1,"")'  => None
+AA13: '=IF(AND(AA$4>=$I13,AA$4<=$J13),1,"")'  => None
+AB13: '=IF(AND(AB$4>=$I13,AB$4<=$J13),1,"")'  => None
+AC13: '=IF(AND(AC$4>=$I13,AC$4<=$J13),1,"")'  => None
+AD13: '=IF(AND(AD$4>=$I13,AD$4<=$J13),1,"")'  => None
+AE13: '=IF(AND(AE$4>=$I13,AE$4<=$J13),1,"")'  => None
+AF13: '=IF(AND(AF$4>=$I13,AF$4<=$J13),1,"")'  => None
+AG13: '=IF(AND(AG$4>=$I13,AG$4<=$J13),1,"")'  => None
+AH13: '=IF(AND(AH$4>=$I13,AH$4<=$J13),1,"")'  => None
+AI13: '=IF(AND(AI$4>=$I13,AI$4<=$J13),1,"")'  => None
+AJ13: '=IF(AND(AJ$4>=$I13,AJ$4<=$J13),1,"")'  => None
+AK13: '=IF(AND(AK$4>=$I13,AK$4<=$J13),1,"")'  => None
+AL13: '=IF(AND(AL$4>=$I13,AL$4<=$J13),1,"")'  => None
+AM13: '=IF(AND(AM$4>=$I13,AM$4<=$J13),1,"")'  => None
+AN13: '=IF(AND(AN$4>=$I13,AN$4<=$J13),1,"")'  => None
+AO13: '=IF(AND(AO$4>=$I13,AO$4<=$J13),1,"")'  => None
+AP13: '=IF(AND(AP$4>=$I13,AP$4<=$J13),1,"")'  => None
+AQ13: '=IF(AND(AQ$4>=$I13,AQ$4<=$J13),1,"")'  => None
+AR13: '=IF(AND(AR$4>=$I13,AR$4<=$J13),1,"")'  => None
+AS13: '=IF(AND(AS$4>=$I13,AS$4<=$J13),1,"")'  => None
+AT13: '=IF(AND(AT$4>=$I13,AT$4<=$J13),1,"")'  => None
+AU13: '=IF(AND(AU$4>=$I13,AU$4<=$J13),1,"")'  => None
+AV13: '=IF(AND(AV$4>=$I13,AV$4<=$J13),1,"")'  => None
+AW13: '=IF(AND(AW$4>=$I13,AW$4<=$J13),1,"")'  => None
+AX13: '=IF(AND(AX$4>=$I13,AX$4<=$J13),1,"")'  => None
+AY13: '=IF(AND(AY$4>=$I13,AY$4<=$J13),1,"")'  => None
+AZ13: '=IF(AND(AZ$4>=$I13,AZ$4<=$J13),1,"")'  => None
+BA13: '=IF(AND(BA$4>=$I13,BA$4<=$J13),1,"")'  => None
+BB13: '=IF(AND(BB$4>=$I13,BB$4<=$J13),1,"")'  => None
+BC13: '=IF(AND(BC$4>=$I13,BC$4<=$J13),1,"")'  => None
+BD13: '=IF(AND(BD$4>=$I13,BD$4<=$J13),1,"")'  => None
+BE13: '=IF(AND(BE$4>=$I13,BE$4<=$J13),1,"")'  => None
+BF13: '=IF(AND(BF$4>=$I13,BF$4<=$J13),1,"")'  => None
+BG13: '=IF(AND(BG$4>=$I13,BG$4<=$J13),1,"")'  => None
+BH13: '=IF(AND(BH$4>=$I13,BH$4<=$J13),1,"")'  => None
+BI13: '=IF(AND(BI$4>=$I13,BI$4<=$J13),1,"")'  => None
+BJ13: '=IF(AND(BJ$4>=$I13,BJ$4<=$J13),1,"")'  => None
+BK13: '=IF(AND(BK$4>=$I13,BK$4<=$J13),1,"")'  => None
+BL13: '=IF(AND(BL$4>=$I13,BL$4<=$J13),1,"")'  => None
+BM13: '=IF(AND(BM$4>=$I13,BM$4<=$J13),1,"")'  => None
+BN13: '=IF(AND(BN$4>=$I13,BN$4<=$J13),1,"")'  => None
+BO13: '=IF(AND(BO$4>=$I13,BO$4<=$J13),1,"")'  => None
+BP13: '=IF(AND(BP$4>=$I13,BP$4<=$J13),1,"")'  => None
+BQ13: '=IF(AND(BQ$4>=$I13,BQ$4<=$J13),1,"")'  => None
+BR13: '=IF(AND(BR$4>=$I13,BR$4<=$J13),1,"")'  => None
+BS13: '=IF(AND(BS$4>=$I13,BS$4<=$J13),1,"")'  => None
+BT13: '=IF(AND(BT$4>=$I13,BT$4<=$J13),1,"")'  => None
+BV13: "F16: 'hold at least one built-in revision cycle before the build-start gate' - the revision loop runs weeks 6-7 (early P2); build tasks gated on approved designs carry up to a 2-week start risk, noted in the parent basis."
+A15: 'G-P1-PROC-R'
+B15: 'Decisions & procurement'
+C15: 'SEGRO'
+D15: 'RECOMMENDED'
+E15: 'F10'
+G15: 1
+H15: 5
+I15: '=MIN(61,IF(G15<=29,ROUND((G15-1)*(29+SlipWeeks)/29,0)+1,G15+SlipWeeks))'  => 1
+J15: '=MIN(61,IF(G15+H15-1<=29,MAX(ROUND((G15+H15-1)*(29+SlipWeeks)/29,0),I15),G15+H15-1+SlipWeeks))'  => 5
+K15: 'Procurement starts week 1 and runs 5 weeks with named owners and latest-order dates, replacing the drawn ~2.5-week allowance that starts mid-P1.'
+L15: '=IF(AND(L$4>=$I15,L$4<=$J15),1,"")'  => 1
+M15: '=IF(AND(M$4>=$I15,M$4<=$J15),1,"")'  => 1
+N15: '=IF(AND(N$4>=$I15,N$4<=$J15),1,"")'  => 1
+O15: '=IF(AND(O$4>=$I15,O$4<=$J15),1,"")'  => 1
+P15: '=IF(AND(P$4>=$I15,P$4<=$J15),1,"")'  => 1
+Q15: '=IF(AND(Q$4>=$I15,Q$4<=$J15),1,"")'  => None
+R15: '=IF(AND(R$4>=$I15,R$4<=$J15),1,"")'  => None
+S15: '=IF(AND(S$4>=$I15,S$4<=$J15),1,"")'  => None
+T15: '=IF(AND(T$4>=$I15,T$4<=$J15),1,"")'  => None
+U15: '=IF(AND(U$4>=$I15,U$4<=$J15),1,"")'  => None
+V15: '=IF(AND(V$4>=$I15,V$4<=$J15),1,"")'  => None
+W15: '=IF(AND(W$4>=$I15,W$4<=$J15),1,"")'  => None
+X15: '=IF(AND(X$4>=$I15,X$4<=$J15),1,"")'  => None
+Y15: '=IF(AND(Y$4>=$I15,Y$4<=$J15),1,"")'  => None
+Z15: '=IF(AND(Z$4>=$I15,Z$4<=$J15),1,"")'  => None
+AA15: '=IF(AND(AA$4>=$I15,AA$4<=$J15),1,"")'  => None
+AB15: '=IF(AND(AB$4>=$I15,AB$4<=$J15),1,"")'  => None
+AC15: '=IF(AND(AC$4>=$I15,AC$4<=$J15),1,"")'  => None
+AD15: '=IF(AND(AD$4>=$I15,AD$4<=$J15),1,"")'  => None
+AE15: '=IF(AND(AE$4>=$I15,AE$4<=$J15),1,"")'  => None
+AF15: '=IF(AND(AF$4>=$I15,AF$4<=$J15),1,"")'  => None
+AG15: '=IF(AND(AG$4>=$I15,AG$4<=$J15),1,"")'  => None
+AH15: '=IF(AND(AH$4>=$I15,AH$4<=$J15),1,"")'  => None
+AI15: '=IF(AND(AI$4>=$I15,AI$4<=$J15),1,"")'  => None
+AJ15: '=IF(AND(AJ$4>=$I15,AJ$4<=$J15),1,"")'  => None
+AK15: '=IF(AND(AK$4>=$I15,AK$4<=$J15),1,"")'  => None
+AL15: '=IF(AND(AL$4>=$I15,AL$4<=$J15),1,"")'  => None
+AM15: '=IF(AND(AM$4>=$I15,AM$4<=$J15),1,"")'  => None
+AN15: '=IF(AND(AN$4>=$I15,AN$4<=$J15),1,"")'  => None
+AO15: '=IF(AND(AO$4>=$I15,AO$4<=$J15),1,"")'  => None
+AP15: '=IF(AND(AP$4>=$I15,AP$4<=$J15),1,"")'  => None
+AQ15: '=IF(AND(AQ$4>=$I15,AQ$4<=$J15),1,"")'  => None
+AR15: '=IF(AND(AR$4>=$I15,AR$4<=$J15),1,"")'  => None
+AS15: '=IF(AND(AS$4>=$I15,AS$4<=$J15),1,"")'  => None
+AT15: '=IF(AND(AT$4>=$I15,AT$4<=$J15),1,"")'  => None
+AU15: '=IF(AND(AU$4>=$I15,AU$4<=$J15),1,"")'  => None
+AV15: '=IF(AND(AV$4>=$I15,AV$4<=$J15),1,"")'  => None
+AW15: '=IF(AND(AW$4>=$I15,AW$4<=$J15),1,"")'  => None
+AX15: '=IF(AND(AX$4>=$I15,AX$4<=$J15),1,"")'  => None
+AY15: '=IF(AND(AY$4>=$I15,AY$4<=$J15),1,"")'  => None
+AZ15: '=IF(AND(AZ$4>=$I15,AZ$4<=$J15),1,"")'  => None
+BA15: '=IF(AND(BA$4>=$I15,BA$4<=$J15),1,"")'  => None
+BB15: '=IF(AND(BB$4>=$I15,BB$4<=$J15),1,"")'  => None
+BC15: '=IF(AND(BC$4>=$I15,BC$4<=$J15),1,"")'  => None
+BD15: '=IF(AND(BD$4>=$I15,BD$4<=$J15),1,"")'  => None
+BE15: '=IF(AND(BE$4>=$I15,BE$4<=$J15),1,"")'  => None
+BF15: '=IF(AND(BF$4>=$I15,BF$4<=$J15),1,"")'  => None
+BG15: '=IF(AND(BG$4>=$I15,BG$4<=$J15),1,"")'  => None
+BH15: '=IF(AND(BH$4>=$I15,BH$4<=$J15),1,"")'  => None
+BI15: '=IF(AND(BI$4>=$I15,BI$4<=$J15),1,"")'  => None
+BJ15: '=IF(AND(BJ$4>=$I15,BJ$4<=$J15),1,"")'  => None
+BK15: '=IF(AND(BK$4>=$I15,BK$4<=$J15),1,"")'  => None
+BL15: '=IF(AND(BL$4>=$I15,BL$4<=$J15),1,"")'  => None
+BM15: '=IF(AND(BM$4>=$I15,BM$4<=$J15),1,"")'  => None
+BN15: '=IF(AND(BN$4>=$I15,BN$4<=$J15),1,"")'  => None
+BO15: '=IF(AND(BO$4>=$I15,BO$4<=$J15),1,"")'  => None
+BP15: '=IF(AND(BP$4>=$I15,BP$4<=$J15),1,"")'  => None
+BQ15: '=IF(AND(BQ$4>=$I15,BQ$4<=$J15),1,"")'  => None
+BR15: '=IF(AND(BR$4>=$I15,BR$4<=$J15),1,"")'  => None
+BS15: '=IF(AND(BS$4>=$I15,BS$4<=$J15),1,"")'  => None
+BT15: '=IF(AND(BT$4>=$I15,BT$4<=$J15),1,"")'  => None
+BU15: '=IF(IF(G15+H15-1<=29,MAX(ROUND((G15+H15-1)*(29+SlipWeeks)/29,0),$I15),G15+H15-1+SlipWeeks)>61,"▶ clipped","")'  => None
+BV15: "F10: 'Add named procurement tasks with owners and latest-order dates back-planned from the HCL install start' - the corrected procurement track starts week 1 and runs the full 5-week P1 window (>=4 weeks), covering the Oracle 19 and Aerospike licence lead times (P1-L8, P1-L9) plus the MinIO EOL remediation scoping (P3-L8) and the ARO subscription branch if KDD-1 selects ARO. F10's evidence: the drawn bar is roughly a 2.5-2.7 week allowance starting mid-P1, which the senior architect independently challenged ('Procurrent of commercial components would take longer than 2 weeks'). Quantities unchanged - the licence lines remain RATE_MISSING at GBP 0 until quoted. cost_line is null (this track spans P1-L8/P1-L9 plus the P3-L8 MinIO remediation scoping and the conditional ARO subscription - no single cost-model id represents it); the covered lines are listed in 'covers'."
+A16: 'G-P1-PROC-R-s1'
+B16: '    • Name the procurement tasks with owners; back-plan latest-order dates from the corrected HCL install start (week 13) for Oracle 19, Aerospike, MinIO successor and the conditional ARO subscription'
+C16: 'SEGRO'
+D16: 'RECOMMENDED'
+G16: 1
+H16: 1
+I16: '=MEDIAN($I$15,$J$15,$I$15+ROUND((G16-$G$15)/$H$15*($J$15-$I$15+1),0))'  => 1
+J16: '=MEDIAN(I16,$J$15,$I$15+ROUND((G16+H16-$G$15)/$H$15*($J$15-$I$15+1),0)-1)'  => 1
+L16: '=IF(AND(L$4>=$I16,L$4<=$J16),1,"")'  => 1
+M16: '=IF(AND(M$4>=$I16,M$4<=$J16),1,"")'  => None
+N16: '=IF(AND(N$4>=$I16,N$4<=$J16),1,"")'  => None
+O16: '=IF(AND(O$4>=$I16,O$4<=$J16),1,"")'  => None
+P16: '=IF(AND(P$4>=$I16,P$4<=$J16),1,"")'  => None
+Q16: '=IF(AND(Q$4>=$I16,Q$4<=$J16),1,"")'  => None
+R16: '=IF(AND(R$4>=$I16,R$4<=$J16),1,"")'  => None
+S16: '=IF(AND(S$4>=$I16,S$4<=$J16),1,"")'  => None
+T16: '=IF(AND(T$4>=$I16,T$4<=$J16),1,"")'  => None
+U16: '=IF(AND(U$4>=$I16,U$4<=$J16),1,"")'  => None
+V16: '=IF(AND(V$4>=$I16,V$4<=$J16),1,"")'  => None
+W16: '=IF(AND(W$4>=$I16,W$4<=$J16),1,"")'  => None
+X16: '=IF(AND(X$4>=$I16,X$4<=$J16),1,"")'  => None
+Y16: '=IF(AND(Y$4>=$I16,Y$4<=$J16),1,"")'  => None
+Z16: '=IF(AND(Z$4>=$I16,Z$4<=$J16),1,"")'  => None
+AA16: '=IF(AND(AA$4>=$I16,AA$4<=$J16),1,"")'  => None
+AB16: '=IF(AND(AB$4>=$I16,AB$4<=$J16),1,"")'  => None
+AC16: '=IF(AND(AC$4>=$I16,AC$4<=$J16),1,"")'  => None
+AD16: '=IF(AND(AD$4>=$I16,AD$4<=$J16),1,"")'  => None
+AE16: '=IF(AND(AE$4>=$I16,AE$4<=$J16),1,"")'  => None
+AF16: '=IF(AND(AF$4>=$I16,AF$4<=$J16),1,"")'  => None
+AG16: '=IF(AND(AG$4>=$I16,AG$4<=$J16),1,"")'  => None
+AH16: '=IF(AND(AH$4>=$I16,AH$4<=$J16),1,"")'  => None
+AI16: '=IF(AND(AI$4>=$I16,AI$4<=$J16),1,"")'  => None
+AJ16: '=IF(AND(AJ$4>=$I16,AJ$4<=$J16),1,"")'  => None
+AK16: '=IF(AND(AK$4>=$I16,AK$4<=$J16),1,"")'  => None
+AL16: '=IF(AND(AL$4>=$I16,AL$4<=$J16),1,"")'  => None
+AM16: '=IF(AND(AM$4>=$I16,AM$4<=$J16),1,"")'  => None
+AN16: '=IF(AND(AN$4>=$I16,AN$4<=$J16),1,"")'  => None
+AO16: '=IF(AND(AO$4>=$I16,AO$4<=$J16),1,"")'  => None
+AP16: '=IF(AND(AP$4>=$I16,AP$4<=$J16),1,"")'  => None
+AQ16: '=IF(AND(AQ$4>=$I16,AQ$4<=$J16),1,"")'  => None
+AR16: '=IF(AND(AR$4>=$I16,AR$4<=$J16),1,"")'  => None
+AS16: '=IF(AND(AS$4>=$I16,AS$4<=$J16),1,"")'  => None
+AT16: '=IF(AND(AT$4>=$I16,AT$4<=$J16),1,"")'  => None
+AU16: '=IF(AND(AU$4>=$I16,AU$4<=$J16),1,"")'  => None
+AV16: '=IF(AND(AV$4>=$I16,AV$4<=$J16),1,"")'  => None
+AW16: '=IF(AND(AW$4>=$I16,AW$4<=$J16),1,"")'  => None
+AX16: '=IF(AND(AX$4>=$I16,AX$4<=$J16),1,"")'  => None
+AY16: '=IF(AND(AY$4>=$I16,AY$4<=$J16),1,"")'  => None
+AZ16: '=IF(AND(AZ$4>=$I16,AZ$4<=$J16),1,"")'  => None
+BA16: '=IF(AND(BA$4>=$I16,BA$4<=$J16),1,"")'  => None
+BB16: '=IF(AND(BB$4>=$I16,BB$4<=$J16),1,"")'  => None
+BC16: '=IF(AND(BC$4>=$I16,BC$4<=$J16),1,"")'  => None
+BD16: '=IF(AND(BD$4>=$I16,BD$4<=$J16),1,"")'  => None
+BE16: '=IF(AND(BE$4>=$I16,BE$4<=$J16),1,"")'  => None
+BF16: '=IF(AND(BF$4>=$I16,BF$4<=$J16),1,"")'  => None
+BG16: '=IF(AND(BG$4>=$I16,BG$4<=$J16),1,"")'  => None
+BH16: '=IF(AND(BH$4>=$I16,BH$4<=$J16),1,"")'  => None
+BI16: '=IF(AND(BI$4>=$I16,BI$4<=$J16),1,"")'  => None
+BJ16: '=IF(AND(BJ$4>=$I16,BJ$4<=$J16),1,"")'  => None
+BK16: '=IF(AND(BK$4>=$I16,BK$4<=$J16),1,"")'  => None
+BL16: '=IF(AND(BL$4>=$I16,BL$4<=$J16),1,"")'  => None
+BM16: '=IF(AND(BM$4>=$I16,BM$4<=$J16),1,"")'  => None
+BN16: '=IF(AND(BN$4>=$I16,BN$4<=$J16),1,"")'  => None
+BO16: '=IF(AND(BO$4>=$I16,BO$4<=$J16),1,"")'  => None
+BP16: '=IF(AND(BP$4>=$I16,BP$4<=$J16),1,"")'  => None
+BQ16: '=IF(AND(BQ$4>=$I16,BQ$4<=$J16),1,"")'  => None
+BR16: '=IF(AND(BR$4>=$I16,BR$4<=$J16),1,"")'  => None
+BS16: '=IF(AND(BS$4>=$I16,BS$4<=$J16),1,"")'  => None
+BT16: '=IF(AND(BT$4>=$I16,BT$4<=$J16),1,"")'  => None
+BV16: "F10: 'Add named procurement tasks with owners and latest-order dates back-planned from the HCL install start' - done in week 1 so lead times run from the earliest possible date."
+A17: 'G-P1-PROC-R-s2'
+B17: '    • Issue quotes/orders for the long-lead commercial components: Oracle 19 (mandatory for Unica+ MaxAI CDM, P1-L8) and Aerospike edition/licence (P1-L9)'
+C17: 'SEGRO'
+D17: 'RECOMMENDED'
+F17: 'G-P1-PROC-R-s1'
+G17: 2
+H17: 2
+I17: '=MEDIAN($I$15,$J$15,$I$15+ROUND((G17-$G$15)/$H$15*($J$15-$I$15+1),0))'  => 2
+J17: '=MEDIAN(I17,$J$15,$I$15+ROUND((G17+H17-$G$15)/$H$15*($J$15-$I$15+1),0)-1)'  => 3
+L17: '=IF(AND(L$4>=$I17,L$4<=$J17),1,"")'  => None
+M17: '=IF(AND(M$4>=$I17,M$4<=$J17),1,"")'  => 1
+N17: '=IF(AND(N$4>=$I17,N$4<=$J17),1,"")'  => 1
+O17: '=IF(AND(O$4>=$I17,O$4<=$J17),1,"")'  => None
+P17: '=IF(AND(P$4>=$I17,P$4<=$J17),1,"")'  => None
+Q17: '=IF(AND(Q$4>=$I17,Q$4<=$J17),1,"")'  => None
+R17: '=IF(AND(R$4>=$I17,R$4<=$J17),1,"")'  => None
+S17: '=IF(AND(S$4>=$I17,S$4<=$J17),1,"")'  => None
+T17: '=IF(AND(T$4>=$I17,T$4<=$J17),1,"")'  => None
+U17: '=IF(AND(U$4>=$I17,U$4<=$J17),1,"")'  => None
+V17: '=IF(AND(V$4>=$I17,V$4<=$J17),1,"")'  => None
+W17: '=IF(AND(W$4>=$I17,W$4<=$J17),1,"")'  => None
+X17: '=IF(AND(X$4>=$I17,X$4<=$J17),1,"")'  => None
+Y17: '=IF(AND(Y$4>=$I17,Y$4<=$J17),1,"")'  => None
+Z17: '=IF(AND(Z$4>=$I17,Z$4<=$J17),1,"")'  => None
+AA17: '=IF(AND(AA$4>=$I17,AA$4<=$J17),1,"")'  => None
+AB17: '=IF(AND(AB$4>=$I17,AB$4<=$J17),1,"")'  => None
+AC17: '=IF(AND(AC$4>=$I17,AC$4<=$J17),1,"")'  => None
+AD17: '=IF(AND(AD$4>=$I17,AD$4<=$J17),1,"")'  => None
+AE17: '=IF(AND(AE$4>=$I17,AE$4<=$J17),1,"")'  => None
+AF17: '=IF(AND(AF$4>=$I17,AF$4<=$J17),1,"")'  => None
+AG17: '=IF(AND(AG$4>=$I17,AG$4<=$J17),1,"")'  => None
+AH17: '=IF(AND(AH$4>=$I17,AH$4<=$J17),1,"")'  => None
+AI17: '=IF(AND(AI$4>=$I17,AI$4<=$J17),1,"")'  => None
+AJ17: '=IF(AND(AJ$4>=$I17,AJ$4<=$J17),1,"")'  => None
+AK17: '=IF(AND(AK$4>=$I17,AK$4<=$J17),1,"")'  => None
+AL17: '=IF(AND(AL$4>=$I17,AL$4<=$J17),1,"")'  => None
+AM17: '=IF(AND(AM$4>=$I17,AM$4<=$J17),1,"")'  => None
+AN17: '=IF(AND(AN$4>=$I17,AN$4<=$J17),1,"")'  => None
+AO17: '=IF(AND(AO$4>=$I17,AO$4<=$J17),1,"")'  => None
+AP17: '=IF(AND(AP$4>=$I17,AP$4<=$J17),1,"")'  => None
+AQ17: '=IF(AND(AQ$4>=$I17,AQ$4<=$J17),1,"")'  => None
+AR17: '=IF(AND(AR$4>=$I17,AR$4<=$J17),1,"")'  => None
+AS17: '=IF(AND(AS$4>=$I17,AS$4<=$J17),1,"")'  => None
+AT17: '=IF(AND(AT$4>=$I17,AT$4<=$J17),1,"")'  => None
+AU17: '=IF(AND(AU$4>=$I17,AU$4<=$J17),1,"")'  => None
+AV17: '=IF(AND(AV$4>=$I17,AV$4<=$J17),1,"")'  => None
+AW17: '=IF(AND(AW$4>=$I17,AW$4<=$J17),1,"")'  => None
+AX17: '=IF(AND(AX$4>=$I17,AX$4<=$J17),1,"")'  => None
+AY17: '=IF(AND(AY$4>=$I17,AY$4<=$J17),1,"")'  => None
+AZ17: '=IF(AND(AZ$4>=$I17,AZ$4<=$J17),1,"")'  => None
+BA17: '=IF(AND(BA$4>=$I17,BA$4<=$J17),1,"")'  => None
+BB17: '=IF(AND(BB$4>=$I17,BB$4<=$J17),1,"")'  => None
+BC17: '=IF(AND(BC$4>=$I17,BC$4<=$J17),1,"")'  => None
+BD17: '=IF(AND(BD$4>=$I17,BD$4<=$J17),1,"")'  => None
+BE17: '=IF(AND(BE$4>=$I17,BE$4<=$J17),1,"")'  => None
+BF17: '=IF(AND(BF$4>=$I17,BF$4<=$J17),1,"")'  => None
+BG17: '=IF(AND(BG$4>=$I17,BG$4<=$J17),1,"")'  => None
+BH17: '=IF(AND(BH$4>=$I17,BH$4<=$J17),1,"")'  => None
+BI17: '=IF(AND(BI$4>=$I17,BI$4<=$J17),1,"")'  => None
+BJ17: '=IF(AND(BJ$4>=$I17,BJ$4<=$J17),1,"")'  => None
+BK17: '=IF(AND(BK$4>=$I17,BK$4<=$J17),1,"")'  => None
+BL17: '=IF(AND(BL$4>=$I17,BL$4<=$J17),1,"")'  => None
+BM17: '=IF(AND(BM$4>=$I17,BM$4<=$J17),1,"")'  => None
+BN17: '=IF(AND(BN$4>=$I17,BN$4<=$J17),1,"")'  => None
+BO17: '=IF(AND(BO$4>=$I17,BO$4<=$J17),1,"")'  => None
+BP17: '=IF(AND(BP$4>=$I17,BP$4<=$J17),1,"")'  => None
+BQ17: '=IF(AND(BQ$4>=$I17,BQ$4<=$J17),1,"")'  => None
+BR17: '=IF(AND(BR$4>=$I17,BR$4<=$J17),1,"")'  => None
+BS17: '=IF(AND(BS$4>=$I17,BS$4<=$J17),1,"")'  => None
+BT17: '=IF(AND(BT$4>=$I17,BT$4<=$J17),1,"")'  => None
+BV17: "F10: these items 'can gate the HCL install bar' per the finding - orders issued weeks 2-3 against the week-1 latest-order dates."
+A18: 'G-P1-PROC-R-s3'
+B18: '    • Track lead times and confirm delivery/entitlement against the latest-order dates before the Design phase complete gate'
+C18: 'SEGRO'
+D18: 'RECOMMENDED'
+F18: 'G-P1-PROC-R-s2'
+G18: 4
+H18: 2
+I18: '=MEDIAN($I$15,$J$15,$I$15+ROUND((G18-$G$15)/$H$15*($J$15-$I$15+1),0))'  => 4
+J18: '=MEDIAN(I18,$J$15,$I$15+ROUND((G18+H18-$G$15)/$H$15*($J$15-$I$15+1),0)-1)'  => 5
+L18: '=IF(AND(L$4>=$I18,L$4<=$J18),1,"")'  => None
+M18: '=IF(AND(M$4>=$I18,M$4<=$J18),1,"")'  => None
+N18: '=IF(AND(N$4>=$I18,N$4<=$J18),1,"")'  => None
+O18: '=IF(AND(O$4>=$I18,O$4<=$J18),1,"")'  => 1
+P18: '=IF(AND(P$4>=$I18,P$4<=$J18),1,"")'  => 1
+Q18: '=IF(AND(Q$4>=$I18,Q$4<=$J18),1,"")'  => None
+R18: '=IF(AND(R$4>=$I18,R$4<=$J18),1,"")'  => None
+S18: '=IF(AND(S$4>=$I18,S$4<=$J18),1,"")'  => None
+T18: '=IF(AND(T$4>=$I18,T$4<=$J18),1,"")'  => None
+U18: '=IF(AND(U$4>=$I18,U$4<=$J18),1,"")'  => None
+V18: '=IF(AND(V$4>=$I18,V$4<=$J18),1,"")'  => None
+W18: '=IF(AND(W$4>=$I18,W$4<=$J18),1,"")'  => None
+X18: '=IF(AND(X$4>=$I18,X$4<=$J18),1,"")'  => None
+Y18: '=IF(AND(Y$4>=$I18,Y$4<=$J18),1,"")'  => None
+Z18: '=IF(AND(Z$4>=$I18,Z$4<=$J18),1,"")'  => None
+AA18: '=IF(AND(AA$4>=$I18,AA$4<=$J18),1,"")'  => None
+AB18: '=IF(AND(AB$4>=$I18,AB$4<=$J18),1,"")'  => None
+AC18: '=IF(AND(AC$4>=$I18,AC$4<=$J18),1,"")'  => None
+AD18: '=IF(AND(AD$4>=$I18,AD$4<=$J18),1,"")'  => None
+AE18: '=IF(AND(AE$4>=$I18,AE$4<=$J18),1,"")'  => None
+AF18: '=IF(AND(AF$4>=$I18,AF$4<=$J18),1,"")'  => None
+AG18: '=IF(AND(AG$4>=$I18,AG$4<=$J18),1,"")'  => None
+AH18: '=IF(AND(AH$4>=$I18,AH$4<=$J18),1,"")'  => None
+AI18: '=IF(AND(AI$4>=$I18,AI$4<=$J18),1,"")'  => None
+AJ18: '=IF(AND(AJ$4>=$I18,AJ$4<=$J18),1,"")'  => None
+AK18: '=IF(AND(AK$4>=$I18,AK$4<=$J18),1,"")'  => None
+AL18: '=IF(AND(AL$4>=$I18,AL$4<=$J18),1,"")'  => None
+AM18: '=IF(AND(AM$4>=$I18,AM$4<=$J18),1,"")'  => None
+AN18: '=IF(AND(AN$4>=$I18,AN$4<=$J18),1,"")'  => None
+AO18: '=IF(AND(AO$4>=$I18,AO$4<=$J18),1,"")'  => None
+AP18: '=IF(AND(AP$4>=$I18,AP$4<=$J18),1,"")'  => None
+AQ18: '=IF(AND(AQ$4>=$I18,AQ$4<=$J18),1,"")'  => None
+AR18: '=IF(AND(AR$4>=$I18,AR$4<=$J18),1,"")'  => None
+AS18: '=IF(AND(AS$4>=$I18,AS$4<=$J18),1,"")'  => None
+AT18: '=IF(AND(AT$4>=$I18,AT$4<=$J18),1,"")'  => None
+AU18: '=IF(AND(AU$4>=$I18,AU$4<=$J18),1,"")'  => None
+AV18: '=IF(AND(AV$4>=$I18,AV$4<=$J18),1,"")'  => None
+AW18: '=IF(AND(AW$4>=$I18,AW$4<=$J18),1,"")'  => None
+AX18: '=IF(AND(AX$4>=$I18,AX$4<=$J18),1,"")'  => None
+AY18: '=IF(AND(AY$4>=$I18,AY$4<=$J18),1,"")'  => None
+AZ18: '=IF(AND(AZ$4>=$I18,AZ$4<=$J18),1,"")'  => None
+BA18: '=IF(AND(BA$4>=$I18,BA$4<=$J18),1,"")'  => None
+BB18: '=IF(AND(BB$4>=$I18,BB$4<=$J18),1,"")'  => None
+BC18: '=IF(AND(BC$4>=$I18,BC$4<=$J18),1,"")'  => None
+BD18: '=IF(AND(BD$4>=$I18,BD$4<=$J18),1,"")'  => None
+BE18: '=IF(AND(BE$4>=$I18,BE$4<=$J18),1,"")'  => None
+BF18: '=IF(AND(BF$4>=$I18,BF$4<=$J18),1,"")'  => None
+BG18: '=IF(AND(BG$4>=$I18,BG$4<=$J18),1,"")'  => None
+BH18: '=IF(AND(BH$4>=$I18,BH$4<=$J18),1,"")'  => None
+BI18: '=IF(AND(BI$4>=$I18,BI$4<=$J18),1,"")'  => None
+BJ18: '=IF(AND(BJ$4>=$I18,BJ$4<=$J18),1,"")'  => None
+BK18: '=IF(AND(BK$4>=$I18,BK$4<=$J18),1,"")'  => None
+BL18: '=IF(AND(BL$4>=$I18,BL$4<=$J18),1,"")'  => None
+BM18: '=IF(AND(BM$4>=$I18,BM$4<=$J18),1,"")'  => None
+BN18: '=IF(AND(BN$4>=$I18,BN$4<=$J18),1,"")'  => None
+BO18: '=IF(AND(BO$4>=$I18,BO$4<=$J18),1,"")'  => None
+BP18: '=IF(AND(BP$4>=$I18,BP$4<=$J18),1,"")'  => None
+BQ18: '=IF(AND(BQ$4>=$I18,BQ$4<=$J18),1,"")'  => None
+BR18: '=IF(AND(BR$4>=$I18,BR$4<=$J18),1,"")'  => None
+BS18: '=IF(AND(BS$4>=$I18,BS$4<=$J18),1,"")'  => None
+BT18: '=IF(AND(BT$4>=$I18,BT$4<=$J18),1,"")'  => None
+BV18: "F10: confirmation weeks 4-5 keeps the 'latest-order dates back-planned from the HCL install start' honest - any slip is visible ~8 weeks before the corrected HCL install start (week 13)."
+A20: 'G-P2-L27-R'
+B20: 'Build - SEGRO  [P2-L27]'
+C20: 'SEGRO'
+D20: 'RECOMMENDED'
+E20: 'F19'
+G20: 6
+H20: 3
+I20: '=MIN(61,IF(G20<=29,ROUND((G20-1)*(29+SlipWeeks)/29,0)+1,G20+SlipWeeks))'  => 6
+J20: '=MIN(61,IF(G20+H20-1<=29,MAX(ROUND((G20+H20-1)*(29+SlipWeeks)/29,0),I20),G20+H20-1+SlipWeeks))'  => 8
+K20: 'Concentrated into the first 3 weeks of P2 (weeks 6-8) so pipelines and policy gates exist before workloads deploy, instead of running across the full 10-week build.'
+L20: '=IF(AND(L$4>=$I20,L$4<=$J20),1,"")'  => None
+M20: '=IF(AND(M$4>=$I20,M$4<=$J20),1,"")'  => None
+N20: '=IF(AND(N$4>=$I20,N$4<=$J20),1,"")'  => None
+O20: '=IF(AND(O$4>=$I20,O$4<=$J20),1,"")'  => None
+P20: '=IF(AND(P$4>=$I20,P$4<=$J20),1,"")'  => None
+Q20: '=IF(AND(Q$4>=$I20,Q$4<=$J20),1,"")'  => 1
+R20: '=IF(AND(R$4>=$I20,R$4<=$J20),1,"")'  => 1
+S20: '=IF(AND(S$4>=$I20,S$4<=$J20),1,"")'  => 1
+T20: '=IF(AND(T$4>=$I20,T$4<=$J20),1,"")'  => None
+U20: '=IF(AND(U$4>=$I20,U$4<=$J20),1,"")'  => None
+V20: '=IF(AND(V$4>=$I20,V$4<=$J20),1,"")'  => None
+W20: '=IF(AND(W$4>=$I20,W$4<=$J20),1,"")'  => None
+X20: '=IF(AND(X$4>=$I20,X$4<=$J20),1,"")'  => None
+Y20: '=IF(AND(Y$4>=$I20,Y$4<=$J20),1,"")'  => None
+Z20: '=IF(AND(Z$4>=$I20,Z$4<=$J20),1,"")'  => None
+AA20: '=IF(AND(AA$4>=$I20,AA$4<=$J20),1,"")'  => None
+AB20: '=IF(AND(AB$4>=$I20,AB$4<=$J20),1,"")'  => None
+AC20: '=IF(AND(AC$4>=$I20,AC$4<=$J20),1,"")'  => None
+AD20: '=IF(AND(AD$4>=$I20,AD$4<=$J20),1,"")'  => None
+AE20: '=IF(AND(AE$4>=$I20,AE$4<=$J20),1,"")'  => None
+AF20: '=IF(AND(AF$4>=$I20,AF$4<=$J20),1,"")'  => None
+AG20: '=IF(AND(AG$4>=$I20,AG$4<=$J20),1,"")'  => None
+AH20: '=IF(AND(AH$4>=$I20,AH$4<=$J20),1,"")'  => None
+AI20: '=IF(AND(AI$4>=$I20,AI$4<=$J20),1,"")'  => None
+AJ20: '=IF(AND(AJ$4>=$I20,AJ$4<=$J20),1,"")'  => None
+AK20: '=IF(AND(AK$4>=$I20,AK$4<=$J20),1,"")'  => None
+AL20: '=IF(AND(AL$4>=$I20,AL$4<=$J20),1,"")'  => None
+AM20: '=IF(AND(AM$4>=$I20,AM$4<=$J20),1,"")'  => None
+AN20: '=IF(AND(AN$4>=$I20,AN$4<=$J20),1,"")'  => None
+AO20: '=IF(AND(AO$4>=$I20,AO$4<=$J20),1,"")'  => None
+AP20: '=IF(AND(AP$4>=$I20,AP$4<=$J20),1,"")'  => None
+AQ20: '=IF(AND(AQ$4>=$I20,AQ$4<=$J20),1,"")'  => None
+AR20: '=IF(AND(AR$4>=$I20,AR$4<=$J20),1,"")'  => None
+AS20: '=IF(AND(AS$4>=$I20,AS$4<=$J20),1,"")'  => None
+AT20: '=IF(AND(AT$4>=$I20,AT$4<=$J20),1,"")'  => None
+AU20: '=IF(AND(AU$4>=$I20,AU$4<=$J20),1,"")'  => None
+AV20: '=IF(AND(AV$4>=$I20,AV$4<=$J20),1,"")'  => None
+AW20: '=IF(AND(AW$4>=$I20,AW$4<=$J20),1,"")'  => None
+AX20: '=IF(AND(AX$4>=$I20,AX$4<=$J20),1,"")'  => None
+AY20: '=IF(AND(AY$4>=$I20,AY$4<=$J20),1,"")'  => None
+AZ20: '=IF(AND(AZ$4>=$I20,AZ$4<=$J20),1,"")'  => None
+BA20: '=IF(AND(BA$4>=$I20,BA$4<=$J20),1,"")'  => None
+BB20: '=IF(AND(BB$4>=$I20,BB$4<=$J20),1,"")'  => None
+BC20: '=IF(AND(BC$4>=$I20,BC$4<=$J20),1,"")'  => None
+BD20: '=IF(AND(BD$4>=$I20,BD$4<=$J20),1,"")'  => None
+BE20: '=IF(AND(BE$4>=$I20,BE$4<=$J20),1,"")'  => None
+BF20: '=IF(AND(BF$4>=$I20,BF$4<=$J20),1,"")'  => None
+BG20: '=IF(AND(BG$4>=$I20,BG$4<=$J20),1,"")'  => None
+BH20: '=IF(AND(BH$4>=$I20,BH$4<=$J20),1,"")'  => None
+BI20: '=IF(AND(BI$4>=$I20,BI$4<=$J20),1,"")'  => None
+BJ20: '=IF(AND(BJ$4>=$I20,BJ$4<=$J20),1,"")'  => None
+BK20: '=IF(AND(BK$4>=$I20,BK$4<=$J20),1,"")'  => None
+BL20: '=IF(AND(BL$4>=$I20,BL$4<=$J20),1,"")'  => None
+BM20: '=IF(AND(BM$4>=$I20,BM$4<=$J20),1,"")'  => None
+BN20: '=IF(AND(BN$4>=$I20,BN$4<=$J20),1,"")'  => None
+BO20: '=IF(AND(BO$4>=$I20,BO$4<=$J20),1,"")'  => None
+BP20: '=IF(AND(BP$4>=$I20,BP$4<=$J20),1,"")'  => None
+BQ20: '=IF(AND(BQ$4>=$I20,BQ$4<=$J20),1,"")'  => None
+BR20: '=IF(AND(BR$4>=$I20,BR$4<=$J20),1,"")'  => None
+BS20: '=IF(AND(BS$4>=$I20,BS$4<=$J20),1,"")'  => None
+BT20: '=IF(AND(BT$4>=$I20,BT$4<=$J20),1,"")'  => None
+BU20: '=IF(IF(G20+H20-1<=29,MAX(ROUND((G20+H20-1)*(29+SlipWeeks)/29,0),$I20),G20+H20-1+SlipWeeks)>61,"▶ clipped","")'  => None
+BV20: "F19: 'Add a named DevSecOps workstream (IaC for foundations, policy-as-code, image scanning, CI/CD for platform and agent deployment) to the build phase; the workbook carries it as P2-L27' - placed in the FIRST 3 weeks of P2 (weeks 6-8) so pipelines and policy gates exist before workloads deploy onto the platform, rather than being spread across the full 10-week build where later workstreams would deploy without gates. Quantity unchanged (30 pd likely, P2-L27) - the same effort concentrated into a shorter elapsed window. PLANNING NOTE: 30 pd across 3 weeks implies ~2.0 DevSecOps FTE vs the P2-L27 profile of 0.6 FTE over 10 weeks - a resourcing assumption, not a cost change (pd constant); if 2.0 FTE is infeasible in the first 3 build weeks, spread to weeks 6-10 while still landing the pipelines before the bulk of workloads deploy, which is all F19 requires."
+A21: 'G-P2-L27-R-s1'
+B21: '    • IaC pipelines for foundations stood up first - before foundations provisioning scales'
+C21: 'SEGRO'
+D21: 'RECOMMENDED'
+G21: 6
+H21: 1
+I21: '=MEDIAN($I$20,$J$20,$I$20+ROUND((G21-$G$20)/$H$20*($J$20-$I$20+1),0))'  => 6
+J21: '=MEDIAN(I21,$J$20,$I$20+ROUND((G21+H21-$G$20)/$H$20*($J$20-$I$20+1),0)-1)'  => 6
+L21: '=IF(AND(L$4>=$I21,L$4<=$J21),1,"")'  => None
+M21: '=IF(AND(M$4>=$I21,M$4<=$J21),1,"")'  => None
+N21: '=IF(AND(N$4>=$I21,N$4<=$J21),1,"")'  => None
+O21: '=IF(AND(O$4>=$I21,O$4<=$J21),1,"")'  => None
+P21: '=IF(AND(P$4>=$I21,P$4<=$J21),1,"")'  => None
+Q21: '=IF(AND(Q$4>=$I21,Q$4<=$J21),1,"")'  => 1
+R21: '=IF(AND(R$4>=$I21,R$4<=$J21),1,"")'  => None
+S21: '=IF(AND(S$4>=$I21,S$4<=$J21),1,"")'  => None
+T21: '=IF(AND(T$4>=$I21,T$4<=$J21),1,"")'  => None
+U21: '=IF(AND(U$4>=$I21,U$4<=$J21),1,"")'  => None
+V21: '=IF(AND(V$4>=$I21,V$4<=$J21),1,"")'  => None
+W21: '=IF(AND(W$4>=$I21,W$4<=$J21),1,"")'  => None
+X21: '=IF(AND(X$4>=$I21,X$4<=$J21),1,"")'  => None
+Y21: '=IF(AND(Y$4>=$I21,Y$4<=$J21),1,"")'  => None
+Z21: '=IF(AND(Z$4>=$I21,Z$4<=$J21),1,"")'  => None
+AA21: '=IF(AND(AA$4>=$I21,AA$4<=$J21),1,"")'  => None
+AB21: '=IF(AND(AB$4>=$I21,AB$4<=$J21),1,"")'  => None
+AC21: '=IF(AND(AC$4>=$I21,AC$4<=$J21),1,"")'  => None
+AD21: '=IF(AND(AD$4>=$I21,AD$4<=$J21),1,"")'  => None
+AE21: '=IF(AND(AE$4>=$I21,AE$4<=$J21),1,"")'  => None
+AF21: '=IF(AND(AF$4>=$I21,AF$4<=$J21),1,"")'  => None
+AG21: '=IF(AND(AG$4>=$I21,AG$4<=$J21),1,"")'  => None
+AH21: '=IF(AND(AH$4>=$I21,AH$4<=$J21),1,"")'  => None
+AI21: '=IF(AND(AI$4>=$I21,AI$4<=$J21),1,"")'  => None
+AJ21: '=IF(AND(AJ$4>=$I21,AJ$4<=$J21),1,"")'  => None
+AK21: '=IF(AND(AK$4>=$I21,AK$4<=$J21),1,"")'  => None
+AL21: '=IF(AND(AL$4>=$I21,AL$4<=$J21),1,"")'  => None
+AM21: '=IF(AND(AM$4>=$I21,AM$4<=$J21),1,"")'  => None
+AN21: '=IF(AND(AN$4>=$I21,AN$4<=$J21),1,"")'  => None
+AO21: '=IF(AND(AO$4>=$I21,AO$4<=$J21),1,"")'  => None
+AP21: '=IF(AND(AP$4>=$I21,AP$4<=$J21),1,"")'  => None
+AQ21: '=IF(AND(AQ$4>=$I21,AQ$4<=$J21),1,"")'  => None
+AR21: '=IF(AND(AR$4>=$I21,AR$4<=$J21),1,"")'  => None
+AS21: '=IF(AND(AS$4>=$I21,AS$4<=$J21),1,"")'  => None
+AT21: '=IF(AND(AT$4>=$I21,AT$4<=$J21),1,"")'  => None
+AU21: '=IF(AND(AU$4>=$I21,AU$4<=$J21),1,"")'  => None
+AV21: '=IF(AND(AV$4>=$I21,AV$4<=$J21),1,"")'  => None
+AW21: '=IF(AND(AW$4>=$I21,AW$4<=$J21),1,"")'  => None
+AX21: '=IF(AND(AX$4>=$I21,AX$4<=$J21),1,"")'  => None
+AY21: '=IF(AND(AY$4>=$I21,AY$4<=$J21),1,"")'  => None
+AZ21: '=IF(AND(AZ$4>=$I21,AZ$4<=$J21),1,"")'  => None
+BA21: '=IF(AND(BA$4>=$I21,BA$4<=$J21),1,"")'  => None
+BB21: '=IF(AND(BB$4>=$I21,BB$4<=$J21),1,"")'  => None
+BC21: '=IF(AND(BC$4>=$I21,BC$4<=$J21),1,"")'  => None
+BD21: '=IF(AND(BD$4>=$I21,BD$4<=$J21),1,"")'  => None
+BE21: '=IF(AND(BE$4>=$I21,BE$4<=$J21),1,"")'  => None
+BF21: '=IF(AND(BF$4>=$I21,BF$4<=$J21),1,"")'  => None
+BG21: '=IF(AND(BG$4>=$I21,BG$4<=$J21),1,"")'  => None
+BH21: '=IF(AND(BH$4>=$I21,BH$4<=$J21),1,"")'  => None
+BI21: '=IF(AND(BI$4>=$I21,BI$4<=$J21),1,"")'  => None
+BJ21: '=IF(AND(BJ$4>=$I21,BJ$4<=$J21),1,"")'  => None
+BK21: '=IF(AND(BK$4>=$I21,BK$4<=$J21),1,"")'  => None
+BL21: '=IF(AND(BL$4>=$I21,BL$4<=$J21),1,"")'  => None
+BM21: '=IF(AND(BM$4>=$I21,BM$4<=$J21),1,"")'  => None
+BN21: '=IF(AND(BN$4>=$I21,BN$4<=$J21),1,"")'  => None
+BO21: '=IF(AND(BO$4>=$I21,BO$4<=$J21),1,"")'  => None
+BP21: '=IF(AND(BP$4>=$I21,BP$4<=$J21),1,"")'  => None
+BQ21: '=IF(AND(BQ$4>=$I21,BQ$4<=$J21),1,"")'  => None
+BR21: '=IF(AND(BR$4>=$I21,BR$4<=$J21),1,"")'  => None
+BS21: '=IF(AND(BS$4>=$I21,BS$4<=$J21),1,"")'  => None
+BT21: '=IF(AND(BT$4>=$I21,BT$4<=$J21),1,"")'  => None
+BV21: "F19: 'IaC for foundations' is the first named element of the recommended workstream - it must exist in week 6 so build item 1 provisions through pipelines, not by hand."
+A22: 'G-P2-L27-R-s2'
+B22: '    • Policy-as-code gates and image scanning wired into the pipelines'
+C22: 'SEGRO'
+D22: 'RECOMMENDED'
+F22: 'G-P2-L27-R-s1'
+G22: 7
+H22: 1
+I22: '=MEDIAN($I$20,$J$20,$I$20+ROUND((G22-$G$20)/$H$20*($J$20-$I$20+1),0))'  => 7
+J22: '=MEDIAN(I22,$J$20,$I$20+ROUND((G22+H22-$G$20)/$H$20*($J$20-$I$20+1),0)-1)'  => 7
+L22: '=IF(AND(L$4>=$I22,L$4<=$J22),1,"")'  => None
+M22: '=IF(AND(M$4>=$I22,M$4<=$J22),1,"")'  => None
+N22: '=IF(AND(N$4>=$I22,N$4<=$J22),1,"")'  => None
+O22: '=IF(AND(O$4>=$I22,O$4<=$J22),1,"")'  => None
+P22: '=IF(AND(P$4>=$I22,P$4<=$J22),1,"")'  => None
+Q22: '=IF(AND(Q$4>=$I22,Q$4<=$J22),1,"")'  => None
+R22: '=IF(AND(R$4>=$I22,R$4<=$J22),1,"")'  => 1
+S22: '=IF(AND(S$4>=$I22,S$4<=$J22),1,"")'  => None
+T22: '=IF(AND(T$4>=$I22,T$4<=$J22),1,"")'  => None
+U22: '=IF(AND(U$4>=$I22,U$4<=$J22),1,"")'  => None
+V22: '=IF(AND(V$4>=$I22,V$4<=$J22),1,"")'  => None
+W22: '=IF(AND(W$4>=$I22,W$4<=$J22),1,"")'  => None
+X22: '=IF(AND(X$4>=$I22,X$4<=$J22),1,"")'  => None
+Y22: '=IF(AND(Y$4>=$I22,Y$4<=$J22),1,"")'  => None
+Z22: '=IF(AND(Z$4>=$I22,Z$4<=$J22),1,"")'  => None
+AA22: '=IF(AND(AA$4>=$I22,AA$4<=$J22),1,"")'  => None
+AB22: '=IF(AND(AB$4>=$I22,AB$4<=$J22),1,"")'  => None
+AC22: '=IF(AND(AC$4>=$I22,AC$4<=$J22),1,"")'  => None
+AD22: '=IF(AND(AD$4>=$I22,AD$4<=$J22),1,"")'  => None
+AE22: '=IF(AND(AE$4>=$I22,AE$4<=$J22),1,"")'  => None
+AF22: '=IF(AND(AF$4>=$I22,AF$4<=$J22),1,"")'  => None
+AG22: '=IF(AND(AG$4>=$I22,AG$4<=$J22),1,"")'  => None
+AH22: '=IF(AND(AH$4>=$I22,AH$4<=$J22),1,"")'  => None
+AI22: '=IF(AND(AI$4>=$I22,AI$4<=$J22),1,"")'  => None
+AJ22: '=IF(AND(AJ$4>=$I22,AJ$4<=$J22),1,"")'  => None
+AK22: '=IF(AND(AK$4>=$I22,AK$4<=$J22),1,"")'  => None
+AL22: '=IF(AND(AL$4>=$I22,AL$4<=$J22),1,"")'  => None
+AM22: '=IF(AND(AM$4>=$I22,AM$4<=$J22),1,"")'  => None
+AN22: '=IF(AND(AN$4>=$I22,AN$4<=$J22),1,"")'  => None
+AO22: '=IF(AND(AO$4>=$I22,AO$4<=$J22),1,"")'  => None
+AP22: '=IF(AND(AP$4>=$I22,AP$4<=$J22),1,"")'  => None
+AQ22: '=IF(AND(AQ$4>=$I22,AQ$4<=$J22),1,"")'  => None
+AR22: '=IF(AND(AR$4>=$I22,AR$4<=$J22),1,"")'  => None
+AS22: '=IF(AND(AS$4>=$I22,AS$4<=$J22),1,"")'  => None
+AT22: '=IF(AND(AT$4>=$I22,AT$4<=$J22),1,"")'  => None
+AU22: '=IF(AND(AU$4>=$I22,AU$4<=$J22),1,"")'  => None
+AV22: '=IF(AND(AV$4>=$I22,AV$4<=$J22),1,"")'  => None
+AW22: '=IF(AND(AW$4>=$I22,AW$4<=$J22),1,"")'  => None
+AX22: '=IF(AND(AX$4>=$I22,AX$4<=$J22),1,"")'  => None
+AY22: '=IF(AND(AY$4>=$I22,AY$4<=$J22),1,"")'  => None
+AZ22: '=IF(AND(AZ$4>=$I22,AZ$4<=$J22),1,"")'  => None
+BA22: '=IF(AND(BA$4>=$I22,BA$4<=$J22),1,"")'  => None
+BB22: '=IF(AND(BB$4>=$I22,BB$4<=$J22),1,"")'  => None
+BC22: '=IF(AND(BC$4>=$I22,BC$4<=$J22),1,"")'  => None
+BD22: '=IF(AND(BD$4>=$I22,BD$4<=$J22),1,"")'  => None
+BE22: '=IF(AND(BE$4>=$I22,BE$4<=$J22),1,"")'  => None
+BF22: '=IF(AND(BF$4>=$I22,BF$4<=$J22),1,"")'  => None
+BG22: '=IF(AND(BG$4>=$I22,BG$4<=$J22),1,"")'  => None
+BH22: '=IF(AND(BH$4>=$I22,BH$4<=$J22),1,"")'  => None
+BI22: '=IF(AND(BI$4>=$I22,BI$4<=$J22),1,"")'  => None
+BJ22: '=IF(AND(BJ$4>=$I22,BJ$4<=$J22),1,"")'  => None
+BK22: '=IF(AND(BK$4>=$I22,BK$4<=$J22),1,"")'  => None
+BL22: '=IF(AND(BL$4>=$I22,BL$4<=$J22),1,"")'  => None
+BM22: '=IF(AND(BM$4>=$I22,BM$4<=$J22),1,"")'  => None
+BN22: '=IF(AND(BN$4>=$I22,BN$4<=$J22),1,"")'  => None
+BO22: '=IF(AND(BO$4>=$I22,BO$4<=$J22),1,"")'  => None
+BP22: '=IF(AND(BP$4>=$I22,BP$4<=$J22),1,"")'  => None
+BQ22: '=IF(AND(BQ$4>=$I22,BQ$4<=$J22),1,"")'  => None
+BR22: '=IF(AND(BR$4>=$I22,BR$4<=$J22),1,"")'  => None
+BS22: '=IF(AND(BS$4>=$I22,BS$4<=$J22),1,"")'  => None
+BT22: '=IF(AND(BT$4>=$I22,BT$4<=$J22),1,"")'  => None
+BV22: "F19: 'policy-as-code, image scanning' - gates live in week 7, ahead of shared-services and AKS workload deployments."
+A23: 'G-P2-L27-R-s3'
+B23: '    • CI/CD for platform and agent deployment operational; all subsequent P2/P3 deployments flow through the gated pipelines'
+C23: 'SEGRO'
+D23: 'RECOMMENDED'
+F23: 'G-P2-L27-R-s2'
+G23: 8
+H23: 1
+I23: '=MEDIAN($I$20,$J$20,$I$20+ROUND((G23-$G$20)/$H$20*($J$20-$I$20+1),0))'  => 8
+J23: '=MEDIAN(I23,$J$20,$I$20+ROUND((G23+H23-$G$20)/$H$20*($J$20-$I$20+1),0)-1)'  => 8
+L23: '=IF(AND(L$4>=$I23,L$4<=$J23),1,"")'  => None
+M23: '=IF(AND(M$4>=$I23,M$4<=$J23),1,"")'  => None
+N23: '=IF(AND(N$4>=$I23,N$4<=$J23),1,"")'  => None
+O23: '=IF(AND(O$4>=$I23,O$4<=$J23),1,"")'  => None
+P23: '=IF(AND(P$4>=$I23,P$4<=$J23),1,"")'  => None
+Q23: '=IF(AND(Q$4>=$I23,Q$4<=$J23),1,"")'  => None
+R23: '=IF(AND(R$4>=$I23,R$4<=$J23),1,"")'  => None
+S23: '=IF(AND(S$4>=$I23,S$4<=$J23),1,"")'  => 1
+T23: '=IF(AND(T$4>=$I23,T$4<=$J23),1,"")'  => None
+U23: '=IF(AND(U$4>=$I23,U$4<=$J23),1,"")'  => None
+V23: '=IF(AND(V$4>=$I23,V$4<=$J23),1,"")'  => None
+W23: '=IF(AND(W$4>=$I23,W$4<=$J23),1,"")'  => None
+X23: '=IF(AND(X$4>=$I23,X$4<=$J23),1,"")'  => None
+Y23: '=IF(AND(Y$4>=$I23,Y$4<=$J23),1,"")'  => None
+Z23: '=IF(AND(Z$4>=$I23,Z$4<=$J23),1,"")'  => None
+AA23: '=IF(AND(AA$4>=$I23,AA$4<=$J23),1,"")'  => None
+AB23: '=IF(AND(AB$4>=$I23,AB$4<=$J23),1,"")'  => None
+AC23: '=IF(AND(AC$4>=$I23,AC$4<=$J23),1,"")'  => None
+AD23: '=IF(AND(AD$4>=$I23,AD$4<=$J23),1,"")'  => None
+AE23: '=IF(AND(AE$4>=$I23,AE$4<=$J23),1,"")'  => None
+AF23: '=IF(AND(AF$4>=$I23,AF$4<=$J23),1,"")'  => None
+AG23: '=IF(AND(AG$4>=$I23,AG$4<=$J23),1,"")'  => None
+AH23: '=IF(AND(AH$4>=$I23,AH$4<=$J23),1,"")'  => None
+AI23: '=IF(AND(AI$4>=$I23,AI$4<=$J23),1,"")'  => None
+AJ23: '=IF(AND(AJ$4>=$I23,AJ$4<=$J23),1,"")'  => None
+AK23: '=IF(AND(AK$4>=$I23,AK$4<=$J23),1,"")'  => None
+AL23: '=IF(AND(AL$4>=$I23,AL$4<=$J23),1,"")'  => None
+AM23: '=IF(AND(AM$4>=$I23,AM$4<=$J23),1,"")'  => None
+AN23: '=IF(AND(AN$4>=$I23,AN$4<=$J23),1,"")'  => None
+AO23: '=IF(AND(AO$4>=$I23,AO$4<=$J23),1,"")'  => None
+AP23: '=IF(AND(AP$4>=$I23,AP$4<=$J23),1,"")'  => None
+AQ23: '=IF(AND(AQ$4>=$I23,AQ$4<=$J23),1,"")'  => None
+AR23: '=IF(AND(AR$4>=$I23,AR$4<=$J23),1,"")'  => None
+AS23: '=IF(AND(AS$4>=$I23,AS$4<=$J23),1,"")'  => None
+AT23: '=IF(AND(AT$4>=$I23,AT$4<=$J23),1,"")'  => None
+AU23: '=IF(AND(AU$4>=$I23,AU$4<=$J23),1,"")'  => None
+AV23: '=IF(AND(AV$4>=$I23,AV$4<=$J23),1,"")'  => None
+AW23: '=IF(AND(AW$4>=$I23,AW$4<=$J23),1,"")'  => None
+AX23: '=IF(AND(AX$4>=$I23,AX$4<=$J23),1,"")'  => None
+AY23: '=IF(AND(AY$4>=$I23,AY$4<=$J23),1,"")'  => None
+AZ23: '=IF(AND(AZ$4>=$I23,AZ$4<=$J23),1,"")'  => None
+BA23: '=IF(AND(BA$4>=$I23,BA$4<=$J23),1,"")'  => None
+BB23: '=IF(AND(BB$4>=$I23,BB$4<=$J23),1,"")'  => None
+BC23: '=IF(AND(BC$4>=$I23,BC$4<=$J23),1,"")'  => None
+BD23: '=IF(AND(BD$4>=$I23,BD$4<=$J23),1,"")'  => None
+BE23: '=IF(AND(BE$4>=$I23,BE$4<=$J23),1,"")'  => None
+BF23: '=IF(AND(BF$4>=$I23,BF$4<=$J23),1,"")'  => None
+BG23: '=IF(AND(BG$4>=$I23,BG$4<=$J23),1,"")'  => None
+BH23: '=IF(AND(BH$4>=$I23,BH$4<=$J23),1,"")'  => None
+BI23: '=IF(AND(BI$4>=$I23,BI$4<=$J23),1,"")'  => None
+BJ23: '=IF(AND(BJ$4>=$I23,BJ$4<=$J23),1,"")'  => None
+BK23: '=IF(AND(BK$4>=$I23,BK$4<=$J23),1,"")'  => None
+BL23: '=IF(AND(BL$4>=$I23,BL$4<=$J23),1,"")'  => None
+BM23: '=IF(AND(BM$4>=$I23,BM$4<=$J23),1,"")'  => None
+BN23: '=IF(AND(BN$4>=$I23,BN$4<=$J23),1,"")'  => None
+BO23: '=IF(AND(BO$4>=$I23,BO$4<=$J23),1,"")'  => None
+BP23: '=IF(AND(BP$4>=$I23,BP$4<=$J23),1,"")'  => None
+BQ23: '=IF(AND(BQ$4>=$I23,BQ$4<=$J23),1,"")'  => None
+BR23: '=IF(AND(BR$4>=$I23,BR$4<=$J23),1,"")'  => None
+BS23: '=IF(AND(BS$4>=$I23,BS$4<=$J23),1,"")'  => None
+BT23: '=IF(AND(BT$4>=$I23,BT$4<=$J23),1,"")'  => None
+BV23: "F19: 'CI/CD for platform and agent deployment' complete by end week 8 - the pipelines the slide-7 'CI/CD Configuration Document' describes now exist before the workloads they deploy."
+A25: 'G-P3-L1-R'
+B25: 'Build - HCL  [P3-L1]'
+C25: 'HCL'
+D25: 'RECOMMENDED'
+E25: 'F2'
+F25: 'G-P1-PROC-R, G-P2-L27-R'
+G25: 13
+H25: 6
+I25: '=MIN(61,IF(G25<=29,ROUND((G25-1)*(29+SlipWeeks)/29,0)+1,G25+SlipWeeks))'  => 13
+J25: '=MIN(61,IF(G25+H25-1<=29,MAX(ROUND((G25+H25-1)*(29+SlipWeeks)/29,0),I25),G25+H25-1+SlipWeeks))'  => 18
+K25: 'Starts week 13 (once AKS hardening completes at end of SEGRO build week 7), overlapping the SEGRO build tail by 3 weeks instead of running strictly sequential from week 16.'
+L25: '=IF(AND(L$4>=$I25,L$4<=$J25),1,"")'  => None
+M25: '=IF(AND(M$4>=$I25,M$4<=$J25),1,"")'  => None
+N25: '=IF(AND(N$4>=$I25,N$4<=$J25),1,"")'  => None
+O25: '=IF(AND(O$4>=$I25,O$4<=$J25),1,"")'  => None
+P25: '=IF(AND(P$4>=$I25,P$4<=$J25),1,"")'  => None
+Q25: '=IF(AND(Q$4>=$I25,Q$4<=$J25),1,"")'  => None
+R25: '=IF(AND(R$4>=$I25,R$4<=$J25),1,"")'  => None
+S25: '=IF(AND(S$4>=$I25,S$4<=$J25),1,"")'  => None
+T25: '=IF(AND(T$4>=$I25,T$4<=$J25),1,"")'  => None
+U25: '=IF(AND(U$4>=$I25,U$4<=$J25),1,"")'  => None
+V25: '=IF(AND(V$4>=$I25,V$4<=$J25),1,"")'  => None
+W25: '=IF(AND(W$4>=$I25,W$4<=$J25),1,"")'  => None
+X25: '=IF(AND(X$4>=$I25,X$4<=$J25),1,"")'  => 1
+Y25: '=IF(AND(Y$4>=$I25,Y$4<=$J25),1,"")'  => 1
+Z25: '=IF(AND(Z$4>=$I25,Z$4<=$J25),1,"")'  => 1
+AA25: '=IF(AND(AA$4>=$I25,AA$4<=$J25),1,"")'  => 1
+AB25: '=IF(AND(AB$4>=$I25,AB$4<=$J25),1,"")'  => 1
+AC25: '=IF(AND(AC$4>=$I25,AC$4<=$J25),1,"")'  => 1
+AD25: '=IF(AND(AD$4>=$I25,AD$4<=$J25),1,"")'  => None
+AE25: '=IF(AND(AE$4>=$I25,AE$4<=$J25),1,"")'  => None
+AF25: '=IF(AND(AF$4>=$I25,AF$4<=$J25),1,"")'  => None
+AG25: '=IF(AND(AG$4>=$I25,AG$4<=$J25),1,"")'  => None
+AH25: '=IF(AND(AH$4>=$I25,AH$4<=$J25),1,"")'  => None
+AI25: '=IF(AND(AI$4>=$I25,AI$4<=$J25),1,"")'  => None
+AJ25: '=IF(AND(AJ$4>=$I25,AJ$4<=$J25),1,"")'  => None
+AK25: '=IF(AND(AK$4>=$I25,AK$4<=$J25),1,"")'  => None
+AL25: '=IF(AND(AL$4>=$I25,AL$4<=$J25),1,"")'  => None
+AM25: '=IF(AND(AM$4>=$I25,AM$4<=$J25),1,"")'  => None
+AN25: '=IF(AND(AN$4>=$I25,AN$4<=$J25),1,"")'  => None
+AO25: '=IF(AND(AO$4>=$I25,AO$4<=$J25),1,"")'  => None
+AP25: '=IF(AND(AP$4>=$I25,AP$4<=$J25),1,"")'  => None
+AQ25: '=IF(AND(AQ$4>=$I25,AQ$4<=$J25),1,"")'  => None
+AR25: '=IF(AND(AR$4>=$I25,AR$4<=$J25),1,"")'  => None
+AS25: '=IF(AND(AS$4>=$I25,AS$4<=$J25),1,"")'  => None
+AT25: '=IF(AND(AT$4>=$I25,AT$4<=$J25),1,"")'  => None
+AU25: '=IF(AND(AU$4>=$I25,AU$4<=$J25),1,"")'  => None
+AV25: '=IF(AND(AV$4>=$I25,AV$4<=$J25),1,"")'  => None
+AW25: '=IF(AND(AW$4>=$I25,AW$4<=$J25),1,"")'  => None
+AX25: '=IF(AND(AX$4>=$I25,AX$4<=$J25),1,"")'  => None
+AY25: '=IF(AND(AY$4>=$I25,AY$4<=$J25),1,"")'  => None
+AZ25: '=IF(AND(AZ$4>=$I25,AZ$4<=$J25),1,"")'  => None
+BA25: '=IF(AND(BA$4>=$I25,BA$4<=$J25),1,"")'  => None
+BB25: '=IF(AND(BB$4>=$I25,BB$4<=$J25),1,"")'  => None
+BC25: '=IF(AND(BC$4>=$I25,BC$4<=$J25),1,"")'  => None
+BD25: '=IF(AND(BD$4>=$I25,BD$4<=$J25),1,"")'  => None
+BE25: '=IF(AND(BE$4>=$I25,BE$4<=$J25),1,"")'  => None
+BF25: '=IF(AND(BF$4>=$I25,BF$4<=$J25),1,"")'  => None
+BG25: '=IF(AND(BG$4>=$I25,BG$4<=$J25),1,"")'  => None
+BH25: '=IF(AND(BH$4>=$I25,BH$4<=$J25),1,"")'  => None
+BI25: '=IF(AND(BI$4>=$I25,BI$4<=$J25),1,"")'  => None
+BJ25: '=IF(AND(BJ$4>=$I25,BJ$4<=$J25),1,"")'  => None
+BK25: '=IF(AND(BK$4>=$I25,BK$4<=$J25),1,"")'  => None
+BL25: '=IF(AND(BL$4>=$I25,BL$4<=$J25),1,"")'  => None
+BM25: '=IF(AND(BM$4>=$I25,BM$4<=$J25),1,"")'  => None
+BN25: '=IF(AND(BN$4>=$I25,BN$4<=$J25),1,"")'  => None
+BO25: '=IF(AND(BO$4>=$I25,BO$4<=$J25),1,"")'  => None
+BP25: '=IF(AND(BP$4>=$I25,BP$4<=$J25),1,"")'  => None
+BQ25: '=IF(AND(BQ$4>=$I25,BQ$4<=$J25),1,"")'  => None
+BR25: '=IF(AND(BR$4>=$I25,BR$4<=$J25),1,"")'  => None
+BS25: '=IF(AND(BS$4>=$I25,BS$4<=$J25),1,"")'  => None
+BT25: '=IF(AND(BT$4>=$I25,BT$4<=$J25),1,"")'  => None
+BU25: '=IF(IF(G25+H25-1<=29,MAX(ROUND((G25+H25-1)*(29+SlipWeeks)/29,0),$I25),G25+H25-1+SlipWeeks)>61,"▶ clipped","")'  => None
+BV25: "F2: 'Re-plan the HCL install to start once the AKS platform is hardened (end of SEGRO week 6-7) rather than after the full SEGRO bar; validate the overlap window with HCL' - corrected start week 13 = end of SEGRO build week 7 (grid week 12), giving a 3-week overlap with the SEGRO build tail (weeks 13-15), inside F2's 2-4 week planning assumption. Later HCL scope (connectivity, routing, observability integration) is sequenced after the wider SEGRO stack completes at week 15. Priced via the model's OverlapWeeks lever: 'Priced via the OverlapWeeks input (Azure double-running saving only - person-days are not reduced by parallel working)' - the 90 pd likely quantity is unchanged; only elapsed double-running shortens. The install remains gated on KDD-1 closure per F3."
+A26: 'G-P3-L1-R-s1'
+B26: '    • HCL install base UnO platform onto the hardened AKS platform, overlapping the SEGRO build tail'
+C26: 'HCL'
+D26: 'RECOMMENDED'
+G26: 13
+H26: 2
+I26: '=MEDIAN($I$25,$J$25,$I$25+ROUND((G26-$G$25)/$H$25*($J$25-$I$25+1),0))'  => 13
+J26: '=MEDIAN(I26,$J$25,$I$25+ROUND((G26+H26-$G$25)/$H$25*($J$25-$I$25+1),0)-1)'  => 14
+L26: '=IF(AND(L$4>=$I26,L$4<=$J26),1,"")'  => None
+M26: '=IF(AND(M$4>=$I26,M$4<=$J26),1,"")'  => None
+N26: '=IF(AND(N$4>=$I26,N$4<=$J26),1,"")'  => None
+O26: '=IF(AND(O$4>=$I26,O$4<=$J26),1,"")'  => None
+P26: '=IF(AND(P$4>=$I26,P$4<=$J26),1,"")'  => None
+Q26: '=IF(AND(Q$4>=$I26,Q$4<=$J26),1,"")'  => None
+R26: '=IF(AND(R$4>=$I26,R$4<=$J26),1,"")'  => None
+S26: '=IF(AND(S$4>=$I26,S$4<=$J26),1,"")'  => None
+T26: '=IF(AND(T$4>=$I26,T$4<=$J26),1,"")'  => None
+U26: '=IF(AND(U$4>=$I26,U$4<=$J26),1,"")'  => None
+V26: '=IF(AND(V$4>=$I26,V$4<=$J26),1,"")'  => None
+W26: '=IF(AND(W$4>=$I26,W$4<=$J26),1,"")'  => None
+X26: '=IF(AND(X$4>=$I26,X$4<=$J26),1,"")'  => 1
+Y26: '=IF(AND(Y$4>=$I26,Y$4<=$J26),1,"")'  => 1
+Z26: '=IF(AND(Z$4>=$I26,Z$4<=$J26),1,"")'  => None
+AA26: '=IF(AND(AA$4>=$I26,AA$4<=$J26),1,"")'  => None
+AB26: '=IF(AND(AB$4>=$I26,AB$4<=$J26),1,"")'  => None
+AC26: '=IF(AND(AC$4>=$I26,AC$4<=$J26),1,"")'  => None
+AD26: '=IF(AND(AD$4>=$I26,AD$4<=$J26),1,"")'  => None
+AE26: '=IF(AND(AE$4>=$I26,AE$4<=$J26),1,"")'  => None
+AF26: '=IF(AND(AF$4>=$I26,AF$4<=$J26),1,"")'  => None
+AG26: '=IF(AND(AG$4>=$I26,AG$4<=$J26),1,"")'  => None
+AH26: '=IF(AND(AH$4>=$I26,AH$4<=$J26),1,"")'  => None
+AI26: '=IF(AND(AI$4>=$I26,AI$4<=$J26),1,"")'  => None
+AJ26: '=IF(AND(AJ$4>=$I26,AJ$4<=$J26),1,"")'  => None
+AK26: '=IF(AND(AK$4>=$I26,AK$4<=$J26),1,"")'  => None
+AL26: '=IF(AND(AL$4>=$I26,AL$4<=$J26),1,"")'  => None
+AM26: '=IF(AND(AM$4>=$I26,AM$4<=$J26),1,"")'  => None
+AN26: '=IF(AND(AN$4>=$I26,AN$4<=$J26),1,"")'  => None
+AO26: '=IF(AND(AO$4>=$I26,AO$4<=$J26),1,"")'  => None
+AP26: '=IF(AND(AP$4>=$I26,AP$4<=$J26),1,"")'  => None
+AQ26: '=IF(AND(AQ$4>=$I26,AQ$4<=$J26),1,"")'  => None
+AR26: '=IF(AND(AR$4>=$I26,AR$4<=$J26),1,"")'  => None
+AS26: '=IF(AND(AS$4>=$I26,AS$4<=$J26),1,"")'  => None
+AT26: '=IF(AND(AT$4>=$I26,AT$4<=$J26),1,"")'  => None
+AU26: '=IF(AND(AU$4>=$I26,AU$4<=$J26),1,"")'  => None
+AV26: '=IF(AND(AV$4>=$I26,AV$4<=$J26),1,"")'  => None
+AW26: '=IF(AND(AW$4>=$I26,AW$4<=$J26),1,"")'  => None
+AX26: '=IF(AND(AX$4>=$I26,AX$4<=$J26),1,"")'  => None
+AY26: '=IF(AND(AY$4>=$I26,AY$4<=$J26),1,"")'  => None
+AZ26: '=IF(AND(AZ$4>=$I26,AZ$4<=$J26),1,"")'  => None
+BA26: '=IF(AND(BA$4>=$I26,BA$4<=$J26),1,"")'  => None
+BB26: '=IF(AND(BB$4>=$I26,BB$4<=$J26),1,"")'  => None
+BC26: '=IF(AND(BC$4>=$I26,BC$4<=$J26),1,"")'  => None
+BD26: '=IF(AND(BD$4>=$I26,BD$4<=$J26),1,"")'  => None
+BE26: '=IF(AND(BE$4>=$I26,BE$4<=$J26),1,"")'  => None
+BF26: '=IF(AND(BF$4>=$I26,BF$4<=$J26),1,"")'  => None
+BG26: '=IF(AND(BG$4>=$I26,BG$4<=$J26),1,"")'  => None
+BH26: '=IF(AND(BH$4>=$I26,BH$4<=$J26),1,"")'  => None
+BI26: '=IF(AND(BI$4>=$I26,BI$4<=$J26),1,"")'  => None
+BJ26: '=IF(AND(BJ$4>=$I26,BJ$4<=$J26),1,"")'  => None
+BK26: '=IF(AND(BK$4>=$I26,BK$4<=$J26),1,"")'  => None
+BL26: '=IF(AND(BL$4>=$I26,BL$4<=$J26),1,"")'  => None
+BM26: '=IF(AND(BM$4>=$I26,BM$4<=$J26),1,"")'  => None
+BN26: '=IF(AND(BN$4>=$I26,BN$4<=$J26),1,"")'  => None
+BO26: '=IF(AND(BO$4>=$I26,BO$4<=$J26),1,"")'  => None
+BP26: '=IF(AND(BP$4>=$I26,BP$4<=$J26),1,"")'  => None
+BQ26: '=IF(AND(BQ$4>=$I26,BQ$4<=$J26),1,"")'  => None
+BR26: '=IF(AND(BR$4>=$I26,BR$4<=$J26),1,"")'  => None
+BS26: '=IF(AND(BS$4>=$I26,BS$4<=$J26),1,"")'  => None
+BT26: '=IF(AND(BT$4>=$I26,BT$4<=$J26),1,"")'  => None
+BV26: "F2: 'start once the AKS platform is hardened (end of SEGRO week 6-7)' - the base install needs only the hardened AKS platform (SEGRO item 2), not the full stack, so it starts week 13 in parallel with the remaining SEGRO build."
+A27: 'G-P3-L1-R-s2'
+B27: '    • Install TX components (DX, Foundry) and run platform validation'
+C27: 'HCL'
+D27: 'RECOMMENDED'
+F27: 'G-P3-L1-R-s1'
+G27: 15
+H27: 2
+I27: '=MEDIAN($I$25,$J$25,$I$25+ROUND((G27-$G$25)/$H$25*($J$25-$I$25+1),0))'  => 15
+J27: '=MEDIAN(I27,$J$25,$I$25+ROUND((G27+H27-$G$25)/$H$25*($J$25-$I$25+1),0)-1)'  => 16
+L27: '=IF(AND(L$4>=$I27,L$4<=$J27),1,"")'  => None
+M27: '=IF(AND(M$4>=$I27,M$4<=$J27),1,"")'  => None
+N27: '=IF(AND(N$4>=$I27,N$4<=$J27),1,"")'  => None
+O27: '=IF(AND(O$4>=$I27,O$4<=$J27),1,"")'  => None
+P27: '=IF(AND(P$4>=$I27,P$4<=$J27),1,"")'  => None
+Q27: '=IF(AND(Q$4>=$I27,Q$4<=$J27),1,"")'  => None
+R27: '=IF(AND(R$4>=$I27,R$4<=$J27),1,"")'  => None
+S27: '=IF(AND(S$4>=$I27,S$4<=$J27),1,"")'  => None
+T27: '=IF(AND(T$4>=$I27,T$4<=$J27),1,"")'  => None
+U27: '=IF(AND(U$4>=$I27,U$4<=$J27),1,"")'  => None
+V27: '=IF(AND(V$4>=$I27,V$4<=$J27),1,"")'  => None
+W27: '=IF(AND(W$4>=$I27,W$4<=$J27),1,"")'  => None
+X27: '=IF(AND(X$4>=$I27,X$4<=$J27),1,"")'  => None
+Y27: '=IF(AND(Y$4>=$I27,Y$4<=$J27),1,"")'  => None
+Z27: '=IF(AND(Z$4>=$I27,Z$4<=$J27),1,"")'  => 1
+AA27: '=IF(AND(AA$4>=$I27,AA$4<=$J27),1,"")'  => 1
+AB27: '=IF(AND(AB$4>=$I27,AB$4<=$J27),1,"")'  => None
+AC27: '=IF(AND(AC$4>=$I27,AC$4<=$J27),1,"")'  => None
+AD27: '=IF(AND(AD$4>=$I27,AD$4<=$J27),1,"")'  => None
+AE27: '=IF(AND(AE$4>=$I27,AE$4<=$J27),1,"")'  => None
+AF27: '=IF(AND(AF$4>=$I27,AF$4<=$J27),1,"")'  => None
+AG27: '=IF(AND(AG$4>=$I27,AG$4<=$J27),1,"")'  => None
+AH27: '=IF(AND(AH$4>=$I27,AH$4<=$J27),1,"")'  => None
+AI27: '=IF(AND(AI$4>=$I27,AI$4<=$J27),1,"")'  => None
+AJ27: '=IF(AND(AJ$4>=$I27,AJ$4<=$J27),1,"")'  => None
+AK27: '=IF(AND(AK$4>=$I27,AK$4<=$J27),1,"")'  => None
+AL27: '=IF(AND(AL$4>=$I27,AL$4<=$J27),1,"")'  => None
+AM27: '=IF(AND(AM$4>=$I27,AM$4<=$J27),1,"")'  => None
+AN27: '=IF(AND(AN$4>=$I27,AN$4<=$J27),1,"")'  => None
+AO27: '=IF(AND(AO$4>=$I27,AO$4<=$J27),1,"")'  => None
+AP27: '=IF(AND(AP$4>=$I27,AP$4<=$J27),1,"")'  => None
+AQ27: '=IF(AND(AQ$4>=$I27,AQ$4<=$J27),1,"")'  => None
+AR27: '=IF(AND(AR$4>=$I27,AR$4<=$J27),1,"")'  => None
+AS27: '=IF(AND(AS$4>=$I27,AS$4<=$J27),1,"")'  => None
+AT27: '=IF(AND(AT$4>=$I27,AT$4<=$J27),1,"")'  => None
+AU27: '=IF(AND(AU$4>=$I27,AU$4<=$J27),1,"")'  => None
+AV27: '=IF(AND(AV$4>=$I27,AV$4<=$J27),1,"")'  => None
+AW27: '=IF(AND(AW$4>=$I27,AW$4<=$J27),1,"")'  => None
+AX27: '=IF(AND(AX$4>=$I27,AX$4<=$J27),1,"")'  => None
+AY27: '=IF(AND(AY$4>=$I27,AY$4<=$J27),1,"")'  => None
+AZ27: '=IF(AND(AZ$4>=$I27,AZ$4<=$J27),1,"")'  => None
+BA27: '=IF(AND(BA$4>=$I27,BA$4<=$J27),1,"")'  => None
+BB27: '=IF(AND(BB$4>=$I27,BB$4<=$J27),1,"")'  => None
+BC27: '=IF(AND(BC$4>=$I27,BC$4<=$J27),1,"")'  => None
+BD27: '=IF(AND(BD$4>=$I27,BD$4<=$J27),1,"")'  => None
+BE27: '=IF(AND(BE$4>=$I27,BE$4<=$J27),1,"")'  => None
+BF27: '=IF(AND(BF$4>=$I27,BF$4<=$J27),1,"")'  => None
+BG27: '=IF(AND(BG$4>=$I27,BG$4<=$J27),1,"")'  => None
+BH27: '=IF(AND(BH$4>=$I27,BH$4<=$J27),1,"")'  => None
+BI27: '=IF(AND(BI$4>=$I27,BI$4<=$J27),1,"")'  => None
+BJ27: '=IF(AND(BJ$4>=$I27,BJ$4<=$J27),1,"")'  => None
+BK27: '=IF(AND(BK$4>=$I27,BK$4<=$J27),1,"")'  => None
+BL27: '=IF(AND(BL$4>=$I27,BL$4<=$J27),1,"")'  => None
+BM27: '=IF(AND(BM$4>=$I27,BM$4<=$J27),1,"")'  => None
+BN27: '=IF(AND(BN$4>=$I27,BN$4<=$J27),1,"")'  => None
+BO27: '=IF(AND(BO$4>=$I27,BO$4<=$J27),1,"")'  => None
+BP27: '=IF(AND(BP$4>=$I27,BP$4<=$J27),1,"")'  => None
+BQ27: '=IF(AND(BQ$4>=$I27,BQ$4<=$J27),1,"")'  => None
+BR27: '=IF(AND(BR$4>=$I27,BR$4<=$J27),1,"")'  => None
+BS27: '=IF(AND(BS$4>=$I27,BS$4<=$J27),1,"")'  => None
+BT27: '=IF(AND(BT$4>=$I27,BT$4<=$J27),1,"")'  => None
+BV27: "F2: overlap sequencing - component installs proceed while the SEGRO build completes (week 15); 'validate the overlap window with HCL' applies to this boundary."
+A28: 'G-P3-L1-R-s3'
+B28: '    • Connectivity, routing and observability integration against the completed SEGRO stack'
+C28: 'HCL'
+D28: 'RECOMMENDED'
+F28: 'G-P3-L1-R-s2'
+G28: 17
+H28: 2
+I28: '=MEDIAN($I$25,$J$25,$I$25+ROUND((G28-$G$25)/$H$25*($J$25-$I$25+1),0))'  => 17
+J28: '=MEDIAN(I28,$J$25,$I$25+ROUND((G28+H28-$G$25)/$H$25*($J$25-$I$25+1),0)-1)'  => 18
+L28: '=IF(AND(L$4>=$I28,L$4<=$J28),1,"")'  => None
+M28: '=IF(AND(M$4>=$I28,M$4<=$J28),1,"")'  => None
+N28: '=IF(AND(N$4>=$I28,N$4<=$J28),1,"")'  => None
+O28: '=IF(AND(O$4>=$I28,O$4<=$J28),1,"")'  => None
+P28: '=IF(AND(P$4>=$I28,P$4<=$J28),1,"")'  => None
+Q28: '=IF(AND(Q$4>=$I28,Q$4<=$J28),1,"")'  => None
+R28: '=IF(AND(R$4>=$I28,R$4<=$J28),1,"")'  => None
+S28: '=IF(AND(S$4>=$I28,S$4<=$J28),1,"")'  => None
+T28: '=IF(AND(T$4>=$I28,T$4<=$J28),1,"")'  => None
+U28: '=IF(AND(U$4>=$I28,U$4<=$J28),1,"")'  => None
+V28: '=IF(AND(V$4>=$I28,V$4<=$J28),1,"")'  => None
+W28: '=IF(AND(W$4>=$I28,W$4<=$J28),1,"")'  => None
+X28: '=IF(AND(X$4>=$I28,X$4<=$J28),1,"")'  => None
+Y28: '=IF(AND(Y$4>=$I28,Y$4<=$J28),1,"")'  => None
+Z28: '=IF(AND(Z$4>=$I28,Z$4<=$J28),1,"")'  => None
+AA28: '=IF(AND(AA$4>=$I28,AA$4<=$J28),1,"")'  => None
+AB28: '=IF(AND(AB$4>=$I28,AB$4<=$J28),1,"")'  => 1
+AC28: '=IF(AND(AC$4>=$I28,AC$4<=$J28),1,"")'  => 1
+AD28: '=IF(AND(AD$4>=$I28,AD$4<=$J28),1,"")'  => None
+AE28: '=IF(AND(AE$4>=$I28,AE$4<=$J28),1,"")'  => None
+AF28: '=IF(AND(AF$4>=$I28,AF$4<=$J28),1,"")'  => None
+AG28: '=IF(AND(AG$4>=$I28,AG$4<=$J28),1,"")'  => None
+AH28: '=IF(AND(AH$4>=$I28,AH$4<=$J28),1,"")'  => None
+AI28: '=IF(AND(AI$4>=$I28,AI$4<=$J28),1,"")'  => None
+AJ28: '=IF(AND(AJ$4>=$I28,AJ$4<=$J28),1,"")'  => None
+AK28: '=IF(AND(AK$4>=$I28,AK$4<=$J28),1,"")'  => None
+AL28: '=IF(AND(AL$4>=$I28,AL$4<=$J28),1,"")'  => None
+AM28: '=IF(AND(AM$4>=$I28,AM$4<=$J28),1,"")'  => None
+AN28: '=IF(AND(AN$4>=$I28,AN$4<=$J28),1,"")'  => None
+AO28: '=IF(AND(AO$4>=$I28,AO$4<=$J28),1,"")'  => None
+AP28: '=IF(AND(AP$4>=$I28,AP$4<=$J28),1,"")'  => None
+AQ28: '=IF(AND(AQ$4>=$I28,AQ$4<=$J28),1,"")'  => None
+AR28: '=IF(AND(AR$4>=$I28,AR$4<=$J28),1,"")'  => None
+AS28: '=IF(AND(AS$4>=$I28,AS$4<=$J28),1,"")'  => None
+AT28: '=IF(AND(AT$4>=$I28,AT$4<=$J28),1,"")'  => None
+AU28: '=IF(AND(AU$4>=$I28,AU$4<=$J28),1,"")'  => None
+AV28: '=IF(AND(AV$4>=$I28,AV$4<=$J28),1,"")'  => None
+AW28: '=IF(AND(AW$4>=$I28,AW$4<=$J28),1,"")'  => None
+AX28: '=IF(AND(AX$4>=$I28,AX$4<=$J28),1,"")'  => None
+AY28: '=IF(AND(AY$4>=$I28,AY$4<=$J28),1,"")'  => None
+AZ28: '=IF(AND(AZ$4>=$I28,AZ$4<=$J28),1,"")'  => None
+BA28: '=IF(AND(BA$4>=$I28,BA$4<=$J28),1,"")'  => None
+BB28: '=IF(AND(BB$4>=$I28,BB$4<=$J28),1,"")'  => None
+BC28: '=IF(AND(BC$4>=$I28,BC$4<=$J28),1,"")'  => None
+BD28: '=IF(AND(BD$4>=$I28,BD$4<=$J28),1,"")'  => None
+BE28: '=IF(AND(BE$4>=$I28,BE$4<=$J28),1,"")'  => None
+BF28: '=IF(AND(BF$4>=$I28,BF$4<=$J28),1,"")'  => None
+BG28: '=IF(AND(BG$4>=$I28,BG$4<=$J28),1,"")'  => None
+BH28: '=IF(AND(BH$4>=$I28,BH$4<=$J28),1,"")'  => None
+BI28: '=IF(AND(BI$4>=$I28,BI$4<=$J28),1,"")'  => None
+BJ28: '=IF(AND(BJ$4>=$I28,BJ$4<=$J28),1,"")'  => None
+BK28: '=IF(AND(BK$4>=$I28,BK$4<=$J28),1,"")'  => None
+BL28: '=IF(AND(BL$4>=$I28,BL$4<=$J28),1,"")'  => None
+BM28: '=IF(AND(BM$4>=$I28,BM$4<=$J28),1,"")'  => None
+BN28: '=IF(AND(BN$4>=$I28,BN$4<=$J28),1,"")'  => None
+BO28: '=IF(AND(BO$4>=$I28,BO$4<=$J28),1,"")'  => None
+BP28: '=IF(AND(BP$4>=$I28,BP$4<=$J28),1,"")'  => None
+BQ28: '=IF(AND(BQ$4>=$I28,BQ$4<=$J28),1,"")'  => None
+BR28: '=IF(AND(BR$4>=$I28,BR$4<=$J28),1,"")'  => None
+BS28: '=IF(AND(BS$4>=$I28,BS$4<=$J28),1,"")'  => None
+BT28: '=IF(AND(BT$4>=$I28,BT$4<=$J28),1,"")'  => None
+BV28: "F2: the finding notes 'later HCL scope (connectivity, routing, gateways, certificates) depends on the wider stack' - so this step runs weeks 17-18, after the SEGRO build ends (week 15)."
+A30: 'G-TEST-REANCHOR-R'
+B30: 'Testing & Deploy (re-anchored)'
+C30: 'SEGRO'
+D30: 'RECOMMENDED'
+E30: 'F1, F14, F23'
+F30: 'G-P3-L1-R'
+G30: 19
+H30: 13
+I30: '=MIN(61,IF(G30<=29,ROUND((G30-1)*(29+SlipWeeks)/29,0)+1,G30+SlipWeeks))'  => 19
+J30: '=MIN(61,IF(G30+H30-1<=29,MAX(ROUND((G30+H30-1)*(29+SlipWeeks)/29,0),I30),G30+H30-1+SlipWeeks))'  => 31
+K30: 'New re-anchoring task: SIT pulled left to mid-Nov (week 19), explicit Christmas freeze gap weeks 24-25, UAT in January weeks 26-27; go-live moves from end of week 29 to an honest week 29-33 range (ASSUMPTION-within-RECOMMENDED).'
+L30: '=IF(AND(L$4>=$I30,L$4<=$J30),1,"")'  => None
+M30: '=IF(AND(M$4>=$I30,M$4<=$J30),1,"")'  => None
+N30: '=IF(AND(N$4>=$I30,N$4<=$J30),1,"")'  => None
+O30: '=IF(AND(O$4>=$I30,O$4<=$J30),1,"")'  => None
+P30: '=IF(AND(P$4>=$I30,P$4<=$J30),1,"")'  => None
+Q30: '=IF(AND(Q$4>=$I30,Q$4<=$J30),1,"")'  => None
+R30: '=IF(AND(R$4>=$I30,R$4<=$J30),1,"")'  => None
+S30: '=IF(AND(S$4>=$I30,S$4<=$J30),1,"")'  => None
+T30: '=IF(AND(T$4>=$I30,T$4<=$J30),1,"")'  => None
+U30: '=IF(AND(U$4>=$I30,U$4<=$J30),1,"")'  => None
+V30: '=IF(AND(V$4>=$I30,V$4<=$J30),1,"")'  => None
+W30: '=IF(AND(W$4>=$I30,W$4<=$J30),1,"")'  => None
+X30: '=IF(AND(X$4>=$I30,X$4<=$J30),1,"")'  => None
+Y30: '=IF(AND(Y$4>=$I30,Y$4<=$J30),1,"")'  => None
+Z30: '=IF(AND(Z$4>=$I30,Z$4<=$J30),1,"")'  => None
+AA30: '=IF(AND(AA$4>=$I30,AA$4<=$J30),1,"")'  => None
+AB30: '=IF(AND(AB$4>=$I30,AB$4<=$J30),1,"")'  => None
+AC30: '=IF(AND(AC$4>=$I30,AC$4<=$J30),1,"")'  => None
+AD30: '=IF(AND(AD$4>=$I30,AD$4<=$J30),1,"")'  => 1
+AE30: '=IF(AND(AE$4>=$I30,AE$4<=$J30),1,"")'  => 1
+AF30: '=IF(AND(AF$4>=$I30,AF$4<=$J30),1,"")'  => 1
+AG30: '=IF(AND(AG$4>=$I30,AG$4<=$J30),1,"")'  => 1
+AH30: '=IF(AND(AH$4>=$I30,AH$4<=$J30),1,"")'  => 1
+AI30: '=IF(AND(AI$4>=$I30,AI$4<=$J30),1,"")'  => 1
+AJ30: '=IF(AND(AJ$4>=$I30,AJ$4<=$J30),1,"")'  => 1
+AK30: '=IF(AND(AK$4>=$I30,AK$4<=$J30),1,"")'  => 1
+AL30: '=IF(AND(AL$4>=$I30,AL$4<=$J30),1,"")'  => 1
+AM30: '=IF(AND(AM$4>=$I30,AM$4<=$J30),1,"")'  => 1
+AN30: '=IF(AND(AN$4>=$I30,AN$4<=$J30),1,"")'  => 1
+AO30: '=IF(AND(AO$4>=$I30,AO$4<=$J30),1,"")'  => 1
+AP30: '=IF(AND(AP$4>=$I30,AP$4<=$J30),1,"")'  => 1
+AQ30: '=IF(AND(AQ$4>=$I30,AQ$4<=$J30),1,"")'  => None
+AR30: '=IF(AND(AR$4>=$I30,AR$4<=$J30),1,"")'  => None
+AS30: '=IF(AND(AS$4>=$I30,AS$4<=$J30),1,"")'  => None
+AT30: '=IF(AND(AT$4>=$I30,AT$4<=$J30),1,"")'  => None
+AU30: '=IF(AND(AU$4>=$I30,AU$4<=$J30),1,"")'  => None
+AV30: '=IF(AND(AV$4>=$I30,AV$4<=$J30),1,"")'  => None
+AW30: '=IF(AND(AW$4>=$I30,AW$4<=$J30),1,"")'  => None
+AX30: '=IF(AND(AX$4>=$I30,AX$4<=$J30),1,"")'  => None
+AY30: '=IF(AND(AY$4>=$I30,AY$4<=$J30),1,"")'  => None
+AZ30: '=IF(AND(AZ$4>=$I30,AZ$4<=$J30),1,"")'  => None
+BA30: '=IF(AND(BA$4>=$I30,BA$4<=$J30),1,"")'  => None
+BB30: '=IF(AND(BB$4>=$I30,BB$4<=$J30),1,"")'  => None
+BC30: '=IF(AND(BC$4>=$I30,BC$4<=$J30),1,"")'  => None
+BD30: '=IF(AND(BD$4>=$I30,BD$4<=$J30),1,"")'  => None
+BE30: '=IF(AND(BE$4>=$I30,BE$4<=$J30),1,"")'  => None
+BF30: '=IF(AND(BF$4>=$I30,BF$4<=$J30),1,"")'  => None
+BG30: '=IF(AND(BG$4>=$I30,BG$4<=$J30),1,"")'  => None
+BH30: '=IF(AND(BH$4>=$I30,BH$4<=$J30),1,"")'  => None
+BI30: '=IF(AND(BI$4>=$I30,BI$4<=$J30),1,"")'  => None
+BJ30: '=IF(AND(BJ$4>=$I30,BJ$4<=$J30),1,"")'  => None
+BK30: '=IF(AND(BK$4>=$I30,BK$4<=$J30),1,"")'  => None
+BL30: '=IF(AND(BL$4>=$I30,BL$4<=$J30),1,"")'  => None
+BM30: '=IF(AND(BM$4>=$I30,BM$4<=$J30),1,"")'  => None
+BN30: '=IF(AND(BN$4>=$I30,BN$4<=$J30),1,"")'  => None
+BO30: '=IF(AND(BO$4>=$I30,BO$4<=$J30),1,"")'  => None
+BP30: '=IF(AND(BP$4>=$I30,BP$4<=$J30),1,"")'  => None
+BQ30: '=IF(AND(BQ$4>=$I30,BQ$4<=$J30),1,"")'  => None
+BR30: '=IF(AND(BR$4>=$I30,BR$4<=$J30),1,"")'  => None
+BS30: '=IF(AND(BS$4>=$I30,BS$4<=$J30),1,"")'  => None
+BT30: '=IF(AND(BT$4>=$I30,BT$4<=$J30),1,"")'  => None
+BU30: '=IF(IF(G30+H30-1<=29,MAX(ROUND((G30+H30-1)*(29+SlipWeeks)/29,0),$I30),G30+H30-1+SlipWeeks)>61,"▶ clipped","")'  => None
+BV30: "F1: 'Pull testing left (start mid-Nov) or extend to 6 weeks crossing Christmas with an explicit freeze gap; do not book UAT sign-off or go/no-go inputs in the week of 21 Dec' - the corrected sequence does both: SIT/pen test start week 19 (w/c 16 Nov 2026 = mid-Nov, enabled by the F2 overlap ending the HCL install at week 18), an explicit freeze gap holds weeks 24-25 (Christmas), and UAT sign-off runs weeks 26-27, clear of w/c 21 Dec. Resulting go-live movement, stated HONESTLY as a range and labelled ASSUMPTION-within-RECOMMENDED: nominal go-live end of week 31 vs the as-drawn end of week 29, presented as a week 29-33 range (late Jan to late Feb 2027) - NOT a new committed date - because F14 says 'Present go-live as a range' until the Arch workshop confirms durations, and the range must absorb the F16 review-cycle build-start risk (up to 2 weeks). The week 29-33 band shown here is the mechanical Christmas-freeze + F16 floor; F14's own recommendation cites the wider Green Book ICT optimism-bias band (+3 to +16 wk, i.e. potentially into Q2 2027), which the SlipWeeks lever on the As-Drawn sheet prices beyond this floor - so the true upper bound is SlipWeeks-driven, not capped at week 33. No cost change: the P4/P5 quantities are unchanged; this task only re-anchors their windows (spans cost lines P4-L1 to P5-L5, so no single cost_line is cited)."
+A31: 'G-TEST-REANCHOR-R-s1'
+B31: '    • SIT + pen test execution, pulled left to start mid-November'
+C31: 'SEGRO'
+D31: 'RECOMMENDED'
+G31: 19
+H31: 3
+I31: '=MEDIAN($I$30,$J$30,$I$30+ROUND((G31-$G$30)/$H$30*($J$30-$I$30+1),0))'  => 19
+J31: '=MEDIAN(I31,$J$30,$I$30+ROUND((G31+H31-$G$30)/$H$30*($J$30-$I$30+1),0)-1)'  => 21
+L31: '=IF(AND(L$4>=$I31,L$4<=$J31),1,"")'  => None
+M31: '=IF(AND(M$4>=$I31,M$4<=$J31),1,"")'  => None
+N31: '=IF(AND(N$4>=$I31,N$4<=$J31),1,"")'  => None
+O31: '=IF(AND(O$4>=$I31,O$4<=$J31),1,"")'  => None
+P31: '=IF(AND(P$4>=$I31,P$4<=$J31),1,"")'  => None
+Q31: '=IF(AND(Q$4>=$I31,Q$4<=$J31),1,"")'  => None
+R31: '=IF(AND(R$4>=$I31,R$4<=$J31),1,"")'  => None
+S31: '=IF(AND(S$4>=$I31,S$4<=$J31),1,"")'  => None
+T31: '=IF(AND(T$4>=$I31,T$4<=$J31),1,"")'  => None
+U31: '=IF(AND(U$4>=$I31,U$4<=$J31),1,"")'  => None
+V31: '=IF(AND(V$4>=$I31,V$4<=$J31),1,"")'  => None
+W31: '=IF(AND(W$4>=$I31,W$4<=$J31),1,"")'  => None
+X31: '=IF(AND(X$4>=$I31,X$4<=$J31),1,"")'  => None
+Y31: '=IF(AND(Y$4>=$I31,Y$4<=$J31),1,"")'  => None
+Z31: '=IF(AND(Z$4>=$I31,Z$4<=$J31),1,"")'  => None
+AA31: '=IF(AND(AA$4>=$I31,AA$4<=$J31),1,"")'  => None
+AB31: '=IF(AND(AB$4>=$I31,AB$4<=$J31),1,"")'  => None
+AC31: '=IF(AND(AC$4>=$I31,AC$4<=$J31),1,"")'  => None
+AD31: '=IF(AND(AD$4>=$I31,AD$4<=$J31),1,"")'  => 1
+AE31: '=IF(AND(AE$4>=$I31,AE$4<=$J31),1,"")'  => 1
+AF31: '=IF(AND(AF$4>=$I31,AF$4<=$J31),1,"")'  => 1
+AG31: '=IF(AND(AG$4>=$I31,AG$4<=$J31),1,"")'  => None
+AH31: '=IF(AND(AH$4>=$I31,AH$4<=$J31),1,"")'  => None
+AI31: '=IF(AND(AI$4>=$I31,AI$4<=$J31),1,"")'  => None
+AJ31: '=IF(AND(AJ$4>=$I31,AJ$4<=$J31),1,"")'  => None
+AK31: '=IF(AND(AK$4>=$I31,AK$4<=$J31),1,"")'  => None
+AL31: '=IF(AND(AL$4>=$I31,AL$4<=$J31),1,"")'  => None
+AM31: '=IF(AND(AM$4>=$I31,AM$4<=$J31),1,"")'  => None
+AN31: '=IF(AND(AN$4>=$I31,AN$4<=$J31),1,"")'  => None
+AO31: '=IF(AND(AO$4>=$I31,AO$4<=$J31),1,"")'  => None
+AP31: '=IF(AND(AP$4>=$I31,AP$4<=$J31),1,"")'  => None
+AQ31: '=IF(AND(AQ$4>=$I31,AQ$4<=$J31),1,"")'  => None
+AR31: '=IF(AND(AR$4>=$I31,AR$4<=$J31),1,"")'  => None
+AS31: '=IF(AND(AS$4>=$I31,AS$4<=$J31),1,"")'  => None
+AT31: '=IF(AND(AT$4>=$I31,AT$4<=$J31),1,"")'  => None
+AU31: '=IF(AND(AU$4>=$I31,AU$4<=$J31),1,"")'  => None
+AV31: '=IF(AND(AV$4>=$I31,AV$4<=$J31),1,"")'  => None
+AW31: '=IF(AND(AW$4>=$I31,AW$4<=$J31),1,"")'  => None
+AX31: '=IF(AND(AX$4>=$I31,AX$4<=$J31),1,"")'  => None
+AY31: '=IF(AND(AY$4>=$I31,AY$4<=$J31),1,"")'  => None
+AZ31: '=IF(AND(AZ$4>=$I31,AZ$4<=$J31),1,"")'  => None
+BA31: '=IF(AND(BA$4>=$I31,BA$4<=$J31),1,"")'  => None
+BB31: '=IF(AND(BB$4>=$I31,BB$4<=$J31),1,"")'  => None
+BC31: '=IF(AND(BC$4>=$I31,BC$4<=$J31),1,"")'  => None
+BD31: '=IF(AND(BD$4>=$I31,BD$4<=$J31),1,"")'  => None
+BE31: '=IF(AND(BE$4>=$I31,BE$4<=$J31),1,"")'  => None
+BF31: '=IF(AND(BF$4>=$I31,BF$4<=$J31),1,"")'  => None
+BG31: '=IF(AND(BG$4>=$I31,BG$4<=$J31),1,"")'  => None
+BH31: '=IF(AND(BH$4>=$I31,BH$4<=$J31),1,"")'  => None
+BI31: '=IF(AND(BI$4>=$I31,BI$4<=$J31),1,"")'  => None
+BJ31: '=IF(AND(BJ$4>=$I31,BJ$4<=$J31),1,"")'  => None
+BK31: '=IF(AND(BK$4>=$I31,BK$4<=$J31),1,"")'  => None
+BL31: '=IF(AND(BL$4>=$I31,BL$4<=$J31),1,"")'  => None
+BM31: '=IF(AND(BM$4>=$I31,BM$4<=$J31),1,"")'  => None
+BN31: '=IF(AND(BN$4>=$I31,BN$4<=$J31),1,"")'  => None
+BO31: '=IF(AND(BO$4>=$I31,BO$4<=$J31),1,"")'  => None
+BP31: '=IF(AND(BP$4>=$I31,BP$4<=$J31),1,"")'  => None
+BQ31: '=IF(AND(BQ$4>=$I31,BQ$4<=$J31),1,"")'  => None
+BR31: '=IF(AND(BR$4>=$I31,BR$4<=$J31),1,"")'  => None
+BS31: '=IF(AND(BS$4>=$I31,BS$4<=$J31),1,"")'  => None
+BT31: '=IF(AND(BT$4>=$I31,BT$4<=$J31),1,"")'  => None
+BV31: "F1: 'Pull testing left (start mid-Nov)' - week 19 is w/c 16 Nov 2026; possible because the overlapped HCL install (G-P3-L1-R) completes at week 18. The F7-booked pen test lands here, well clear of December."
+A32: 'G-TEST-REANCHOR-R-s2'
+B32: '    • HCL fix-and-retest window between the SIT defect surge and UAT (detail carried in G-P4-FIX-R - same window, not double-counted)'
+C32: 'SEGRO'
+D32: 'RECOMMENDED'
+F32: 'G-TEST-REANCHOR-R-s1'
+G32: 22
+H32: 2
+I32: '=MEDIAN($I$30,$J$30,$I$30+ROUND((G32-$G$30)/$H$30*($J$30-$I$30+1),0))'  => 22
+J32: '=MEDIAN(I32,$J$30,$I$30+ROUND((G32+H32-$G$30)/$H$30*($J$30-$I$30+1),0)-1)'  => 23
+L32: '=IF(AND(L$4>=$I32,L$4<=$J32),1,"")'  => None
+M32: '=IF(AND(M$4>=$I32,M$4<=$J32),1,"")'  => None
+N32: '=IF(AND(N$4>=$I32,N$4<=$J32),1,"")'  => None
+O32: '=IF(AND(O$4>=$I32,O$4<=$J32),1,"")'  => None
+P32: '=IF(AND(P$4>=$I32,P$4<=$J32),1,"")'  => None
+Q32: '=IF(AND(Q$4>=$I32,Q$4<=$J32),1,"")'  => None
+R32: '=IF(AND(R$4>=$I32,R$4<=$J32),1,"")'  => None
+S32: '=IF(AND(S$4>=$I32,S$4<=$J32),1,"")'  => None
+T32: '=IF(AND(T$4>=$I32,T$4<=$J32),1,"")'  => None
+U32: '=IF(AND(U$4>=$I32,U$4<=$J32),1,"")'  => None
+V32: '=IF(AND(V$4>=$I32,V$4<=$J32),1,"")'  => None
+W32: '=IF(AND(W$4>=$I32,W$4<=$J32),1,"")'  => None
+X32: '=IF(AND(X$4>=$I32,X$4<=$J32),1,"")'  => None
+Y32: '=IF(AND(Y$4>=$I32,Y$4<=$J32),1,"")'  => None
+Z32: '=IF(AND(Z$4>=$I32,Z$4<=$J32),1,"")'  => None
+AA32: '=IF(AND(AA$4>=$I32,AA$4<=$J32),1,"")'  => None
+AB32: '=IF(AND(AB$4>=$I32,AB$4<=$J32),1,"")'  => None
+AC32: '=IF(AND(AC$4>=$I32,AC$4<=$J32),1,"")'  => None
+AD32: '=IF(AND(AD$4>=$I32,AD$4<=$J32),1,"")'  => None
+AE32: '=IF(AND(AE$4>=$I32,AE$4<=$J32),1,"")'  => None
+AF32: '=IF(AND(AF$4>=$I32,AF$4<=$J32),1,"")'  => None
+AG32: '=IF(AND(AG$4>=$I32,AG$4<=$J32),1,"")'  => 1
+AH32: '=IF(AND(AH$4>=$I32,AH$4<=$J32),1,"")'  => 1
+AI32: '=IF(AND(AI$4>=$I32,AI$4<=$J32),1,"")'  => None
+AJ32: '=IF(AND(AJ$4>=$I32,AJ$4<=$J32),1,"")'  => None
+AK32: '=IF(AND(AK$4>=$I32,AK$4<=$J32),1,"")'  => None
+AL32: '=IF(AND(AL$4>=$I32,AL$4<=$J32),1,"")'  => None
+AM32: '=IF(AND(AM$4>=$I32,AM$4<=$J32),1,"")'  => None
+AN32: '=IF(AND(AN$4>=$I32,AN$4<=$J32),1,"")'  => None
+AO32: '=IF(AND(AO$4>=$I32,AO$4<=$J32),1,"")'  => None
+AP32: '=IF(AND(AP$4>=$I32,AP$4<=$J32),1,"")'  => None
+AQ32: '=IF(AND(AQ$4>=$I32,AQ$4<=$J32),1,"")'  => None
+AR32: '=IF(AND(AR$4>=$I32,AR$4<=$J32),1,"")'  => None
+AS32: '=IF(AND(AS$4>=$I32,AS$4<=$J32),1,"")'  => None
+AT32: '=IF(AND(AT$4>=$I32,AT$4<=$J32),1,"")'  => None
+AU32: '=IF(AND(AU$4>=$I32,AU$4<=$J32),1,"")'  => None
+AV32: '=IF(AND(AV$4>=$I32,AV$4<=$J32),1,"")'  => None
+AW32: '=IF(AND(AW$4>=$I32,AW$4<=$J32),1,"")'  => None
+AX32: '=IF(AND(AX$4>=$I32,AX$4<=$J32),1,"")'  => None
+AY32: '=IF(AND(AY$4>=$I32,AY$4<=$J32),1,"")'  => None
+AZ32: '=IF(AND(AZ$4>=$I32,AZ$4<=$J32),1,"")'  => None
+BA32: '=IF(AND(BA$4>=$I32,BA$4<=$J32),1,"")'  => None
+BB32: '=IF(AND(BB$4>=$I32,BB$4<=$J32),1,"")'  => None
+BC32: '=IF(AND(BC$4>=$I32,BC$4<=$J32),1,"")'  => None
+BD32: '=IF(AND(BD$4>=$I32,BD$4<=$J32),1,"")'  => None
+BE32: '=IF(AND(BE$4>=$I32,BE$4<=$J32),1,"")'  => None
+BF32: '=IF(AND(BF$4>=$I32,BF$4<=$J32),1,"")'  => None
+BG32: '=IF(AND(BG$4>=$I32,BG$4<=$J32),1,"")'  => None
+BH32: '=IF(AND(BH$4>=$I32,BH$4<=$J32),1,"")'  => None
+BI32: '=IF(AND(BI$4>=$I32,BI$4<=$J32),1,"")'  => None
+BJ32: '=IF(AND(BJ$4>=$I32,BJ$4<=$J32),1,"")'  => None
+BK32: '=IF(AND(BK$4>=$I32,BK$4<=$J32),1,"")'  => None
+BL32: '=IF(AND(BL$4>=$I32,BL$4<=$J32),1,"")'  => None
+BM32: '=IF(AND(BM$4>=$I32,BM$4<=$J32),1,"")'  => None
+BN32: '=IF(AND(BN$4>=$I32,BN$4<=$J32),1,"")'  => None
+BO32: '=IF(AND(BO$4>=$I32,BO$4<=$J32),1,"")'  => None
+BP32: '=IF(AND(BP$4>=$I32,BP$4<=$J32),1,"")'  => None
+BQ32: '=IF(AND(BQ$4>=$I32,BQ$4<=$J32),1,"")'  => None
+BR32: '=IF(AND(BR$4>=$I32,BR$4<=$J32),1,"")'  => None
+BS32: '=IF(AND(BS$4>=$I32,BS$4<=$J32),1,"")'  => None
+BT32: '=IF(AND(BT$4>=$I32,BT$4<=$J32),1,"")'  => None
+BV32: "F23: 'Add an explicit fix-and-retest loop with an HCL turnaround SLA inside (or immediately after) the test window' - this step reserves the elapsed weeks in the re-anchored sequence; the task-level detail is G-P4-FIX-R."
+A33: 'G-TEST-REANCHOR-R-s3'
+B33: '    • Explicit Christmas freeze gap - no UAT sign-off, no go/no-go inputs, no cutover activity booked'
+C33: 'SEGRO'
+D33: 'RECOMMENDED'
+F33: 'G-TEST-REANCHOR-R-s2'
+G33: 24
+H33: 2
+I33: '=MEDIAN($I$30,$J$30,$I$30+ROUND((G33-$G$30)/$H$30*($J$30-$I$30+1),0))'  => 24
+J33: '=MEDIAN(I33,$J$30,$I$30+ROUND((G33+H33-$G$30)/$H$30*($J$30-$I$30+1),0)-1)'  => 25
+L33: '=IF(AND(L$4>=$I33,L$4<=$J33),1,"")'  => None
+M33: '=IF(AND(M$4>=$I33,M$4<=$J33),1,"")'  => None
+N33: '=IF(AND(N$4>=$I33,N$4<=$J33),1,"")'  => None
+O33: '=IF(AND(O$4>=$I33,O$4<=$J33),1,"")'  => None
+P33: '=IF(AND(P$4>=$I33,P$4<=$J33),1,"")'  => None
+Q33: '=IF(AND(Q$4>=$I33,Q$4<=$J33),1,"")'  => None
+R33: '=IF(AND(R$4>=$I33,R$4<=$J33),1,"")'  => None
+S33: '=IF(AND(S$4>=$I33,S$4<=$J33),1,"")'  => None
+T33: '=IF(AND(T$4>=$I33,T$4<=$J33),1,"")'  => None
+U33: '=IF(AND(U$4>=$I33,U$4<=$J33),1,"")'  => None
+V33: '=IF(AND(V$4>=$I33,V$4<=$J33),1,"")'  => None
+W33: '=IF(AND(W$4>=$I33,W$4<=$J33),1,"")'  => None
+X33: '=IF(AND(X$4>=$I33,X$4<=$J33),1,"")'  => None
+Y33: '=IF(AND(Y$4>=$I33,Y$4<=$J33),1,"")'  => None
+Z33: '=IF(AND(Z$4>=$I33,Z$4<=$J33),1,"")'  => None
+AA33: '=IF(AND(AA$4>=$I33,AA$4<=$J33),1,"")'  => None
+AB33: '=IF(AND(AB$4>=$I33,AB$4<=$J33),1,"")'  => None
+AC33: '=IF(AND(AC$4>=$I33,AC$4<=$J33),1,"")'  => None
+AD33: '=IF(AND(AD$4>=$I33,AD$4<=$J33),1,"")'  => None
+AE33: '=IF(AND(AE$4>=$I33,AE$4<=$J33),1,"")'  => None
+AF33: '=IF(AND(AF$4>=$I33,AF$4<=$J33),1,"")'  => None
+AG33: '=IF(AND(AG$4>=$I33,AG$4<=$J33),1,"")'  => None
+AH33: '=IF(AND(AH$4>=$I33,AH$4<=$J33),1,"")'  => None
+AI33: '=IF(AND(AI$4>=$I33,AI$4<=$J33),1,"")'  => 1
+AJ33: '=IF(AND(AJ$4>=$I33,AJ$4<=$J33),1,"")'  => 1
+AK33: '=IF(AND(AK$4>=$I33,AK$4<=$J33),1,"")'  => None
+AL33: '=IF(AND(AL$4>=$I33,AL$4<=$J33),1,"")'  => None
+AM33: '=IF(AND(AM$4>=$I33,AM$4<=$J33),1,"")'  => None
+AN33: '=IF(AND(AN$4>=$I33,AN$4<=$J33),1,"")'  => None
+AO33: '=IF(AND(AO$4>=$I33,AO$4<=$J33),1,"")'  => None
+AP33: '=IF(AND(AP$4>=$I33,AP$4<=$J33),1,"")'  => None
+AQ33: '=IF(AND(AQ$4>=$I33,AQ$4<=$J33),1,"")'  => None
+AR33: '=IF(AND(AR$4>=$I33,AR$4<=$J33),1,"")'  => None
+AS33: '=IF(AND(AS$4>=$I33,AS$4<=$J33),1,"")'  => None
+AT33: '=IF(AND(AT$4>=$I33,AT$4<=$J33),1,"")'  => None
+AU33: '=IF(AND(AU$4>=$I33,AU$4<=$J33),1,"")'  => None
+AV33: '=IF(AND(AV$4>=$I33,AV$4<=$J33),1,"")'  => None
+AW33: '=IF(AND(AW$4>=$I33,AW$4<=$J33),1,"")'  => None
+AX33: '=IF(AND(AX$4>=$I33,AX$4<=$J33),1,"")'  => None
+AY33: '=IF(AND(AY$4>=$I33,AY$4<=$J33),1,"")'  => None
+AZ33: '=IF(AND(AZ$4>=$I33,AZ$4<=$J33),1,"")'  => None
+BA33: '=IF(AND(BA$4>=$I33,BA$4<=$J33),1,"")'  => None
+BB33: '=IF(AND(BB$4>=$I33,BB$4<=$J33),1,"")'  => None
+BC33: '=IF(AND(BC$4>=$I33,BC$4<=$J33),1,"")'  => None
+BD33: '=IF(AND(BD$4>=$I33,BD$4<=$J33),1,"")'  => None
+BE33: '=IF(AND(BE$4>=$I33,BE$4<=$J33),1,"")'  => None
+BF33: '=IF(AND(BF$4>=$I33,BF$4<=$J33),1,"")'  => None
+BG33: '=IF(AND(BG$4>=$I33,BG$4<=$J33),1,"")'  => None
+BH33: '=IF(AND(BH$4>=$I33,BH$4<=$J33),1,"")'  => None
+BI33: '=IF(AND(BI$4>=$I33,BI$4<=$J33),1,"")'  => None
+BJ33: '=IF(AND(BJ$4>=$I33,BJ$4<=$J33),1,"")'  => None
+BK33: '=IF(AND(BK$4>=$I33,BK$4<=$J33),1,"")'  => None
+BL33: '=IF(AND(BL$4>=$I33,BL$4<=$J33),1,"")'  => None
+BM33: '=IF(AND(BM$4>=$I33,BM$4<=$J33),1,"")'  => None
+BN33: '=IF(AND(BN$4>=$I33,BN$4<=$J33),1,"")'  => None
+BO33: '=IF(AND(BO$4>=$I33,BO$4<=$J33),1,"")'  => None
+BP33: '=IF(AND(BP$4>=$I33,BP$4<=$J33),1,"")'  => None
+BQ33: '=IF(AND(BQ$4>=$I33,BQ$4<=$J33),1,"")'  => None
+BR33: '=IF(AND(BR$4>=$I33,BR$4<=$J33),1,"")'  => None
+BS33: '=IF(AND(BS$4>=$I33,BS$4<=$J33),1,"")'  => None
+BT33: '=IF(AND(BT$4>=$I33,BT$4<=$J33),1,"")'  => None
+BV33: "F1: 'extend to 6 weeks crossing Christmas with an explicit freeze gap; do not book UAT sign-off or go/no-go inputs in the week of 21 Dec' - weeks 24-25 (w/c 21 Dec and 28 Dec) are held as a named freeze, not silently worked through."
+A34: 'G-TEST-REANCHOR-R-s4'
+B34: '    • UAT execution and sign-off, clear of the freeze'
+C34: 'SEGRO'
+D34: 'RECOMMENDED'
+F34: 'G-TEST-REANCHOR-R-s3'
+G34: 26
+H34: 2
+I34: '=MEDIAN($I$30,$J$30,$I$30+ROUND((G34-$G$30)/$H$30*($J$30-$I$30+1),0))'  => 26
+J34: '=MEDIAN(I34,$J$30,$I$30+ROUND((G34+H34-$G$30)/$H$30*($J$30-$I$30+1),0)-1)'  => 27
+L34: '=IF(AND(L$4>=$I34,L$4<=$J34),1,"")'  => None
+M34: '=IF(AND(M$4>=$I34,M$4<=$J34),1,"")'  => None
+N34: '=IF(AND(N$4>=$I34,N$4<=$J34),1,"")'  => None
+O34: '=IF(AND(O$4>=$I34,O$4<=$J34),1,"")'  => None
+P34: '=IF(AND(P$4>=$I34,P$4<=$J34),1,"")'  => None
+Q34: '=IF(AND(Q$4>=$I34,Q$4<=$J34),1,"")'  => None
+R34: '=IF(AND(R$4>=$I34,R$4<=$J34),1,"")'  => None
+S34: '=IF(AND(S$4>=$I34,S$4<=$J34),1,"")'  => None
+T34: '=IF(AND(T$4>=$I34,T$4<=$J34),1,"")'  => None
+U34: '=IF(AND(U$4>=$I34,U$4<=$J34),1,"")'  => None
+V34: '=IF(AND(V$4>=$I34,V$4<=$J34),1,"")'  => None
+W34: '=IF(AND(W$4>=$I34,W$4<=$J34),1,"")'  => None
+X34: '=IF(AND(X$4>=$I34,X$4<=$J34),1,"")'  => None
+Y34: '=IF(AND(Y$4>=$I34,Y$4<=$J34),1,"")'  => None
+Z34: '=IF(AND(Z$4>=$I34,Z$4<=$J34),1,"")'  => None
+AA34: '=IF(AND(AA$4>=$I34,AA$4<=$J34),1,"")'  => None
+AB34: '=IF(AND(AB$4>=$I34,AB$4<=$J34),1,"")'  => None
+AC34: '=IF(AND(AC$4>=$I34,AC$4<=$J34),1,"")'  => None
+AD34: '=IF(AND(AD$4>=$I34,AD$4<=$J34),1,"")'  => None
+AE34: '=IF(AND(AE$4>=$I34,AE$4<=$J34),1,"")'  => None
+AF34: '=IF(AND(AF$4>=$I34,AF$4<=$J34),1,"")'  => None
+AG34: '=IF(AND(AG$4>=$I34,AG$4<=$J34),1,"")'  => None
+AH34: '=IF(AND(AH$4>=$I34,AH$4<=$J34),1,"")'  => None
+AI34: '=IF(AND(AI$4>=$I34,AI$4<=$J34),1,"")'  => None
+AJ34: '=IF(AND(AJ$4>=$I34,AJ$4<=$J34),1,"")'  => None
+AK34: '=IF(AND(AK$4>=$I34,AK$4<=$J34),1,"")'  => 1
+AL34: '=IF(AND(AL$4>=$I34,AL$4<=$J34),1,"")'  => 1
+AM34: '=IF(AND(AM$4>=$I34,AM$4<=$J34),1,"")'  => None
+AN34: '=IF(AND(AN$4>=$I34,AN$4<=$J34),1,"")'  => None
+AO34: '=IF(AND(AO$4>=$I34,AO$4<=$J34),1,"")'  => None
+AP34: '=IF(AND(AP$4>=$I34,AP$4<=$J34),1,"")'  => None
+AQ34: '=IF(AND(AQ$4>=$I34,AQ$4<=$J34),1,"")'  => None
+AR34: '=IF(AND(AR$4>=$I34,AR$4<=$J34),1,"")'  => None
+AS34: '=IF(AND(AS$4>=$I34,AS$4<=$J34),1,"")'  => None
+AT34: '=IF(AND(AT$4>=$I34,AT$4<=$J34),1,"")'  => None
+AU34: '=IF(AND(AU$4>=$I34,AU$4<=$J34),1,"")'  => None
+AV34: '=IF(AND(AV$4>=$I34,AV$4<=$J34),1,"")'  => None
+AW34: '=IF(AND(AW$4>=$I34,AW$4<=$J34),1,"")'  => None
+AX34: '=IF(AND(AX$4>=$I34,AX$4<=$J34),1,"")'  => None
+AY34: '=IF(AND(AY$4>=$I34,AY$4<=$J34),1,"")'  => None
+AZ34: '=IF(AND(AZ$4>=$I34,AZ$4<=$J34),1,"")'  => None
+BA34: '=IF(AND(BA$4>=$I34,BA$4<=$J34),1,"")'  => None
+BB34: '=IF(AND(BB$4>=$I34,BB$4<=$J34),1,"")'  => None
+BC34: '=IF(AND(BC$4>=$I34,BC$4<=$J34),1,"")'  => None
+BD34: '=IF(AND(BD$4>=$I34,BD$4<=$J34),1,"")'  => None
+BE34: '=IF(AND(BE$4>=$I34,BE$4<=$J34),1,"")'  => None
+BF34: '=IF(AND(BF$4>=$I34,BF$4<=$J34),1,"")'  => None
+BG34: '=IF(AND(BG$4>=$I34,BG$4<=$J34),1,"")'  => None
+BH34: '=IF(AND(BH$4>=$I34,BH$4<=$J34),1,"")'  => None
+BI34: '=IF(AND(BI$4>=$I34,BI$4<=$J34),1,"")'  => None
+BJ34: '=IF(AND(BJ$4>=$I34,BJ$4<=$J34),1,"")'  => None
+BK34: '=IF(AND(BK$4>=$I34,BK$4<=$J34),1,"")'  => None
+BL34: '=IF(AND(BL$4>=$I34,BL$4<=$J34),1,"")'  => None
+BM34: '=IF(AND(BM$4>=$I34,BM$4<=$J34),1,"")'  => None
+BN34: '=IF(AND(BN$4>=$I34,BN$4<=$J34),1,"")'  => None
+BO34: '=IF(AND(BO$4>=$I34,BO$4<=$J34),1,"")'  => None
+BP34: '=IF(AND(BP$4>=$I34,BP$4<=$J34),1,"")'  => None
+BQ34: '=IF(AND(BQ$4>=$I34,BQ$4<=$J34),1,"")'  => None
+BR34: '=IF(AND(BR$4>=$I34,BR$4<=$J34),1,"")'  => None
+BS34: '=IF(AND(BS$4>=$I34,BS$4<=$J34),1,"")'  => None
+BT34: '=IF(AND(BT$4>=$I34,BT$4<=$J34),1,"")'  => None
+BV34: "F1: 'do not book UAT sign-off or go/no-go inputs in the week of 21 Dec' - UAT runs weeks 26-27 (w/c 4 and 11 Jan 2027), after the freeze, with the fix-and-retest loop already complete."
+A35: 'G-TEST-REANCHOR-R-s5'
+B35: '    • Deploy: production readiness, go/no-go, migration execution, go-live within the stated range'
+C35: 'SEGRO'
+D35: 'RECOMMENDED'
+F35: 'G-TEST-REANCHOR-R-s4'
+G35: 28
+H35: 4
+I35: '=MEDIAN($I$30,$J$30,$I$30+ROUND((G35-$G$30)/$H$30*($J$30-$I$30+1),0))'  => 28
+J35: '=MEDIAN(I35,$J$30,$I$30+ROUND((G35+H35-$G$30)/$H$30*($J$30-$I$30+1),0)-1)'  => 31
+L35: '=IF(AND(L$4>=$I35,L$4<=$J35),1,"")'  => None
+M35: '=IF(AND(M$4>=$I35,M$4<=$J35),1,"")'  => None
+N35: '=IF(AND(N$4>=$I35,N$4<=$J35),1,"")'  => None
+O35: '=IF(AND(O$4>=$I35,O$4<=$J35),1,"")'  => None
+P35: '=IF(AND(P$4>=$I35,P$4<=$J35),1,"")'  => None
+Q35: '=IF(AND(Q$4>=$I35,Q$4<=$J35),1,"")'  => None
+R35: '=IF(AND(R$4>=$I35,R$4<=$J35),1,"")'  => None
+S35: '=IF(AND(S$4>=$I35,S$4<=$J35),1,"")'  => None
+T35: '=IF(AND(T$4>=$I35,T$4<=$J35),1,"")'  => None
+U35: '=IF(AND(U$4>=$I35,U$4<=$J35),1,"")'  => None
+V35: '=IF(AND(V$4>=$I35,V$4<=$J35),1,"")'  => None
+W35: '=IF(AND(W$4>=$I35,W$4<=$J35),1,"")'  => None
+X35: '=IF(AND(X$4>=$I35,X$4<=$J35),1,"")'  => None
+Y35: '=IF(AND(Y$4>=$I35,Y$4<=$J35),1,"")'  => None
+Z35: '=IF(AND(Z$4>=$I35,Z$4<=$J35),1,"")'  => None
+AA35: '=IF(AND(AA$4>=$I35,AA$4<=$J35),1,"")'  => None
+AB35: '=IF(AND(AB$4>=$I35,AB$4<=$J35),1,"")'  => None
+AC35: '=IF(AND(AC$4>=$I35,AC$4<=$J35),1,"")'  => None
+AD35: '=IF(AND(AD$4>=$I35,AD$4<=$J35),1,"")'  => None
+AE35: '=IF(AND(AE$4>=$I35,AE$4<=$J35),1,"")'  => None
+AF35: '=IF(AND(AF$4>=$I35,AF$4<=$J35),1,"")'  => None
+AG35: '=IF(AND(AG$4>=$I35,AG$4<=$J35),1,"")'  => None
+AH35: '=IF(AND(AH$4>=$I35,AH$4<=$J35),1,"")'  => None
+AI35: '=IF(AND(AI$4>=$I35,AI$4<=$J35),1,"")'  => None
+AJ35: '=IF(AND(AJ$4>=$I35,AJ$4<=$J35),1,"")'  => None
+AK35: '=IF(AND(AK$4>=$I35,AK$4<=$J35),1,"")'  => None
+AL35: '=IF(AND(AL$4>=$I35,AL$4<=$J35),1,"")'  => None
+AM35: '=IF(AND(AM$4>=$I35,AM$4<=$J35),1,"")'  => 1
+AN35: '=IF(AND(AN$4>=$I35,AN$4<=$J35),1,"")'  => 1
+AO35: '=IF(AND(AO$4>=$I35,AO$4<=$J35),1,"")'  => 1
+AP35: '=IF(AND(AP$4>=$I35,AP$4<=$J35),1,"")'  => 1
+AQ35: '=IF(AND(AQ$4>=$I35,AQ$4<=$J35),1,"")'  => None
+AR35: '=IF(AND(AR$4>=$I35,AR$4<=$J35),1,"")'  => None
+AS35: '=IF(AND(AS$4>=$I35,AS$4<=$J35),1,"")'  => None
+AT35: '=IF(AND(AT$4>=$I35,AT$4<=$J35),1,"")'  => None
+AU35: '=IF(AND(AU$4>=$I35,AU$4<=$J35),1,"")'  => None
+AV35: '=IF(AND(AV$4>=$I35,AV$4<=$J35),1,"")'  => None
+AW35: '=IF(AND(AW$4>=$I35,AW$4<=$J35),1,"")'  => None
+AX35: '=IF(AND(AX$4>=$I35,AX$4<=$J35),1,"")'  => None
+AY35: '=IF(AND(AY$4>=$I35,AY$4<=$J35),1,"")'  => None
+AZ35: '=IF(AND(AZ$4>=$I35,AZ$4<=$J35),1,"")'  => None
+BA35: '=IF(AND(BA$4>=$I35,BA$4<=$J35),1,"")'  => None
+BB35: '=IF(AND(BB$4>=$I35,BB$4<=$J35),1,"")'  => None
+BC35: '=IF(AND(BC$4>=$I35,BC$4<=$J35),1,"")'  => None
+BD35: '=IF(AND(BD$4>=$I35,BD$4<=$J35),1,"")'  => None
+BE35: '=IF(AND(BE$4>=$I35,BE$4<=$J35),1,"")'  => None
+BF35: '=IF(AND(BF$4>=$I35,BF$4<=$J35),1,"")'  => None
+BG35: '=IF(AND(BG$4>=$I35,BG$4<=$J35),1,"")'  => None
+BH35: '=IF(AND(BH$4>=$I35,BH$4<=$J35),1,"")'  => None
+BI35: '=IF(AND(BI$4>=$I35,BI$4<=$J35),1,"")'  => None
+BJ35: '=IF(AND(BJ$4>=$I35,BJ$4<=$J35),1,"")'  => None
+BK35: '=IF(AND(BK$4>=$I35,BK$4<=$J35),1,"")'  => None
+BL35: '=IF(AND(BL$4>=$I35,BL$4<=$J35),1,"")'  => None
+BM35: '=IF(AND(BM$4>=$I35,BM$4<=$J35),1,"")'  => None
+BN35: '=IF(AND(BN$4>=$I35,BN$4<=$J35),1,"")'  => None
+BO35: '=IF(AND(BO$4>=$I35,BO$4<=$J35),1,"")'  => None
+BP35: '=IF(AND(BP$4>=$I35,BP$4<=$J35),1,"")'  => None
+BQ35: '=IF(AND(BQ$4>=$I35,BQ$4<=$J35),1,"")'  => None
+BR35: '=IF(AND(BR$4>=$I35,BR$4<=$J35),1,"")'  => None
+BS35: '=IF(AND(BS$4>=$I35,BS$4<=$J35),1,"")'  => None
+BT35: '=IF(AND(BT$4>=$I35,BT$4<=$J35),1,"")'  => None
+BV35: "F14: 'Present go-live as a range' - deploy runs weeks 28-31 with nominal go-live end of week 31; the movement vs the as-drawn week-29 go-live is labelled ASSUMPTION-within-RECOMMENDED and shown as a week 29-33 range, not a new committed date. The go/no-go gate (~week 30) takes the G-P4-L8-R red-team/audit outputs as named inputs."
+A37: 'G-P4-FIX-R'
+B37: 'Testing  [P4-L6]'
+C37: 'HCL'
+D37: 'RECOMMENDED'
+E37: 'F23'
+F37: 'G-P3-L1-R'
+G37: 22
+H37: 2
+I37: '=MIN(61,IF(G37<=29,ROUND((G37-1)*(29+SlipWeeks)/29,0)+1,G37+SlipWeeks))'  => 22
+J37: '=MIN(61,IF(G37+H37-1<=29,MAX(ROUND((G37+H37-1)*(29+SlipWeeks)/29,0),I37),G37+H37-1+SlipWeeks))'  => 23
+K37: 'New 2-week explicit HCL fix-and-retest window inserted between SIT and UAT, with greenfield and brownfield retest coverage; no as-drawn counterpart exists.'
+L37: '=IF(AND(L$4>=$I37,L$4<=$J37),1,"")'  => None
+M37: '=IF(AND(M$4>=$I37,M$4<=$J37),1,"")'  => None
+N37: '=IF(AND(N$4>=$I37,N$4<=$J37),1,"")'  => None
+O37: '=IF(AND(O$4>=$I37,O$4<=$J37),1,"")'  => None
+P37: '=IF(AND(P$4>=$I37,P$4<=$J37),1,"")'  => None
+Q37: '=IF(AND(Q$4>=$I37,Q$4<=$J37),1,"")'  => None
+R37: '=IF(AND(R$4>=$I37,R$4<=$J37),1,"")'  => None
+S37: '=IF(AND(S$4>=$I37,S$4<=$J37),1,"")'  => None
+T37: '=IF(AND(T$4>=$I37,T$4<=$J37),1,"")'  => None
+U37: '=IF(AND(U$4>=$I37,U$4<=$J37),1,"")'  => None
+V37: '=IF(AND(V$4>=$I37,V$4<=$J37),1,"")'  => None
+W37: '=IF(AND(W$4>=$I37,W$4<=$J37),1,"")'  => None
+X37: '=IF(AND(X$4>=$I37,X$4<=$J37),1,"")'  => None
+Y37: '=IF(AND(Y$4>=$I37,Y$4<=$J37),1,"")'  => None
+Z37: '=IF(AND(Z$4>=$I37,Z$4<=$J37),1,"")'  => None
+AA37: '=IF(AND(AA$4>=$I37,AA$4<=$J37),1,"")'  => None
+AB37: '=IF(AND(AB$4>=$I37,AB$4<=$J37),1,"")'  => None
+AC37: '=IF(AND(AC$4>=$I37,AC$4<=$J37),1,"")'  => None
+AD37: '=IF(AND(AD$4>=$I37,AD$4<=$J37),1,"")'  => None
+AE37: '=IF(AND(AE$4>=$I37,AE$4<=$J37),1,"")'  => None
+AF37: '=IF(AND(AF$4>=$I37,AF$4<=$J37),1,"")'  => None
+AG37: '=IF(AND(AG$4>=$I37,AG$4<=$J37),1,"")'  => 1
+AH37: '=IF(AND(AH$4>=$I37,AH$4<=$J37),1,"")'  => 1
+AI37: '=IF(AND(AI$4>=$I37,AI$4<=$J37),1,"")'  => None
+AJ37: '=IF(AND(AJ$4>=$I37,AJ$4<=$J37),1,"")'  => None
+AK37: '=IF(AND(AK$4>=$I37,AK$4<=$J37),1,"")'  => None
+AL37: '=IF(AND(AL$4>=$I37,AL$4<=$J37),1,"")'  => None
+AM37: '=IF(AND(AM$4>=$I37,AM$4<=$J37),1,"")'  => None
+AN37: '=IF(AND(AN$4>=$I37,AN$4<=$J37),1,"")'  => None
+AO37: '=IF(AND(AO$4>=$I37,AO$4<=$J37),1,"")'  => None
+AP37: '=IF(AND(AP$4>=$I37,AP$4<=$J37),1,"")'  => None
+AQ37: '=IF(AND(AQ$4>=$I37,AQ$4<=$J37),1,"")'  => None
+AR37: '=IF(AND(AR$4>=$I37,AR$4<=$J37),1,"")'  => None
+AS37: '=IF(AND(AS$4>=$I37,AS$4<=$J37),1,"")'  => None
+AT37: '=IF(AND(AT$4>=$I37,AT$4<=$J37),1,"")'  => None
+AU37: '=IF(AND(AU$4>=$I37,AU$4<=$J37),1,"")'  => None
+AV37: '=IF(AND(AV$4>=$I37,AV$4<=$J37),1,"")'  => None
+AW37: '=IF(AND(AW$4>=$I37,AW$4<=$J37),1,"")'  => None
+AX37: '=IF(AND(AX$4>=$I37,AX$4<=$J37),1,"")'  => None
+AY37: '=IF(AND(AY$4>=$I37,AY$4<=$J37),1,"")'  => None
+AZ37: '=IF(AND(AZ$4>=$I37,AZ$4<=$J37),1,"")'  => None
+BA37: '=IF(AND(BA$4>=$I37,BA$4<=$J37),1,"")'  => None
+BB37: '=IF(AND(BB$4>=$I37,BB$4<=$J37),1,"")'  => None
+BC37: '=IF(AND(BC$4>=$I37,BC$4<=$J37),1,"")'  => None
+BD37: '=IF(AND(BD$4>=$I37,BD$4<=$J37),1,"")'  => None
+BE37: '=IF(AND(BE$4>=$I37,BE$4<=$J37),1,"")'  => None
+BF37: '=IF(AND(BF$4>=$I37,BF$4<=$J37),1,"")'  => None
+BG37: '=IF(AND(BG$4>=$I37,BG$4<=$J37),1,"")'  => None
+BH37: '=IF(AND(BH$4>=$I37,BH$4<=$J37),1,"")'  => None
+BI37: '=IF(AND(BI$4>=$I37,BI$4<=$J37),1,"")'  => None
+BJ37: '=IF(AND(BJ$4>=$I37,BJ$4<=$J37),1,"")'  => None
+BK37: '=IF(AND(BK$4>=$I37,BK$4<=$J37),1,"")'  => None
+BL37: '=IF(AND(BL$4>=$I37,BL$4<=$J37),1,"")'  => None
+BM37: '=IF(AND(BM$4>=$I37,BM$4<=$J37),1,"")'  => None
+BN37: '=IF(AND(BN$4>=$I37,BN$4<=$J37),1,"")'  => None
+BO37: '=IF(AND(BO$4>=$I37,BO$4<=$J37),1,"")'  => None
+BP37: '=IF(AND(BP$4>=$I37,BP$4<=$J37),1,"")'  => None
+BQ37: '=IF(AND(BQ$4>=$I37,BQ$4<=$J37),1,"")'  => None
+BR37: '=IF(AND(BR$4>=$I37,BR$4<=$J37),1,"")'  => None
+BS37: '=IF(AND(BS$4>=$I37,BS$4<=$J37),1,"")'  => None
+BT37: '=IF(AND(BT$4>=$I37,BT$4<=$J37),1,"")'  => None
+BU37: '=IF(IF(G37+H37-1<=29,MAX(ROUND((G37+H37-1)*(29+SlipWeeks)/29,0),$I37),G37+H37-1+SlipWeeks)>61,"▶ clipped","")'  => None
+BV37: "F23: 'Add an explicit fix-and-retest loop with an HCL turnaround SLA inside (or immediately after) the test window, and state greenfield/brownfield coverage in the test scope; P4-L6 carries the HCL-side cost but the elapsed time must be planned' - NEW ~2-week window at weeks 22-23, between the SIT defect surge (weeks 19-21) and UAT (weeks 26-27) in the re-anchored sequence, so material HCL defects no longer slip the go/no-go directly. Cost unchanged: P4-L6 (20 pd likely) already carries the HCL-side effort; this task plans the elapsed time the as-drawn plan omitted."
+A38: 'G-P4-FIX-R-s1'
+B38: '    • HCL defect triage and fix under a stated turnaround SLA, on defects raised by SIT against HCL-installed components'
+C38: 'HCL'
+D38: 'RECOMMENDED'
+G38: 22
+H38: 1
+I38: '=MEDIAN($I$37,$J$37,$I$37+ROUND((G38-$G$37)/$H$37*($J$37-$I$37+1),0))'  => 22
+J38: '=MEDIAN(I38,$J$37,$I$37+ROUND((G38+H38-$G$37)/$H$37*($J$37-$I$37+1),0)-1)'  => 22
+L38: '=IF(AND(L$4>=$I38,L$4<=$J38),1,"")'  => None
+M38: '=IF(AND(M$4>=$I38,M$4<=$J38),1,"")'  => None
+N38: '=IF(AND(N$4>=$I38,N$4<=$J38),1,"")'  => None
+O38: '=IF(AND(O$4>=$I38,O$4<=$J38),1,"")'  => None
+P38: '=IF(AND(P$4>=$I38,P$4<=$J38),1,"")'  => None
+Q38: '=IF(AND(Q$4>=$I38,Q$4<=$J38),1,"")'  => None
+R38: '=IF(AND(R$4>=$I38,R$4<=$J38),1,"")'  => None
+S38: '=IF(AND(S$4>=$I38,S$4<=$J38),1,"")'  => None
+T38: '=IF(AND(T$4>=$I38,T$4<=$J38),1,"")'  => None
+U38: '=IF(AND(U$4>=$I38,U$4<=$J38),1,"")'  => None
+V38: '=IF(AND(V$4>=$I38,V$4<=$J38),1,"")'  => None
+W38: '=IF(AND(W$4>=$I38,W$4<=$J38),1,"")'  => None
+X38: '=IF(AND(X$4>=$I38,X$4<=$J38),1,"")'  => None
+Y38: '=IF(AND(Y$4>=$I38,Y$4<=$J38),1,"")'  => None
+Z38: '=IF(AND(Z$4>=$I38,Z$4<=$J38),1,"")'  => None
+AA38: '=IF(AND(AA$4>=$I38,AA$4<=$J38),1,"")'  => None
+AB38: '=IF(AND(AB$4>=$I38,AB$4<=$J38),1,"")'  => None
+AC38: '=IF(AND(AC$4>=$I38,AC$4<=$J38),1,"")'  => None
+AD38: '=IF(AND(AD$4>=$I38,AD$4<=$J38),1,"")'  => None
+AE38: '=IF(AND(AE$4>=$I38,AE$4<=$J38),1,"")'  => None
+AF38: '=IF(AND(AF$4>=$I38,AF$4<=$J38),1,"")'  => None
+AG38: '=IF(AND(AG$4>=$I38,AG$4<=$J38),1,"")'  => 1
+AH38: '=IF(AND(AH$4>=$I38,AH$4<=$J38),1,"")'  => None
+AI38: '=IF(AND(AI$4>=$I38,AI$4<=$J38),1,"")'  => None
+AJ38: '=IF(AND(AJ$4>=$I38,AJ$4<=$J38),1,"")'  => None
+AK38: '=IF(AND(AK$4>=$I38,AK$4<=$J38),1,"")'  => None
+AL38: '=IF(AND(AL$4>=$I38,AL$4<=$J38),1,"")'  => None
+AM38: '=IF(AND(AM$4>=$I38,AM$4<=$J38),1,"")'  => None
+AN38: '=IF(AND(AN$4>=$I38,AN$4<=$J38),1,"")'  => None
+AO38: '=IF(AND(AO$4>=$I38,AO$4<=$J38),1,"")'  => None
+AP38: '=IF(AND(AP$4>=$I38,AP$4<=$J38),1,"")'  => None
+AQ38: '=IF(AND(AQ$4>=$I38,AQ$4<=$J38),1,"")'  => None
+AR38: '=IF(AND(AR$4>=$I38,AR$4<=$J38),1,"")'  => None
+AS38: '=IF(AND(AS$4>=$I38,AS$4<=$J38),1,"")'  => None
+AT38: '=IF(AND(AT$4>=$I38,AT$4<=$J38),1,"")'  => None
+AU38: '=IF(AND(AU$4>=$I38,AU$4<=$J38),1,"")'  => None
+AV38: '=IF(AND(AV$4>=$I38,AV$4<=$J38),1,"")'  => None
+AW38: '=IF(AND(AW$4>=$I38,AW$4<=$J38),1,"")'  => None
+AX38: '=IF(AND(AX$4>=$I38,AX$4<=$J38),1,"")'  => None
+AY38: '=IF(AND(AY$4>=$I38,AY$4<=$J38),1,"")'  => None
+AZ38: '=IF(AND(AZ$4>=$I38,AZ$4<=$J38),1,"")'  => None
+BA38: '=IF(AND(BA$4>=$I38,BA$4<=$J38),1,"")'  => None
+BB38: '=IF(AND(BB$4>=$I38,BB$4<=$J38),1,"")'  => None
+BC38: '=IF(AND(BC$4>=$I38,BC$4<=$J38),1,"")'  => None
+BD38: '=IF(AND(BD$4>=$I38,BD$4<=$J38),1,"")'  => None
+BE38: '=IF(AND(BE$4>=$I38,BE$4<=$J38),1,"")'  => None
+BF38: '=IF(AND(BF$4>=$I38,BF$4<=$J38),1,"")'  => None
+BG38: '=IF(AND(BG$4>=$I38,BG$4<=$J38),1,"")'  => None
+BH38: '=IF(AND(BH$4>=$I38,BH$4<=$J38),1,"")'  => None
+BI38: '=IF(AND(BI$4>=$I38,BI$4<=$J38),1,"")'  => None
+BJ38: '=IF(AND(BJ$4>=$I38,BJ$4<=$J38),1,"")'  => None
+BK38: '=IF(AND(BK$4>=$I38,BK$4<=$J38),1,"")'  => None
+BL38: '=IF(AND(BL$4>=$I38,BL$4<=$J38),1,"")'  => None
+BM38: '=IF(AND(BM$4>=$I38,BM$4<=$J38),1,"")'  => None
+BN38: '=IF(AND(BN$4>=$I38,BN$4<=$J38),1,"")'  => None
+BO38: '=IF(AND(BO$4>=$I38,BO$4<=$J38),1,"")'  => None
+BP38: '=IF(AND(BP$4>=$I38,BP$4<=$J38),1,"")'  => None
+BQ38: '=IF(AND(BQ$4>=$I38,BQ$4<=$J38),1,"")'  => None
+BR38: '=IF(AND(BR$4>=$I38,BR$4<=$J38),1,"")'  => None
+BS38: '=IF(AND(BS$4>=$I38,BS$4<=$J38),1,"")'  => None
+BT38: '=IF(AND(BT$4>=$I38,BT$4<=$J38),1,"")'  => None
+BV38: "F23: 'an explicit fix-and-retest loop with an HCL turnaround SLA' - week 22 is the fix half of the loop; the SLA makes HCL turnaround a managed commitment rather than untimed goodwill."
+A39: 'G-P4-FIX-R-s2'
+B39: '    • Retest with explicit greenfield coverage (clean-install paths) AND brownfield coverage (integration with the existing estate) before UAT entry'
+C39: 'HCL'
+D39: 'RECOMMENDED'
+F39: 'G-P4-FIX-R-s1'
+G39: 23
+H39: 1
+I39: '=MEDIAN($I$37,$J$37,$I$37+ROUND((G39-$G$37)/$H$37*($J$37-$I$37+1),0))'  => 23
+J39: '=MEDIAN(I39,$J$37,$I$37+ROUND((G39+H39-$G$37)/$H$37*($J$37-$I$37+1),0)-1)'  => 23
+L39: '=IF(AND(L$4>=$I39,L$4<=$J39),1,"")'  => None
+M39: '=IF(AND(M$4>=$I39,M$4<=$J39),1,"")'  => None
+N39: '=IF(AND(N$4>=$I39,N$4<=$J39),1,"")'  => None
+O39: '=IF(AND(O$4>=$I39,O$4<=$J39),1,"")'  => None
+P39: '=IF(AND(P$4>=$I39,P$4<=$J39),1,"")'  => None
+Q39: '=IF(AND(Q$4>=$I39,Q$4<=$J39),1,"")'  => None
+R39: '=IF(AND(R$4>=$I39,R$4<=$J39),1,"")'  => None
+S39: '=IF(AND(S$4>=$I39,S$4<=$J39),1,"")'  => None
+T39: '=IF(AND(T$4>=$I39,T$4<=$J39),1,"")'  => None
+U39: '=IF(AND(U$4>=$I39,U$4<=$J39),1,"")'  => None
+V39: '=IF(AND(V$4>=$I39,V$4<=$J39),1,"")'  => None
+W39: '=IF(AND(W$4>=$I39,W$4<=$J39),1,"")'  => None
+X39: '=IF(AND(X$4>=$I39,X$4<=$J39),1,"")'  => None
+Y39: '=IF(AND(Y$4>=$I39,Y$4<=$J39),1,"")'  => None
+Z39: '=IF(AND(Z$4>=$I39,Z$4<=$J39),1,"")'  => None
+AA39: '=IF(AND(AA$4>=$I39,AA$4<=$J39),1,"")'  => None
+AB39: '=IF(AND(AB$4>=$I39,AB$4<=$J39),1,"")'  => None
+AC39: '=IF(AND(AC$4>=$I39,AC$4<=$J39),1,"")'  => None
+AD39: '=IF(AND(AD$4>=$I39,AD$4<=$J39),1,"")'  => None
+AE39: '=IF(AND(AE$4>=$I39,AE$4<=$J39),1,"")'  => None
+AF39: '=IF(AND(AF$4>=$I39,AF$4<=$J39),1,"")'  => None
+AG39: '=IF(AND(AG$4>=$I39,AG$4<=$J39),1,"")'  => None
+AH39: '=IF(AND(AH$4>=$I39,AH$4<=$J39),1,"")'  => 1
+AI39: '=IF(AND(AI$4>=$I39,AI$4<=$J39),1,"")'  => None
+AJ39: '=IF(AND(AJ$4>=$I39,AJ$4<=$J39),1,"")'  => None
+AK39: '=IF(AND(AK$4>=$I39,AK$4<=$J39),1,"")'  => None
+AL39: '=IF(AND(AL$4>=$I39,AL$4<=$J39),1,"")'  => None
+AM39: '=IF(AND(AM$4>=$I39,AM$4<=$J39),1,"")'  => None
+AN39: '=IF(AND(AN$4>=$I39,AN$4<=$J39),1,"")'  => None
+AO39: '=IF(AND(AO$4>=$I39,AO$4<=$J39),1,"")'  => None
+AP39: '=IF(AND(AP$4>=$I39,AP$4<=$J39),1,"")'  => None
+AQ39: '=IF(AND(AQ$4>=$I39,AQ$4<=$J39),1,"")'  => None
+AR39: '=IF(AND(AR$4>=$I39,AR$4<=$J39),1,"")'  => None
+AS39: '=IF(AND(AS$4>=$I39,AS$4<=$J39),1,"")'  => None
+AT39: '=IF(AND(AT$4>=$I39,AT$4<=$J39),1,"")'  => None
+AU39: '=IF(AND(AU$4>=$I39,AU$4<=$J39),1,"")'  => None
+AV39: '=IF(AND(AV$4>=$I39,AV$4<=$J39),1,"")'  => None
+AW39: '=IF(AND(AW$4>=$I39,AW$4<=$J39),1,"")'  => None
+AX39: '=IF(AND(AX$4>=$I39,AX$4<=$J39),1,"")'  => None
+AY39: '=IF(AND(AY$4>=$I39,AY$4<=$J39),1,"")'  => None
+AZ39: '=IF(AND(AZ$4>=$I39,AZ$4<=$J39),1,"")'  => None
+BA39: '=IF(AND(BA$4>=$I39,BA$4<=$J39),1,"")'  => None
+BB39: '=IF(AND(BB$4>=$I39,BB$4<=$J39),1,"")'  => None
+BC39: '=IF(AND(BC$4>=$I39,BC$4<=$J39),1,"")'  => None
+BD39: '=IF(AND(BD$4>=$I39,BD$4<=$J39),1,"")'  => None
+BE39: '=IF(AND(BE$4>=$I39,BE$4<=$J39),1,"")'  => None
+BF39: '=IF(AND(BF$4>=$I39,BF$4<=$J39),1,"")'  => None
+BG39: '=IF(AND(BG$4>=$I39,BG$4<=$J39),1,"")'  => None
+BH39: '=IF(AND(BH$4>=$I39,BH$4<=$J39),1,"")'  => None
+BI39: '=IF(AND(BI$4>=$I39,BI$4<=$J39),1,"")'  => None
+BJ39: '=IF(AND(BJ$4>=$I39,BJ$4<=$J39),1,"")'  => None
+BK39: '=IF(AND(BK$4>=$I39,BK$4<=$J39),1,"")'  => None
+BL39: '=IF(AND(BL$4>=$I39,BL$4<=$J39),1,"")'  => None
+BM39: '=IF(AND(BM$4>=$I39,BM$4<=$J39),1,"")'  => None
+BN39: '=IF(AND(BN$4>=$I39,BN$4<=$J39),1,"")'  => None
+BO39: '=IF(AND(BO$4>=$I39,BO$4<=$J39),1,"")'  => None
+BP39: '=IF(AND(BP$4>=$I39,BP$4<=$J39),1,"")'  => None
+BQ39: '=IF(AND(BQ$4>=$I39,BQ$4<=$J39),1,"")'  => None
+BR39: '=IF(AND(BR$4>=$I39,BR$4<=$J39),1,"")'  => None
+BS39: '=IF(AND(BS$4>=$I39,BS$4<=$J39),1,"")'  => None
+BT39: '=IF(AND(BT$4>=$I39,BT$4<=$J39),1,"")'  => None
+BV39: "F23: 'state greenfield/brownfield coverage in the test scope' - the architect flagged both scenarios need testing; the retest week exercises fixed components on both paths so UAT starts on a known-good baseline."
+A41: 'G-P4-L8-R'
+B41: 'Testing  [P4-L8]'
+C41: 'ThirdParty'
+D41: 'RECOMMENDED'
+E41: 'F26'
+G41: 26
+H41: 3
+I41: '=MIN(61,IF(G41<=29,ROUND((G41-1)*(29+SlipWeeks)/29,0)+1,G41+SlipWeeks))'  => 26
+J41: '=MIN(61,I41+H41-1)'  => 28
+K41: 'Moved from inside the December test window to weeks 26-28 as a named go/no-go input completing immediately before the gate, clear of the Christmas freeze.'
+L41: '=IF(AND(L$4>=$I41,L$4<=$J41),1,"")'  => None
+M41: '=IF(AND(M$4>=$I41,M$4<=$J41),1,"")'  => None
+N41: '=IF(AND(N$4>=$I41,N$4<=$J41),1,"")'  => None
+O41: '=IF(AND(O$4>=$I41,O$4<=$J41),1,"")'  => None
+P41: '=IF(AND(P$4>=$I41,P$4<=$J41),1,"")'  => None
+Q41: '=IF(AND(Q$4>=$I41,Q$4<=$J41),1,"")'  => None
+R41: '=IF(AND(R$4>=$I41,R$4<=$J41),1,"")'  => None
+S41: '=IF(AND(S$4>=$I41,S$4<=$J41),1,"")'  => None
+T41: '=IF(AND(T$4>=$I41,T$4<=$J41),1,"")'  => None
+U41: '=IF(AND(U$4>=$I41,U$4<=$J41),1,"")'  => None
+V41: '=IF(AND(V$4>=$I41,V$4<=$J41),1,"")'  => None
+W41: '=IF(AND(W$4>=$I41,W$4<=$J41),1,"")'  => None
+X41: '=IF(AND(X$4>=$I41,X$4<=$J41),1,"")'  => None
+Y41: '=IF(AND(Y$4>=$I41,Y$4<=$J41),1,"")'  => None
+Z41: '=IF(AND(Z$4>=$I41,Z$4<=$J41),1,"")'  => None
+AA41: '=IF(AND(AA$4>=$I41,AA$4<=$J41),1,"")'  => None
+AB41: '=IF(AND(AB$4>=$I41,AB$4<=$J41),1,"")'  => None
+AC41: '=IF(AND(AC$4>=$I41,AC$4<=$J41),1,"")'  => None
+AD41: '=IF(AND(AD$4>=$I41,AD$4<=$J41),1,"")'  => None
+AE41: '=IF(AND(AE$4>=$I41,AE$4<=$J41),1,"")'  => None
+AF41: '=IF(AND(AF$4>=$I41,AF$4<=$J41),1,"")'  => None
+AG41: '=IF(AND(AG$4>=$I41,AG$4<=$J41),1,"")'  => None
+AH41: '=IF(AND(AH$4>=$I41,AH$4<=$J41),1,"")'  => None
+AI41: '=IF(AND(AI$4>=$I41,AI$4<=$J41),1,"")'  => None
+AJ41: '=IF(AND(AJ$4>=$I41,AJ$4<=$J41),1,"")'  => None
+AK41: '=IF(AND(AK$4>=$I41,AK$4<=$J41),1,"")'  => 1
+AL41: '=IF(AND(AL$4>=$I41,AL$4<=$J41),1,"")'  => 1
+AM41: '=IF(AND(AM$4>=$I41,AM$4<=$J41),1,"")'  => 1
+AN41: '=IF(AND(AN$4>=$I41,AN$4<=$J41),1,"")'  => None
+AO41: '=IF(AND(AO$4>=$I41,AO$4<=$J41),1,"")'  => None
+AP41: '=IF(AND(AP$4>=$I41,AP$4<=$J41),1,"")'  => None
+AQ41: '=IF(AND(AQ$4>=$I41,AQ$4<=$J41),1,"")'  => None
+AR41: '=IF(AND(AR$4>=$I41,AR$4<=$J41),1,"")'  => None
+AS41: '=IF(AND(AS$4>=$I41,AS$4<=$J41),1,"")'  => None
+AT41: '=IF(AND(AT$4>=$I41,AT$4<=$J41),1,"")'  => None
+AU41: '=IF(AND(AU$4>=$I41,AU$4<=$J41),1,"")'  => None
+AV41: '=IF(AND(AV$4>=$I41,AV$4<=$J41),1,"")'  => None
+AW41: '=IF(AND(AW$4>=$I41,AW$4<=$J41),1,"")'  => None
+AX41: '=IF(AND(AX$4>=$I41,AX$4<=$J41),1,"")'  => None
+AY41: '=IF(AND(AY$4>=$I41,AY$4<=$J41),1,"")'  => None
+AZ41: '=IF(AND(AZ$4>=$I41,AZ$4<=$J41),1,"")'  => None
+BA41: '=IF(AND(BA$4>=$I41,BA$4<=$J41),1,"")'  => None
+BB41: '=IF(AND(BB$4>=$I41,BB$4<=$J41),1,"")'  => None
+BC41: '=IF(AND(BC$4>=$I41,BC$4<=$J41),1,"")'  => None
+BD41: '=IF(AND(BD$4>=$I41,BD$4<=$J41),1,"")'  => None
+BE41: '=IF(AND(BE$4>=$I41,BE$4<=$J41),1,"")'  => None
+BF41: '=IF(AND(BF$4>=$I41,BF$4<=$J41),1,"")'  => None
+BG41: '=IF(AND(BG$4>=$I41,BG$4<=$J41),1,"")'  => None
+BH41: '=IF(AND(BH$4>=$I41,BH$4<=$J41),1,"")'  => None
+BI41: '=IF(AND(BI$4>=$I41,BI$4<=$J41),1,"")'  => None
+BJ41: '=IF(AND(BJ$4>=$I41,BJ$4<=$J41),1,"")'  => None
+BK41: '=IF(AND(BK$4>=$I41,BK$4<=$J41),1,"")'  => None
+BL41: '=IF(AND(BL$4>=$I41,BL$4<=$J41),1,"")'  => None
+BM41: '=IF(AND(BM$4>=$I41,BM$4<=$J41),1,"")'  => None
+BN41: '=IF(AND(BN$4>=$I41,BN$4<=$J41),1,"")'  => None
+BO41: '=IF(AND(BO$4>=$I41,BO$4<=$J41),1,"")'  => None
+BP41: '=IF(AND(BP$4>=$I41,BP$4<=$J41),1,"")'  => None
+BQ41: '=IF(AND(BQ$4>=$I41,BQ$4<=$J41),1,"")'  => None
+BR41: '=IF(AND(BR$4>=$I41,BR$4<=$J41),1,"")'  => None
+BS41: '=IF(AND(BS$4>=$I41,BS$4<=$J41),1,"")'  => None
+BT41: '=IF(AND(BT$4>=$I41,BT$4<=$J41),1,"")'  => None
+BU41: '=IF($I41+H41-1>61,"▶ clipped","")'  => None
+BV41: "F26: 'Add a pre-go-live AI red-team exercise and audit dry-run as named go/no-go inputs (carried as P4-L8), plus a recurring cadence as agent surfaces and edge cases grow (R-L31)' - placed at weeks 26-28, late in the re-anchored test window running into the deploy start, completing BEFORE the go/no-go gate (~week 30 in G-TEST-REANCHOR-R-s5) so its findings are genuine gate inputs. It cannot sit earlier without landing in the Christmas freeze (weeks 24-25), which F1 rules out for go/no-go inputs. Cost unchanged: fixed engagement of 3-8 tester-days (P4-L8); the recurring cadence is already carried as R-L31 in the run model."
+A42: 'G-P4-L8-R-s1'
+B42: '    • AI red-team exercise on agent surfaces - prompt injection, tool-abuse/data-exfiltration, jailbreak testing'
+C42: 'ThirdParty'
+D42: 'RECOMMENDED'
+G42: 26
+H42: 1
+I42: '=MEDIAN($I$41,$J$41,$I$41+ROUND((G42-$G$41)/$H$41*($J$41-$I$41+1),0))'  => 26
+J42: '=MEDIAN(I42,$J$41,$I$41+ROUND((G42+H42-$G$41)/$H$41*($J$41-$I$41+1),0)-1)'  => 26
+L42: '=IF(AND(L$4>=$I42,L$4<=$J42),1,"")'  => None
+M42: '=IF(AND(M$4>=$I42,M$4<=$J42),1,"")'  => None
+N42: '=IF(AND(N$4>=$I42,N$4<=$J42),1,"")'  => None
+O42: '=IF(AND(O$4>=$I42,O$4<=$J42),1,"")'  => None
+P42: '=IF(AND(P$4>=$I42,P$4<=$J42),1,"")'  => None
+Q42: '=IF(AND(Q$4>=$I42,Q$4<=$J42),1,"")'  => None
+R42: '=IF(AND(R$4>=$I42,R$4<=$J42),1,"")'  => None
+S42: '=IF(AND(S$4>=$I42,S$4<=$J42),1,"")'  => None
+T42: '=IF(AND(T$4>=$I42,T$4<=$J42),1,"")'  => None
+U42: '=IF(AND(U$4>=$I42,U$4<=$J42),1,"")'  => None
+V42: '=IF(AND(V$4>=$I42,V$4<=$J42),1,"")'  => None
+W42: '=IF(AND(W$4>=$I42,W$4<=$J42),1,"")'  => None
+X42: '=IF(AND(X$4>=$I42,X$4<=$J42),1,"")'  => None
+Y42: '=IF(AND(Y$4>=$I42,Y$4<=$J42),1,"")'  => None
+Z42: '=IF(AND(Z$4>=$I42,Z$4<=$J42),1,"")'  => None
+AA42: '=IF(AND(AA$4>=$I42,AA$4<=$J42),1,"")'  => None
+AB42: '=IF(AND(AB$4>=$I42,AB$4<=$J42),1,"")'  => None
+AC42: '=IF(AND(AC$4>=$I42,AC$4<=$J42),1,"")'  => None
+AD42: '=IF(AND(AD$4>=$I42,AD$4<=$J42),1,"")'  => None
+AE42: '=IF(AND(AE$4>=$I42,AE$4<=$J42),1,"")'  => None
+AF42: '=IF(AND(AF$4>=$I42,AF$4<=$J42),1,"")'  => None
+AG42: '=IF(AND(AG$4>=$I42,AG$4<=$J42),1,"")'  => None
+AH42: '=IF(AND(AH$4>=$I42,AH$4<=$J42),1,"")'  => None
+AI42: '=IF(AND(AI$4>=$I42,AI$4<=$J42),1,"")'  => None
+AJ42: '=IF(AND(AJ$4>=$I42,AJ$4<=$J42),1,"")'  => None
+AK42: '=IF(AND(AK$4>=$I42,AK$4<=$J42),1,"")'  => 1
+AL42: '=IF(AND(AL$4>=$I42,AL$4<=$J42),1,"")'  => None
+AM42: '=IF(AND(AM$4>=$I42,AM$4<=$J42),1,"")'  => None
+AN42: '=IF(AND(AN$4>=$I42,AN$4<=$J42),1,"")'  => None
+AO42: '=IF(AND(AO$4>=$I42,AO$4<=$J42),1,"")'  => None
+AP42: '=IF(AND(AP$4>=$I42,AP$4<=$J42),1,"")'  => None
+AQ42: '=IF(AND(AQ$4>=$I42,AQ$4<=$J42),1,"")'  => None
+AR42: '=IF(AND(AR$4>=$I42,AR$4<=$J42),1,"")'  => None
+AS42: '=IF(AND(AS$4>=$I42,AS$4<=$J42),1,"")'  => None
+AT42: '=IF(AND(AT$4>=$I42,AT$4<=$J42),1,"")'  => None
+AU42: '=IF(AND(AU$4>=$I42,AU$4<=$J42),1,"")'  => None
+AV42: '=IF(AND(AV$4>=$I42,AV$4<=$J42),1,"")'  => None
+AW42: '=IF(AND(AW$4>=$I42,AW$4<=$J42),1,"")'  => None
+AX42: '=IF(AND(AX$4>=$I42,AX$4<=$J42),1,"")'  => None
+AY42: '=IF(AND(AY$4>=$I42,AY$4<=$J42),1,"")'  => None
+AZ42: '=IF(AND(AZ$4>=$I42,AZ$4<=$J42),1,"")'  => None
+BA42: '=IF(AND(BA$4>=$I42,BA$4<=$J42),1,"")'  => None
+BB42: '=IF(AND(BB$4>=$I42,BB$4<=$J42),1,"")'  => None
+BC42: '=IF(AND(BC$4>=$I42,BC$4<=$J42),1,"")'  => None
+BD42: '=IF(AND(BD$4>=$I42,BD$4<=$J42),1,"")'  => None
+BE42: '=IF(AND(BE$4>=$I42,BE$4<=$J42),1,"")'  => None
+BF42: '=IF(AND(BF$4>=$I42,BF$4<=$J42),1,"")'  => None
+BG42: '=IF(AND(BG$4>=$I42,BG$4<=$J42),1,"")'  => None
+BH42: '=IF(AND(BH$4>=$I42,BH$4<=$J42),1,"")'  => None
+BI42: '=IF(AND(BI$4>=$I42,BI$4<=$J42),1,"")'  => None
+BJ42: '=IF(AND(BJ$4>=$I42,BJ$4<=$J42),1,"")'  => None
+BK42: '=IF(AND(BK$4>=$I42,BK$4<=$J42),1,"")'  => None
+BL42: '=IF(AND(BL$4>=$I42,BL$4<=$J42),1,"")'  => None
+BM42: '=IF(AND(BM$4>=$I42,BM$4<=$J42),1,"")'  => None
+BN42: '=IF(AND(BN$4>=$I42,BN$4<=$J42),1,"")'  => None
+BO42: '=IF(AND(BO$4>=$I42,BO$4<=$J42),1,"")'  => None
+BP42: '=IF(AND(BP$4>=$I42,BP$4<=$J42),1,"")'  => None
+BQ42: '=IF(AND(BQ$4>=$I42,BQ$4<=$J42),1,"")'  => None
+BR42: '=IF(AND(BR$4>=$I42,BR$4<=$J42),1,"")'  => None
+BS42: '=IF(AND(BS$4>=$I42,BS$4<=$J42),1,"")'  => None
+BT42: '=IF(AND(BT$4>=$I42,BT$4<=$J42),1,"")'  => None
+BV42: "F26: 'Add a pre-go-live AI red-team exercise' - scope drawn from the finding's own list (prompt injection, data exfiltration via tools, jailbreaks); runs week 26 in parallel with UAT on the same environments."
+A43: 'G-P4-L8-R-s2'
+B43: "    • Audit dry-run against the platform's operational and governance evidence"
+C43: 'ThirdParty'
+D43: 'RECOMMENDED'
+F43: 'G-P4-L8-R-s1'
+G43: 27
+H43: 1
+I43: '=MEDIAN($I$41,$J$41,$I$41+ROUND((G43-$G$41)/$H$41*($J$41-$I$41+1),0))'  => 27
+J43: '=MEDIAN(I43,$J$41,$I$41+ROUND((G43+H43-$G$41)/$H$41*($J$41-$I$41+1),0)-1)'  => 27
+L43: '=IF(AND(L$4>=$I43,L$4<=$J43),1,"")'  => None
+M43: '=IF(AND(M$4>=$I43,M$4<=$J43),1,"")'  => None
+N43: '=IF(AND(N$4>=$I43,N$4<=$J43),1,"")'  => None
+O43: '=IF(AND(O$4>=$I43,O$4<=$J43),1,"")'  => None
+P43: '=IF(AND(P$4>=$I43,P$4<=$J43),1,"")'  => None
+Q43: '=IF(AND(Q$4>=$I43,Q$4<=$J43),1,"")'  => None
+R43: '=IF(AND(R$4>=$I43,R$4<=$J43),1,"")'  => None
+S43: '=IF(AND(S$4>=$I43,S$4<=$J43),1,"")'  => None
+T43: '=IF(AND(T$4>=$I43,T$4<=$J43),1,"")'  => None
+U43: '=IF(AND(U$4>=$I43,U$4<=$J43),1,"")'  => None
+V43: '=IF(AND(V$4>=$I43,V$4<=$J43),1,"")'  => None
+W43: '=IF(AND(W$4>=$I43,W$4<=$J43),1,"")'  => None
+X43: '=IF(AND(X$4>=$I43,X$4<=$J43),1,"")'  => None
+Y43: '=IF(AND(Y$4>=$I43,Y$4<=$J43),1,"")'  => None
+Z43: '=IF(AND(Z$4>=$I43,Z$4<=$J43),1,"")'  => None
+AA43: '=IF(AND(AA$4>=$I43,AA$4<=$J43),1,"")'  => None
+AB43: '=IF(AND(AB$4>=$I43,AB$4<=$J43),1,"")'  => None
+AC43: '=IF(AND(AC$4>=$I43,AC$4<=$J43),1,"")'  => None
+AD43: '=IF(AND(AD$4>=$I43,AD$4<=$J43),1,"")'  => None
+AE43: '=IF(AND(AE$4>=$I43,AE$4<=$J43),1,"")'  => None
+AF43: '=IF(AND(AF$4>=$I43,AF$4<=$J43),1,"")'  => None
+AG43: '=IF(AND(AG$4>=$I43,AG$4<=$J43),1,"")'  => None
+AH43: '=IF(AND(AH$4>=$I43,AH$4<=$J43),1,"")'  => None
+AI43: '=IF(AND(AI$4>=$I43,AI$4<=$J43),1,"")'  => None
+AJ43: '=IF(AND(AJ$4>=$I43,AJ$4<=$J43),1,"")'  => None
+AK43: '=IF(AND(AK$4>=$I43,AK$4<=$J43),1,"")'  => None
+AL43: '=IF(AND(AL$4>=$I43,AL$4<=$J43),1,"")'  => 1
+AM43: '=IF(AND(AM$4>=$I43,AM$4<=$J43),1,"")'  => None
+AN43: '=IF(AND(AN$4>=$I43,AN$4<=$J43),1,"")'  => None
+AO43: '=IF(AND(AO$4>=$I43,AO$4<=$J43),1,"")'  => None
+AP43: '=IF(AND(AP$4>=$I43,AP$4<=$J43),1,"")'  => None
+AQ43: '=IF(AND(AQ$4>=$I43,AQ$4<=$J43),1,"")'  => None
+AR43: '=IF(AND(AR$4>=$I43,AR$4<=$J43),1,"")'  => None
+AS43: '=IF(AND(AS$4>=$I43,AS$4<=$J43),1,"")'  => None
+AT43: '=IF(AND(AT$4>=$I43,AT$4<=$J43),1,"")'  => None
+AU43: '=IF(AND(AU$4>=$I43,AU$4<=$J43),1,"")'  => None
+AV43: '=IF(AND(AV$4>=$I43,AV$4<=$J43),1,"")'  => None
+AW43: '=IF(AND(AW$4>=$I43,AW$4<=$J43),1,"")'  => None
+AX43: '=IF(AND(AX$4>=$I43,AX$4<=$J43),1,"")'  => None
+AY43: '=IF(AND(AY$4>=$I43,AY$4<=$J43),1,"")'  => None
+AZ43: '=IF(AND(AZ$4>=$I43,AZ$4<=$J43),1,"")'  => None
+BA43: '=IF(AND(BA$4>=$I43,BA$4<=$J43),1,"")'  => None
+BB43: '=IF(AND(BB$4>=$I43,BB$4<=$J43),1,"")'  => None
+BC43: '=IF(AND(BC$4>=$I43,BC$4<=$J43),1,"")'  => None
+BD43: '=IF(AND(BD$4>=$I43,BD$4<=$J43),1,"")'  => None
+BE43: '=IF(AND(BE$4>=$I43,BE$4<=$J43),1,"")'  => None
+BF43: '=IF(AND(BF$4>=$I43,BF$4<=$J43),1,"")'  => None
+BG43: '=IF(AND(BG$4>=$I43,BG$4<=$J43),1,"")'  => None
+BH43: '=IF(AND(BH$4>=$I43,BH$4<=$J43),1,"")'  => None
+BI43: '=IF(AND(BI$4>=$I43,BI$4<=$J43),1,"")'  => None
+BJ43: '=IF(AND(BJ$4>=$I43,BJ$4<=$J43),1,"")'  => None
+BK43: '=IF(AND(BK$4>=$I43,BK$4<=$J43),1,"")'  => None
+BL43: '=IF(AND(BL$4>=$I43,BL$4<=$J43),1,"")'  => None
+BM43: '=IF(AND(BM$4>=$I43,BM$4<=$J43),1,"")'  => None
+BN43: '=IF(AND(BN$4>=$I43,BN$4<=$J43),1,"")'  => None
+BO43: '=IF(AND(BO$4>=$I43,BO$4<=$J43),1,"")'  => None
+BP43: '=IF(AND(BP$4>=$I43,BP$4<=$J43),1,"")'  => None
+BQ43: '=IF(AND(BQ$4>=$I43,BQ$4<=$J43),1,"")'  => None
+BR43: '=IF(AND(BR$4>=$I43,BR$4<=$J43),1,"")'  => None
+BS43: '=IF(AND(BS$4>=$I43,BS$4<=$J43),1,"")'  => None
+BT43: '=IF(AND(BT$4>=$I43,BT$4<=$J43),1,"")'  => None
+BV43: "F26: 'and audit dry-run' - the finding notes 'no audit dry-run precedes go-live on a platform whose product is agent behaviour'; week 27 closes that gap before the gate."
+A44: 'G-P4-L8-R-s3'
+B44: '    • Findings triage and red-team/audit report issued as named go/no-go inputs'
+C44: 'ThirdParty'
+D44: 'RECOMMENDED'
+F44: 'G-P4-L8-R-s2'
+G44: 28
+H44: 1
+I44: '=MEDIAN($I$41,$J$41,$I$41+ROUND((G44-$G$41)/$H$41*($J$41-$I$41+1),0))'  => 28
+J44: '=MEDIAN(I44,$J$41,$I$41+ROUND((G44+H44-$G$41)/$H$41*($J$41-$I$41+1),0)-1)'  => 28
+L44: '=IF(AND(L$4>=$I44,L$4<=$J44),1,"")'  => None
+M44: '=IF(AND(M$4>=$I44,M$4<=$J44),1,"")'  => None
+N44: '=IF(AND(N$4>=$I44,N$4<=$J44),1,"")'  => None
+O44: '=IF(AND(O$4>=$I44,O$4<=$J44),1,"")'  => None
+P44: '=IF(AND(P$4>=$I44,P$4<=$J44),1,"")'  => None
+Q44: '=IF(AND(Q$4>=$I44,Q$4<=$J44),1,"")'  => None
+R44: '=IF(AND(R$4>=$I44,R$4<=$J44),1,"")'  => None
+S44: '=IF(AND(S$4>=$I44,S$4<=$J44),1,"")'  => None
+T44: '=IF(AND(T$4>=$I44,T$4<=$J44),1,"")'  => None
+U44: '=IF(AND(U$4>=$I44,U$4<=$J44),1,"")'  => None
+V44: '=IF(AND(V$4>=$I44,V$4<=$J44),1,"")'  => None
+W44: '=IF(AND(W$4>=$I44,W$4<=$J44),1,"")'  => None
+X44: '=IF(AND(X$4>=$I44,X$4<=$J44),1,"")'  => None
+Y44: '=IF(AND(Y$4>=$I44,Y$4<=$J44),1,"")'  => None
+Z44: '=IF(AND(Z$4>=$I44,Z$4<=$J44),1,"")'  => None
+AA44: '=IF(AND(AA$4>=$I44,AA$4<=$J44),1,"")'  => None
+AB44: '=IF(AND(AB$4>=$I44,AB$4<=$J44),1,"")'  => None
+AC44: '=IF(AND(AC$4>=$I44,AC$4<=$J44),1,"")'  => None
+AD44: '=IF(AND(AD$4>=$I44,AD$4<=$J44),1,"")'  => None
+AE44: '=IF(AND(AE$4>=$I44,AE$4<=$J44),1,"")'  => None
+AF44: '=IF(AND(AF$4>=$I44,AF$4<=$J44),1,"")'  => None
+AG44: '=IF(AND(AG$4>=$I44,AG$4<=$J44),1,"")'  => None
+AH44: '=IF(AND(AH$4>=$I44,AH$4<=$J44),1,"")'  => None
+AI44: '=IF(AND(AI$4>=$I44,AI$4<=$J44),1,"")'  => None
+AJ44: '=IF(AND(AJ$4>=$I44,AJ$4<=$J44),1,"")'  => None
+AK44: '=IF(AND(AK$4>=$I44,AK$4<=$J44),1,"")'  => None
+AL44: '=IF(AND(AL$4>=$I44,AL$4<=$J44),1,"")'  => None
+AM44: '=IF(AND(AM$4>=$I44,AM$4<=$J44),1,"")'  => 1
+AN44: '=IF(AND(AN$4>=$I44,AN$4<=$J44),1,"")'  => None
+AO44: '=IF(AND(AO$4>=$I44,AO$4<=$J44),1,"")'  => None
+AP44: '=IF(AND(AP$4>=$I44,AP$4<=$J44),1,"")'  => None
+AQ44: '=IF(AND(AQ$4>=$I44,AQ$4<=$J44),1,"")'  => None
+AR44: '=IF(AND(AR$4>=$I44,AR$4<=$J44),1,"")'  => None
+AS44: '=IF(AND(AS$4>=$I44,AS$4<=$J44),1,"")'  => None
+AT44: '=IF(AND(AT$4>=$I44,AT$4<=$J44),1,"")'  => None
+AU44: '=IF(AND(AU$4>=$I44,AU$4<=$J44),1,"")'  => None
+AV44: '=IF(AND(AV$4>=$I44,AV$4<=$J44),1,"")'  => None
+AW44: '=IF(AND(AW$4>=$I44,AW$4<=$J44),1,"")'  => None
+AX44: '=IF(AND(AX$4>=$I44,AX$4<=$J44),1,"")'  => None
+AY44: '=IF(AND(AY$4>=$I44,AY$4<=$J44),1,"")'  => None
+AZ44: '=IF(AND(AZ$4>=$I44,AZ$4<=$J44),1,"")'  => None
+BA44: '=IF(AND(BA$4>=$I44,BA$4<=$J44),1,"")'  => None
+BB44: '=IF(AND(BB$4>=$I44,BB$4<=$J44),1,"")'  => None
+BC44: '=IF(AND(BC$4>=$I44,BC$4<=$J44),1,"")'  => None
+BD44: '=IF(AND(BD$4>=$I44,BD$4<=$J44),1,"")'  => None
+BE44: '=IF(AND(BE$4>=$I44,BE$4<=$J44),1,"")'  => None
+BF44: '=IF(AND(BF$4>=$I44,BF$4<=$J44),1,"")'  => None
+BG44: '=IF(AND(BG$4>=$I44,BG$4<=$J44),1,"")'  => None
+BH44: '=IF(AND(BH$4>=$I44,BH$4<=$J44),1,"")'  => None
+BI44: '=IF(AND(BI$4>=$I44,BI$4<=$J44),1,"")'  => None
+BJ44: '=IF(AND(BJ$4>=$I44,BJ$4<=$J44),1,"")'  => None
+BK44: '=IF(AND(BK$4>=$I44,BK$4<=$J44),1,"")'  => None
+BL44: '=IF(AND(BL$4>=$I44,BL$4<=$J44),1,"")'  => None
+BM44: '=IF(AND(BM$4>=$I44,BM$4<=$J44),1,"")'  => None
+BN44: '=IF(AND(BN$4>=$I44,BN$4<=$J44),1,"")'  => None
+BO44: '=IF(AND(BO$4>=$I44,BO$4<=$J44),1,"")'  => None
+BP44: '=IF(AND(BP$4>=$I44,BP$4<=$J44),1,"")'  => None
+BQ44: '=IF(AND(BQ$4>=$I44,BQ$4<=$J44),1,"")'  => None
+BR44: '=IF(AND(BR$4>=$I44,BR$4<=$J44),1,"")'  => None
+BS44: '=IF(AND(BS$4>=$I44,BS$4<=$J44),1,"")'  => None
+BT44: '=IF(AND(BT$4>=$I44,BT$4<=$J44),1,"")'  => None
+BV44: "F26: 'as named go/no-go inputs (carried as P4-L8)' - the report lands week 28, ahead of the go/no-go gate in the re-anchored deploy step (G-TEST-REANCHOR-R-s5)."
