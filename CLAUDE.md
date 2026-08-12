@@ -22,6 +22,26 @@ Both repos work on branch `scudo-phase0-foundations`. A separate deployed React 
 - **Vendor IRIs**: `mds.<vendor>:<uuid5>`.
 - **Architecture**: 5-zone design approved by Nigel (JPM) 2026-07-03; ONE Aurora for all DB interactions; MFT gateway is JPM-owned. See `docs/specs/` + `infra/HANDOVER_5zone_alignment.md`.
 - **Fixture sync**: `backend/scudo/fixtures/matching-graph.json` must stay byte-identical with the dashboard repo's `public/matching-graph.json`. Test runs regenerate the fixture (`analyzedAt` timestamp churn is expected).
+- **Frames are authoritative; inline text is gated** (2026-08-06). `_frame` /
+  `_resolve_frame` exist in THREE files that must stay in agreement —
+  `routes/mapping.py`, `scudo_mapping_mcp/match_verify_mcp.py`,
+  `scudo_mapping_mcp/mcp_server.py`. All three ignore caller-supplied
+  `name`/`description` unless `SCUDO_MV_ALLOW_INLINE_FRAME` is set, and refuse
+  (404 / `frame_not_found` / `FrameRefusal`) instead of fabricating
+  `name=product_id`. If you fix one, fix all three — that duplication has bitten
+  twice.
+- **Publish gate is deterministic, not advisory** (2026-08-06).
+  `_pre_verify_defects` output is only pasted into the verifier LLM's *prompt*
+  and enforces NOTHING. Two checks were promoted to hard `PublishGateError`
+  raises in `_gate_and_decide`: the `vendor_product_iri` echo, and
+  `proposed_target_iri` candidate membership (fail-closed on an empty candidate
+  list). Both were proven to publish bad data before promotion. **Adding a check
+  to `_pre_verify_defects` does not enforce it** — put it in `_gate_and_decide`.
+- **All vendor-derived keys lowercase the vendor**: `models.mds_iri`,
+  `verdict.input_hash`, and `store/base.vendor_signature`. They must fork or
+  converge together — `vendor_signature` alone used not to, so `'LSEG'` and
+  `'lseg'` shared an IRI but split rank signals silently. Gate:
+  `tests/test_vendor_signature_casing.py`.
 
 ## State as of 2026-07-06
 
@@ -43,11 +63,59 @@ Both repos work on branch `scudo-phase0-foundations`. A separate deployed React 
 
 ## Running things
 
-- **Local backend:** `backend/run_local.py`, Flask on :5001, `STORE_BACKEND=memory` (set env **before** import). Local loop gotchas: `vendor_signature`, `decision=` — see project memory `scudo-local-loop-run`.
+- **Local run (START HERE — no Docker, no Postgres, no FalkorDB, no Neptune, no Bedrock):**
+  ```bash
+  PORT=5055 VITE_API_PROXY=http://localhost:5055 python start_local.py
+  ```
+  Open the **UI on :3000**, not the backend port. `start_local.py` sets the
+  environment *before* importing `app.py` — that ordering is the whole point:
+  `start_all.sh` runs `python3 app.py` directly, so the auth gate 401s every
+  `/api/*` call and only the shell renders ("only one page opens"). macOS
+  AirPlay squats on :5000, hence the `PORT` override.
+
+  Providers / Datasets / Admin / Ingestion are the only DB-backed pages. They
+  now work with **no database installed** via `CONSOLE_DB_BACKEND=sqlite`
+  (already set in `start_local.py`) → `backend/db_sqlite_fallback.py`, a
+  file-backed SQLite stand-in at `backend/.local/console.sqlite3`. Unset the var
+  and the psycopg/PostgreSQL path is unchanged. Full detail + known limits:
+  `JPMC_LOCAL_RUN_HANDOVER.md`.
+
+  Verified state (measured, not inferred): MySQL is **already gone** (zero
+  imports); FalkorDB and Neptune are **lazy-imported and unused** under
+  `STORE_BACKEND=local_file`; all `boto3` imports are lazy so Bedrock is
+  additive, and the LLM **narrates** — the score is deterministic Jaro-Winkler
+  either way.
+
+- **Alternate local backend:** `backend/run_local.py`, Flask on :5001,
+  `STORE_BACKEND=memory` (set env **before** import). Prefer `start_local.py`
+  above; this one sets no auth env, so `/api/*` will 401. Local loop gotchas:
+  `vendor_signature`, `decision=` — see project memory `scudo-local-loop-run`.
 - **Dashboard dev:** `pnpm dev` in the dashboard package, Vite on :5173 (tokened URL printed at startup). Build: `pnpm build:matching` (tsc -b + `vite.config.matching.ts`).
 - **Vendored dist rebuild:** `bash infra/build_dashboard_dist.sh` (syncs fixture → builds → copies into `dashboard-dist/`).
 - **Tests:** backend `pytest backend/scudo/tests/` (bare `pytest` at root collects nothing); dashboard `pnpm vitest run`. Standalone smoke runners: `smoke.py` (mapping 111-gate, no deps), orchestrator smoke needs `strands`.
 - **Graph fixture regen:** `python -m backend.scudo.build_matching_graph` (run from repo root).
+
+### Env flags added 2026-08-06 (all default OFF / safe)
+
+| Flag | Default | Effect when set |
+|---|---|---|
+| `CONSOLE_DB_BACKEND=sqlite` | unset → PostgreSQL | DB pages work with no Docker |
+| `SCUDO_MV_ALLOW_INLINE_FRAME` | off → frame wins | honour caller-supplied name/description |
+| `SCUDO_TEMPORAL_VALIDATION` | off | enable the `temporal_compatible` validation |
+| `SCUDO_PERSIST_WRITE_TOKEN` | unset → **writes refused** | shared secret for the persistence MCP write tools |
+| `SCUDO_PERSIST_ALLOW_DEV_WRITES` | off | local dev bypass for the above |
+
+Two gotchas worth knowing before you debug something:
+
+- `SCUDO_VERDICT_ALLOW_DEV` selects the dev HMAC **signing key only**. It used
+  to also disable the canonical-write gate, which meant the README's own
+  local-run recipe silently opened it. Deliberately decoupled — do not re-couple.
+- The persistence MCP write tools (`record_decision`, `import_bundle`,
+  `publish_bundle`) **fail closed**: with no `SCUDO_PERSIST_WRITE_TOKEN` set they
+  refuse every write. That is intentional. `commit_mapping` is exempt because
+  the HMAC verdict seal is the stronger control on that path. The Flask console
+  route is a SEPARATE ingress (`feedback.apply_decision` direct) and is
+  unaffected.
 
 ## Conventions
 

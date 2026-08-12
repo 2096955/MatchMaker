@@ -10,6 +10,12 @@ of record. The core operating rule is:
 > **The matcher proposes a controlled result, agents add context, and people
 > decide what is uncertain.**
 
+## Live multi-vendor console
+
+A deployed mirror of this project with a broader vendor catalogue:
+
+[http://data-matching-console-1261515569.us-east-1.elb.amazonaws.com/app/catalogue?vendor=lseg](http://data-matching-console-1261515569.us-east-1.elb.amazonaws.com/app/catalogue?vendor=lseg)
+
 ## Why it matters
 
 Vendor catalogues are difficult to use consistently because product names,
@@ -102,10 +108,31 @@ matching-engine quality.
    key, and a live pointer is updated only after the artifact is written.
 6. **Rollback by version.** Earlier approved artifacts remain identifiable and
    can be restored by changing the live pointer.
+7. **Monitor promoted behavior offline.** A separate monitoring authority joins
+   predictions to authoritative outcomes and signs an immutable
+   `SignedMonitoringEnvelope` with its Ed25519 private key. The runtime monitor
+   receives only that envelope and configured audience, deployment, key ID, and
+   public key. It verifies the active UTC validity period and resolves every
+   signed observation against an immutable trajectory/audit source record before
+   evaluating fixed `monitor-v1` thresholds (20 total and 20 auto-pass
+   observations). Only complete windows atomically claim source events and
+   persist retain/rollback decisions. Insufficient samples, including zero
+   traffic, return `persisted=false` and claim nothing; the external scheduler
+   must retry until its deadline. `monitor-v1` never rolls back merely because
+   traffic is absent. Run the offline backend entrypoint with
+   `python -m scudo.scripts.monitor_promotion_window ENVELOPE.json --audience
+   AUD --deployment-id DEPLOYMENT --key-id KEY --public-key-file PUBLIC.pem`.
+   The scheduler and immutable source audit store are deployment prerequisites;
+   this repository deploys neither.
 
 Recording a trajectory does not change live matching. The deterministic matcher
 remains authoritative at request time, and legacy scalar-only skill records are
 quarantined rather than served to agents.
+
+Automatic predictions are valid only at confidence `>= 0.80`. Human teaching
+may create an exact-product precedent immediately, but generalized lessons stay
+quarantined as `rule_candidate` evidence until incorporated into a protected,
+evaluated, promoted artifact.
 
 ### Offline evaluation command
 
@@ -165,6 +192,7 @@ are completed.
 - [Stakeholder dashboard](https://dp4ji14se0pct.cloudfront.net/cogJPMdemo/)
 - [Dashboard deployment](https://d2im563be0sl1r.cloudfront.net/demo/)
 - [Matching Test](https://d2im563be0sl1r.cloudfront.net/matching-test)
+- [Multi-vendor catalogue console (LSEG entry)](http://data-matching-console-1261515569.us-east-1.elb.amazonaws.com/app/catalogue?vendor=lseg) — mirror of this project with a broader vendor set
 
 ## How matching works
 
@@ -250,8 +278,20 @@ upstream source provides them.
 - A complete Neptune retrieval implementation if Neptune is selected as a
   deployment backend.
 - Production identity enforcement at the gateway and removal of dev-open auth.
+  The persistence MCP's write tools now fail closed behind
+  `SCUDO_PERSIST_WRITE_TOKEN`, but that authenticates a *service*, not a person:
+  a token holder can still record a decision under any `decided_by` it chooses.
 - Durable reviewer-queue persistence for the separated MCP deployment shape.
 - Deployment of the latest SSE heartbeat and dashboard assets where required.
+- Temporal matching is built but not yet reachable on real data. The comparator
+  and its `SCUDO_TEMPORAL_VALIDATION` flag exist and are tested, but the DCAT
+  loader drops `temporal_coverage` before it reaches a `TaxonomyNode`, so the
+  check passes by default in a live run. Two products identical in name but
+  covering different periods are still indistinguishable to the engine.
+- The Lambda HITL approve path writes `mapping_result` from the request body
+  straight to the catalogue without running the deterministic publish gate, so a
+  malformed IRI can reach the projection table by a route the auto-publish path
+  rejects.
 
 These are explicit boundaries, not hidden assumptions. The repository is
 designed so they can be addressed without allowing unvalidated learning to
@@ -259,35 +299,71 @@ change live mappings.
 
 ## Quick start
 
-The fastest local path uses the in-memory retrieval backend and synthetic data.
-It does not require AWS credentials or a graph database.
+**No database, no container, no AWS credentials.** One command:
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-export STORE_BACKEND=memory
-export SCUDO_AUTH_ALLOW_DEV=1
-export SCUDO_AUTH_DEV_PRINCIPAL=local@dev
-export SCUDO_VERDICT_ALLOW_DEV=1
-
-gunicorn -b 0.0.0.0:5000 -k gthread --threads 4 --timeout 300 app:app
+pip install -r backend/requirements.txt
+python start_local.py
 ```
 
-In a second terminal:
+Then open **<http://localhost:3000>** — that is the UI. The backend on :5000 is
+not the app; opening it directly is the most common false alarm.
+
+Port 5000 is occupied on macOS by AirPlay Receiver, and by some corporate
+agents. If the server starts but nothing loads:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+PORT=5055 VITE_API_PROXY=http://localhost:5055 python start_local.py
 ```
 
-For the full local trust-gradient deployment, run FalkorDB and the three MCP
-services as described in
-[`backend/scudo/DEPLOY.md`](backend/scudo/DEPLOY.md). Neptune is reachable only
-from an appropriate AWS network.
+`start_local.py` sets the environment **before** importing `app.py`. That
+ordering is load-bearing: launching `python app.py` directly leaves the auth
+gate unconfigured, every `/api/*` call returns 401, and the UI renders its shell
+with no data — the "only one page opens" symptom. `start_all.sh` now delegates
+here for the same reason.
+
+### What runs with nothing installed
+
+Verified end to end from a clean checkout: ingest a vendor file, run the
+matcher, get a banded result against a real CDAO node. No FalkorDB, no Neptune,
+no MySQL, no PostgreSQL, no Bedrock.
+
+| Page | Works offline? |
+|---|---|
+| Matching Test, Upload and Test, Catalogue | yes |
+| Providers, Datasets, Admin, Ingestion | yes — via the SQLite stand-in below |
+
+Defaults chosen for you by `start_local.py`:
+
+| Variable | Value | Effect |
+|---|---|---|
+| `STORE_BACKEND` | `local_file` | full matching ladder, file-backed; HITL decisions survive a restart |
+| `CONSOLE_DB_BACKEND` | `sqlite` | console pages run with no PostgreSQL — [`backend/db_sqlite_fallback.py`](backend/db_sqlite_fallback.py), standard library only |
+| `FRAME_SOURCE` | `mock` | bundled sample vendor data instead of S3 |
+| `SCUDO_AUTH_ALLOW_DEV` | `1` | local dev principal, so `/api/*` does not 401 |
+
+Unset `CONSOLE_DB_BACKEND` and the console reverts to real PostgreSQL/Aurora
+via `CONSOLE_DB_*`; `docker compose up postgres` provides that locally. The
+SQLite path is read at call time, so deployed behaviour is unchanged.
+
+### Health endpoints
+
+`/healthz` — liveness. `/readyz` — readiness; it returns **503 until the CDAO
+taxonomy has been seeded**, which happens lazily on the first `/api/*` request,
+then 200. A cold 503 is the probe working, not a failure. There is no `/health`.
+
+### Beyond the laptop
+
+The full trust-gradient deployment — FalkorDB plus the three MCP services — is
+described in [`backend/scudo/DEPLOY.md`](backend/scudo/DEPLOY.md). Neptune is
+reachable only from an appropriate AWS network. Neither is needed for anything
+above.
+
+To use Bedrock instead of the offline narrator, set `SCUDO_AGENT_BACKEND` and
+`SCUDO_AGENT_PROVIDER_DEFAULT` to `bedrock` with your `AWS_REGION` and
+`SCUDO_BEDROCK_MODEL_ID`. Note what this does and does not change: the language
+model **narrates** the match; the score itself is deterministic
+Jaro-Winkler either way.
 
 ## API entry points
 
@@ -347,7 +423,17 @@ infra/                        AWS infrastructure and deployment runbooks
 docs/architecture/            Approved architecture diagrams and UML sources
 docs/okf/scudo/               Navigable project knowledge base
 ZONES.md                      Module-to-zone map
+start_local.py                One-command local run (sets env before import)
+backend/db_sqlite_fallback.py Console DB stand-in — no PostgreSQL, no Docker
 ```
+
+### Handover documents
+
+| Document | For |
+|---|---|
+| [`JPMC_LOCAL_RUN_HANDOVER.md`](JPMC_LOCAL_RUN_HANDOVER.md) | Running locally without infrastructure: what is already resolved, what changed and why, per-item evidence. |
+| [`JPMC_PORT_TYPE_IN.md`](JPMC_PORT_TYPE_IN.md) | Carrying those changes into `jpmc-port/` by hand. Tiered FIND/TYPE instructions, dry-run verified against the port's own files. |
+| [`CITRIX_FOLLOWUP.md`](CITRIX_FOLLOWUP.md) | Corrections after a Citrix-side apply: health-endpoint names, the `falkordb` spelling, switching on the SQLite stand-in. |
 
 ## Self-improvement implementation map
 
@@ -455,3 +541,257 @@ decisions belong in the linked architecture diagrams, specifications, plans,
 and deployment runbooks. When those documents disagree, use the current code
 and the approved architecture sources, then record the decision in the relevant
 specification.
+
+---
+
+# Appendix A — Why the local run needs no infrastructure
+
+Three sessions independently set out to "remove MySQL, FalkorDB and Neptune"
+before anyone ran the system to see whether they were load-bearing. They were
+not. What follows is the measured position, so the fourth session does not
+repeat it.
+
+| Component | Actual state |
+|---|---|
+| MySQL | Already gone. Zero `mysql`/`pymysql` imports. `db.py` targets Aurora PostgreSQL — the MySQL→Aurora migration already happened. |
+| FalkorDB | Lazy-imported in two production files (`store/falkordb_store.py`, `store/factory.py`; three more are tests), reachable only through `factory.py`'s branch. Never loaded under `STORE_BACKEND=local_file`. |
+| Neptune | Same: lazy, unused locally. |
+| Bedrock | Every `boto3` import is lazy. The app imports and runs with no credentials. |
+
+Nothing was commented out, and that was deliberate — `store/factory.py:20-32`
+records the reasoning. The branches stay active because the AWS deploys set
+`STORE_BACKEND=falkordb` and would break without them; being lazy imports, they
+cost a local run nothing.
+
+**`falkordb_store.py` must stay on disk even though the database is unused:**
+the default scoring path imports `_jaro_winkler` from that file. The *pip
+package* is not required — its import lives inside a method.
+
+### The real cause of "FalkorDB keeps being asked for"
+
+Not the branches — the **default**. `STORE_BACKEND` defaulted to `"falkordb"`,
+so any entry point that set no environment tried to open a connection on :6379.
+`start_all.sh` set no environment at all, which is why the obvious script kept
+demanding a database nobody wanted.
+
+Two fixes: the default is now `local_file`, and `start_all.sh` delegates to
+`start_local.py` rather than keeping a second env block that silently diverged.
+Changing the default is safe because **every deployed path sets the variable
+explicitly** — verified across `backend/Dockerfile`, `infra/scudo-dev-deploy.yaml`
+(four containers), `infra/scudo-poc-app.yaml`, and `backend/scudo/template.yaml`.
+
+### And "only one page opens"
+
+Also an environment problem, not a database one. `start_all.sh` used to run
+`python3 app.py` directly, leaving the auth gate unconfigured, so every
+`/api/*` call returned 401 while the UI shell rendered normally. Port 5000 is
+separately occupied on macOS by AirPlay Receiver.
+
+### The console database
+
+Providers, Datasets, Admin and Ingestion are the only pages needing a
+relational store — 74 `execute()` calls over 9 tables — and they returned 500
+without PostgreSQL. [`backend/db_sqlite_fallback.py`](backend/db_sqlite_fallback.py)
+is a file-backed stand-in using only the standard library.
+
+It was cheap because the route SQL is nearly dialect-free: `%s`→`?`,
+`SERIAL`→`INTEGER`, `TIMESTAMPTZ`/`JSONB`→`TEXT`. `RETURNING` and
+`ON CONFLICT` are native in SQLite 3.35+ and pass through untouched. The hook
+lives in `db.py`'s two connection functions and is read at **call** time, so
+**no route code changed** and the deployed Aurora path is byte-for-byte
+unaffected.
+
+Limits, stated rather than hidden: no schemas (`console.`/`ingestion.` collapse
+into one namespace); the PL/pgSQL `updated_at` trigger is skipped, so that
+column does not self-update; single writer. Sized for one person running a
+demo, which is the stated need.
+
+---
+
+# Appendix B — Why gates are deterministic, not advisory
+
+A check that is computed but never acted on is not a gate. Two were found here,
+both by adversarial review rather than by testing.
+
+`Orchestrator._pre_verify_defects` returns a list of defect strings. That list
+was only ever **concatenated into the verifier model's prompt**. Nothing
+enforced it. A verifier that scored well and ignored the injected text
+published anyway. Measured, before the fix:
+
+```
+specialist proposes a node never offered in bundle.candidates
+  -> OUTCOME: PUBLISHED | published: 1
+```
+
+The consequence is not cosmetic: the model could map a vendor product to **any
+CDAO node it invented**, and no confidence score catches that — an invented
+node scores however the model says it does.
+
+Two checks were therefore promoted into `_gate_and_decide`, where no model
+opinion can override them:
+
+- `vendor_product_iri` must equal the deterministically minted value. It is the
+  primary key of the published record, and the publish gate's IRI-shape check
+  only inspected *triple subjects*, never this field.
+- `proposed_target_iri` must be one of the offered candidates.
+
+The candidate check was initially written `if target and candidates and target
+not in candidates` — **fail-open**: an empty candidate list published anything.
+That is precisely the case with the least grounding, so it now fails closed on
+both degenerate shapes.
+
+**The generalisable rule: adding a check to `_pre_verify_defects` does not
+enforce it.** Enforcement belongs in `_gate_and_decide`. Three other checks
+there (evidence, source IRIs, band consistency) remain advisory by design and
+are commented as such.
+
+### Related: frames are authoritative
+
+Frame resolution exists in **three files** that must agree —
+`routes/mapping.py:242`, `match_verify_mcp.py:255` (`_resolve_frame`, with a
+thin `_frame` wrapper at `:308`), and `mcp_server.py:127`. All three now
+ignore caller-supplied `name`/`description` unless
+`SCUDO_MV_ALLOW_INLINE_FRAME` is set, and refuse rather than fabricating
+`name=product_id` when no frame exists. Two of the three copies were found only
+after the first was fixed; a per-file fix leaves the other ingresses open.
+
+---
+
+# Appendix C — Why the agents are told what they are judged on
+
+`VerifierDimension` defined ten scoring dimensions as bare enum names —
+`semantic_fit`, `candidate_coverage`, `conflict_handling` — with **no
+definition anywhere in the repository**. Two consequences:
+
+1. The **verifier** invented what each name meant on every call, and its
+   `total_score` drives a hard publish / retry / human-review gate. Scores were
+   not comparable between runs.
+2. The **specialist** was never shown the dimensions at all, and was graded on
+   a rubric it could not see. Separately, `vendor_product_iri` appeared **zero
+   times** in its prompt while the gate hard-rejects a mismatch on that field —
+   the model could not comply with a rule it was never given.
+
+The tell was already in the code: a hand-written line in the verifier prompt
+explaining how to score `taxonomy_freshness`. One dimension patched by hand
+because the list was not shared.
+
+The rubric is now defined once in `prompts._RUBRIC` and rendered for both
+audiences from that single source. `rubric_text()` **raises** if a dimension has
+no definition, so a new one cannot ship undefined the way these ten did.
+
+### On the risk of naming the rubric
+
+Telling a model how it is graded invites writing to the scorer. This was
+accepted deliberately, because the alternative is worse: a specialist
+optimising blind produces work the verifier rejects for reasons nobody stated,
+costing a model call and a review ticket per miss.
+
+Three things bound the risk. The verifier is a **separate model**; the
+deterministic gates in Appendix B cannot be talked out of; and every definition
+rewards a **verifiable property** of the output rather than a rhetorical one —
+"cite the evidence you used" is not gameable in a way that hurts, because it is
+the actual goal. The specialist is also told explicitly not to write to the
+scorer, and that instruction is pinned by a test.
+
+---
+
+# Appendix D — Why refusals are answers
+
+Tools may now return a typed refusal instead of data — `frame_not_found` when
+no ingested frame exists for a product. This is deliberate: the system declines
+to score a product whose real details it does not have, rather than inventing a
+name from the identifier and matching on that.
+
+Two consequences were handled explicitly.
+
+**The agent is told refusals are answers, not errors to work around.** Without
+that instruction the natural behaviour is to retry, or to substitute a
+plausible name — exactly the fabrication the refusal exists to prevent. The
+agent prompt now says to report it and recommend human review.
+
+**The UI must keep the actionable half.** The backend returns
+`{error, detail}`, and all sixteen frontend call sites read only `error`, so a
+user saw a bare `frame_not_found` while *"ingest it first"* was discarded. A
+single response interceptor now folds `detail` into `error`, fixing every call
+site without touching any of them.
+
+The same reasoning applies to the reasoning trace. The backend streams a full
+agent trace over SSE — a real run emits fourteen events including four tool
+calls and their results. The frontend received all of them and rendered each as
+raw JSON truncated at 120 characters, cutting the agent's sentences off
+mid-word. The information was arriving; it was not legible. It is now rendered
+as a followable sequence of thinking, calls, and returns.
+
+---
+
+# Appendix E — Verification posture
+
+Four practices, each stated with the case that produced it so a reader can
+judge the practice rather than take it on trust.
+
+**Check that a new test fails when its fix is reverted.** Otherwise it may be
+asserting something trivially true. This proves sensitivity to that specific
+regression — not correctness in general. Applied to the confidence-band parity
+check
+(`backend/scudo_mapping_mcp/tests/test_band_config_parity.py`), this exposed a
+real evasion: the original scanner paired `Name:`/`Value:` keys in source
+order, so the equally-legal `Value:`-before-`Name:` form parsed as zero
+records and drift passed silently. The fix is a structural YAML parse, pinned
+by `test_key_order_cannot_hide_a_band_declaration`, plus an anti-vacuity test
+proving the parser finds the real declarations rather than nothing.
+
+**Distinguish "the code exists" from "the code runs."** Two absence claims were
+checked by execution rather than grep, and both answers were more nuanced than
+the original wording:
+
+- *"Dates cannot be matched."* A temporal comparator and its
+  `SCUDO_TEMPORAL_VALIDATION` flag now exist and are tested. But
+  `matching.py` contains **zero** references to `node_temporal_coverage`, and
+  the DCAT loader drops the field before it reaches a `TaxonomyNode` — so on a
+  live run the check passes by default and the original limitation still
+  holds. Built is not the same as reachable; this is listed in "Open work and
+  limits" for that reason.
+- *"No embedding retrieval path exists."* Wrong as stated. A LlamaIndex
+  retriever with real Bedrock embeddings exists at
+  `backend/scudo/sidecar/retrieval.py`, is exposed as a tool in
+  `tools.py:41`, and **is** attached to the generic mapping specialist via
+  `MAPPING_SPECIALIST_TOOLS`. It is unreachable on two axes only: the deployed
+  Lambda builds tool-less agents, and `SCUDO_SIDECAR_GRAPH_ENDPOINT` is unset
+  in `infra/`, so the sidecar falls back to an in-memory mock. Wired in the
+  specialist path, unwired in the Lambda path — which is a different and more
+  useful statement than either "exists" or "does not exist."
+
+**Expect two different defect shapes, not one.** The defects found in this
+work fell into two kinds, and a review that anticipates only the first will
+miss the second.
+
+*Incomplete scope* — the fix was correct inside the file it was scoped to
+while the same defect sat untouched elsewhere. Frame resolution was fixed in
+`match_verify_mcp.py` while byte-equivalent copies remained in
+`routes/mapping.py:242` and `mcp_server.py:127`, the latter backing four live
+endpoints.
+
+*A bug inside the fix* — the first hard candidate check was written
+`if target and candidates and target not in candidates`, which published
+anything when the candidate list was empty: precisely the case with the least
+grounding. Recorded at `orchestrator.py:425`, pinned at
+`backend/scudo/tests/smoke.py:552`.
+
+Neither is visible from the changed file alone: the first needs a search for
+other copies of the function, the second needs the empty-list case to be tried.
+
+**Do not let a red baseline become background noise.** Two tests fail on an
+unmodified checkout:
+
+- `test_provenance.py::test_matching_graph_is_knowledge_graph_schema`
+- `test_provenance.py::test_every_node_is_labelled_and_expositional`
+
+Both reject the `marketing_dataset` kind supplied by
+`fixtures/conceptual_layer.json` and propagated through
+`build_matching_graph.py`. Verified by running the file on a clean worktree at
+HEAD with none of this work applied: 1 passed, 2 failed.
+
+They are named here rather than counted because a count is a weak signal — it
+stays green if one failure is fixed while another appears. The better end state
+is an explicit `xfail` with a tracking issue, so the suite is green and the
+exception is documented in code rather than in prose.

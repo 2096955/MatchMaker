@@ -1,0 +1,806 @@
+- generic [active] [ref=e1]:
+  - link "Skip to main content link" [ref=e2] [cursor=pointer]:
+    - /url: "#aws-page-content-main"
+    - text: Skip to main content
+  - generic [ref=e10]:
+    - navigation "Global navigation" [ref=e11]:
+      - generic "Secondary global navigation" [ref=e13]:
+        - generic [ref=e14]:
+          - list [ref=e16]:
+            - listitem [ref=e17]:
+              - button [ref=e18] [cursor=pointer]
+            - listitem [ref=e24]:
+              - link "Contact us" [ref=e25] [cursor=pointer]:
+                - /url: /contact-us/?nc2=h_ut_cu
+            - listitem [ref=e27]:
+              - link "AWS Marketplace" [ref=e28] [cursor=pointer]:
+                - /url: https://aws.amazon.com/marketplace?nc2=h_utmp
+            - listitem [ref=e30]:
+              - button [ref=e31] [cursor=pointer]
+            - listitem [ref=e35]:
+              - button [ref=e36] [cursor=pointer]
+          - button "AWS Profile" [ref=e42] [cursor=pointer]
+      - generic "Primary global navigation" [ref=e47]:
+        - list [ref=e48]:
+          - listitem [ref=e49]:
+            - link [ref=e50] [cursor=pointer]:
+              - /url: /?nc2=h_home
+          - listitem [ref=e913]:
+            - link "re:Invent" [ref=e914] [cursor=pointer]:
+              - /url: /events/reinvent/?nc2=h_l1_f
+          - listitem [ref=e917]:
+            - button "Discover AWS" [ref=e918]
+          - listitem [ref=e921]:
+            - button "Products" [ref=e922]
+          - listitem [ref=e925]:
+            - button "Solutions" [ref=e926]
+          - listitem [ref=e929]:
+            - button "Pricing" [ref=e930]
+          - listitem [ref=e933]:
+            - button "Resources" [ref=e934]
+        - list [ref=e58]:
+          - listitem [ref=e59]:
+            - button [ref=e61]:
+              - paragraph [ref=e62] [cursor=pointer]: Search
+          - listitem [ref=e65]:
+            - link "Sign in to console" [ref=e66] [cursor=pointer]:
+              - /url: https://console.aws.amazon.com/console/home/?nc2=h_si&src=header-signin
+          - listitem [ref=e68]:
+            - button "Create account" [ref=e69] [cursor=pointer]
+    - button "Open feedback" [ref=e73] [cursor=pointer]
+  - main [ref=e77]:
+    - main [ref=e82]:
+      - generic [ref=e85]:
+        - paragraph [ref=e86]: Amazon Bedrock
+        - list [ref=e88]:
+          - listitem [ref=e89]:
+            - link "Overview" [ref=e90] [cursor=pointer]:
+              - /url: /bedrock/
+          - listitem [ref=e92]:
+            - link "Getting Started" [ref=e93] [cursor=pointer]:
+              - /url: /bedrock/getting-started/
+          - button "Capabilities submenu" [ref=e95] [cursor=pointer]:
+            - generic [ref=e96]: Capabilities
+          - button "Agents submenu" [ref=e101] [cursor=pointer]:
+            - generic [ref=e102]: Agents
+          - listitem [ref=e107]:
+            - link "Pricing" [ref=e108] [cursor=pointer]:
+              - /url: /bedrock/pricing/
+          - listitem [ref=e937]:
+            - link "Resources" [ref=e938] [cursor=pointer]:
+              - /url: /bedrock/resources/
+          - button "More submenu" [ref=e940] [cursor=pointer]:
+            - generic [ref=e941]: More
+      - generic [ref=e126]:
+        - navigation "Breadcrumb" [ref=e129]:
+          - list [ref=e130]:
+            - listitem [ref=e131]:
+              - link "AWS" [ref=e132] [cursor=pointer]:
+                - /url: /
+            - listitem [ref=e136]:
+              - link "Amazon Bedrock" [ref=e137] [cursor=pointer]:
+                - /url: /bedrock/
+            - listitem [ref=e141]:
+              - generic [ref=e142]: Pricing
+        - generic [ref=e147]:
+          - heading "Amazon Bedrock pricing" [level=1] [ref=e149]
+          - generic [ref=e150]:
+            - button "Get started for free" [ref=e152] [cursor=pointer]
+            - button "Request a pricing quote" [ref=e155] [cursor=pointer]
+      - generic [ref=e159]:
+        - tablist "Tabs" [ref=e160]:
+          - tab "Model Pricing" [selected] [ref=e161] [cursor=pointer]
+          - tab "Knowledge Bases" [ref=e164] [cursor=pointer]
+          - tab "Guardrails" [ref=e167] [cursor=pointer]
+          - tab "Model Evaluation" [ref=e170] [cursor=pointer]
+          - tab "Data Automation" [ref=e173] [cursor=pointer]
+          - tab "Intelligent Prompt Routing" [ref=e176] [cursor=pointer]
+          - tab "Prompt Optimization" [ref=e179] [cursor=pointer]
+        - list [ref=e182]:
+          - text: 
+          - tabpanel "Model Pricing" [ref=e183]:
+            - generic [ref=e184]:
+              - heading "Model Pricing" [level=3] [ref=e185]
+              - paragraph [ref=e187]: Pricing is dependent on the modality, provider, and model. Please select the model provider to see detailed pricing.
+              - generic [ref=e188]:
+                - paragraph [ref=e189]:
+                  - text: Amazon Bedrock supports a variety of tiers including Standard, Flex, Priority, and Reserved tiers.
+                  - link "Click to learn more about service tiers" [ref=e190] [cursor=pointer]:
+                    - /url: /bedrock/service-tiers/
+                  - text: .
+                  - link "Bedrock service tiers":
+                    - /url: /bedrock/service-tiers/
+                - paragraph [ref=e191]:
+                  - text: Amazon Bedrock offers select foundation models (FMs) from leading AI providers like Anthropic, Meta, Mistral AI, and Amazon for batch inference at a 50% lower price compared to on-demand inference pricing. To learn more about Batch, click
+                  - link "here" [ref=e192] [cursor=pointer]:
+                    - /url: https://docs.aws.amazon.com/bedrock/latest/userguide/batch-inference.html
+                  - text: . Please refer to model list
+                  - link "here" [ref=e193] [cursor=pointer]:
+                    - /url: https://docs.aws.amazon.com/bedrock/latest/userguide/batch-inference-supported.html
+                  - text: .
+              - generic [ref=e194]:
+                - tablist "Tabs" [ref=e195]:
+                  - tab "AI21 Labs" [selected] [ref=e196] [cursor=pointer]
+                  - tab "Amazon" [ref=e199] [cursor=pointer]
+                  - tab "Anthropic" [ref=e202] [cursor=pointer]
+                  - tab "Cohere" [ref=e205] [cursor=pointer]
+                  - tab "DeepSeek" [ref=e208] [cursor=pointer]
+                  - tab "Google" [ref=e211] [cursor=pointer]
+                  - tab "Luma AI" [ref=e214] [cursor=pointer]
+                  - tab "Meta" [ref=e217] [cursor=pointer]
+                  - tab "MiniMax AI" [ref=e220] [cursor=pointer]
+                  - tab "Mistral AI" [ref=e223] [cursor=pointer]
+                  - tab "Moonshot AI" [ref=e226] [cursor=pointer]
+                  - tab "NVIDIA" [ref=e229] [cursor=pointer]
+                  - tab "OpenAI" [ref=e232] [cursor=pointer]
+                  - tab "Qwen" [ref=e235] [cursor=pointer]
+                  - tab "Stability AI" [ref=e238] [cursor=pointer]
+                  - tab "TwelveLabs" [ref=e241] [cursor=pointer]
+                  - tab "Writer" [ref=e244] [cursor=pointer]
+                  - tab "xAI" [ref=e247] [cursor=pointer]
+                  - tab "Z AI" [ref=e250] [cursor=pointer]
+                  - tab "Custom Model Import" [ref=e253] [cursor=pointer]
+                - list [ref=e256]:
+                  - text: 
+                  - tabpanel "AI21 Labs" [ref=e257]:
+                    - generic [ref=e261]:
+                      - heading "AI21 Labs" [level=4] [ref=e262]
+                      - paragraph [ref=e264]: On-Demand pricing
+                      - main [ref=e267]:
+                        - generic [ref=e269]:
+                          - generic [ref=e946]:
+                            - separator [ref=e947]
+                            - generic [ref=e952]:
+                              - generic [ref=e953]: "Region:"
+                              - button [ref=e959]
+                          - table:
+                            - rowgroup
+                            - rowgroup
+                  - text:                                                    
+          - text:        
+      - generic [ref=e275]:
+        - heading "Pricing examples" [level=2] [ref=e278]
+        - list "Accordion" [ref=e280]:
+          - listitem [ref=e281]:
+            - button [ref=e282] [cursor=pointer]:
+              - text: 
+              - heading "AI21 labs" [level=3] [ref=e283]
+            - 'generic " AI21 labs An application developer makes the following API calls to Amazon Bedrock: a request to AI21’s Jurassic-2 Mid model to summarize an input of 10K tokens of input text to an output of 2K tokens. Total cost incurred = 10K tokens/1000 * $0.0125 + 2K tokens/1000 * $0.0125 = $0.15"':
+              - generic [ref=e285]:
+                - paragraph [ref=e286]: "An application developer makes the following API calls to Amazon Bedrock: a request to AI21’s Jurassic-2 Mid model to summarize an input of 10K tokens of input text to an output of 2K tokens."
+                - paragraph [ref=e287]: Total cost incurred = 10K tokens/1000 * $0.0125 + 2K tokens/1000 * $0.0125 = $0.15
+          - listitem [ref=e288]:
+            - button [ref=e289] [cursor=pointer]:
+              - text: 
+              - heading "Amazon" [level=3] [ref=e290]
+            - generic:
+              - generic [ref=e291]:
+                - heading "On-Demand pricing" [level=4] [ref=e292]
+                - generic [ref=e293]:
+                  - paragraph [ref=e294]: "An application developer makes the following API calls to Amazon Bedrock on an hourly basis: a request to Amazon Titan Text Lite model to summarize an input of 2K tokens of input text to an output of 1K tokens."
+                  - paragraph [ref=e295]: Total hourly cost incurred is = 2K tokens/1000 * $0.0003 + 1K tokens/1000 * $0.0004 = $0.001.
+                  - paragraph [ref=e296]: "An application developer makes the following API calls to Amazon Bedrock: a request to the Amazon Titan Image Generator base model to generate 1000 images of 1024 x 1024 in size of standard quality."
+                  - paragraph [ref=e297]: Total cost incurred = 1000 images * $0.01 per image = $10
+                - heading "Customization (fine-tuning and continued pretraining) pricing" [level=4] [ref=e298]
+                - generic [ref=e299]:
+                  - paragraph [ref=e300]: An application developer customizes an Amazon Titan Image Generator model using 1000 image-text pairs. After training, the developer uses custom model provisioned throughput for 1 hour to evaluate the performance of the model. The fine-tuned model is stored for 1 month. After evaluation, the developer uses provisioned throughput (1-month commitment term) to host the customized model.
+                  - paragraph [ref=e301]: Monthly cost incurred for fine-tuning = fine-tuning training ($.005 * 500 * 64), where $0.005 is the price per image seen, 500 is the number of steps, and 64 is the batch size, + custom model storage per month ($1.95) + 1 hour of custom model inference ($21) = $160 + $1.95 + 21 = $182.95
+                - heading "Provisioned Throughput pricing" [level=4] [ref=e302]
+                - generic [ref=e303]:
+                  - paragraph [ref=e304]: An application developer buys two model units of Amazon Titan Text Express with a 1-month commitment for their text summarization use case.
+                  - paragraph [ref=e305]: Total monthly cost incurred = 2 model units * $18.40/hour * 24 hours * 31 days = $27,379.20
+                  - paragraph [ref=e306]: An application developer buys one model unit of the base Amazon Titan Image Generator model with a 1-month commitment.
+                  - paragraph [ref=e307]: Total cost incurred = 1 model unit * $16.20 * 24 hours * 31 days = $12,052.80
+          - listitem [ref=e308]:
+            - button [ref=e309] [cursor=pointer]:
+              - text: 
+              - heading "Amazon Bedrock Guardrails" [level=3] [ref=e310]
+            - generic:
+              - generic [ref=e311]:
+                - generic [ref=e312]:
+                  - paragraph [ref=e313]: "Example 1: Customer support chatbot An application developer creates a customer support chatbot and uses content filters to block harmful content and denied topics to filter undesirable queries and responses. The chatbot serves 1000 user queries per hour. Each user query has an average input length of 200 characters and receives a FM response of 1500 characters. Each user query of 200 characters correspond to 1 text unit. Each FM response of 1,500 characters correspond to 2 text units. Text units processed each hour = (1 + 2) * 1000 queries = 3000 text units Total cost incurred per hour for content filters and denied topics = 3000 * ($0.15 + $0.15) / 1000 = $0.90"
+                  - paragraph [ref=e314]
+                - generic [ref=e315]:
+                  - paragraph [ref=e316]: "Example 2: Call center transcript summarization An application developer creates an application to summarize chat transcripts between users and support agents. It uses sensitive information filter to redact personally identifiable information (PII) in the generated summaries for 10,000 conversations. Each generated summary has an average of 3,500 characters that corresponds to 4 text units. Total cost incurred to summarize 10,000 conversations = 10000 * 4 * ($0.1/1000) = $4"
+                  - paragraph [ref=e317]
+                - generic [ref=e318]:
+                  - paragraph [ref=e319]: "Example 3: Medical Protocol Verification Engine A healthcare technology company implements Automated Reasoning checks in their clinical decision support system to validate treatment suggestions against medical guidelines."
+                  - paragraph [ref=e320]: "The system processes 5,000 patient cases per month. Each case involves:"
+                  - list [ref=e321]:
+                    - listitem [ref=e322]: "Patient data summary: 500 characters (1 text unit)"
+                    - listitem [ref=e323]: "Diagnostic assessment: 2,000 characters (2 text units)"
+                    - listitem [ref=e324]: "Treatment recommendation: 4,500 characters (5 text units)"
+                  - paragraph [ref=e325]: Text units processed per month = (1 + 2 + 5) 5,000 cases = 40,000 text units Total cost incurred per month for Automated Reasoning checks = 40,000 ($0.17) / 1000 = $6.80
+                  - paragraph [ref=e326]
+          - listitem [ref=e327]:
+            - button [ref=e328] [cursor=pointer]:
+              - text: 
+              - heading "Amazon Bedrock Knowledge Bases" [level=3] [ref=e329]
+            - generic:
+              - generic [ref=e330]:
+                - heading "Pricing Examples" [level=4] [ref=e332]
+                - generic [ref=e333]:
+                  - paragraph [ref=e334]: "Example 1: Customer Support Chatbot (using Standard Retrieval)"
+                  - paragraph [ref=e335]: You index 50 GB of content from your SharePoint site — approximately 100,000 documents including PDFs, presentations, Word files, and images. Your agent handles 100,000 standard retrieval queries per month.
+                - table [ref=e337]:
+                  - rowgroup [ref=e338]:
+                    - row [ref=e339]:
+                      - cell "Line Item" [ref=e340]
+                      - cell "Calculation" [ref=e341]
+                      - cell "Cost" [ref=e342]
+                    - row [ref=e343]:
+                      - cell [ref=e344]:
+                        - paragraph [ref=e345]: Index Storage
+                      - cell [ref=e346]:
+                        - paragraph [ref=e347]: 50 GB × $5.00
+                      - cell [ref=e348]:
+                        - paragraph [ref=e349]: $250.00
+                    - row [ref=e350]:
+                      - cell [ref=e351]:
+                        - paragraph [ref=e352]: Multimodal Document Parsing (managed parser)
+                      - cell [ref=e353]:
+                        - paragraph [ref=e354]: Included
+                      - cell "$0" [ref=e355]
+                    - row [ref=e356]:
+                      - cell [ref=e357]:
+                        - paragraph [ref=e358]: Embeddings Generation (managed model)
+                      - cell [ref=e359]:
+                        - paragraph [ref=e360]: Included
+                      - cell "$0" [ref=e361]
+                    - row [ref=e362]:
+                      - cell [ref=e363]:
+                        - paragraph [ref=e364]: Standard Retrieval
+                      - cell [ref=e365]:
+                        - paragraph [ref=e366]: 100,000 ÷ 1,000 × $1.00
+                      - cell [ref=e367]:
+                        - paragraph [ref=e368]: $100.00
+                    - row [ref=e369]:
+                      - cell [ref=e370]:
+                        - paragraph [ref=e371]: Re-ranking (managed reranker)
+                      - cell [ref=e372]:
+                        - paragraph [ref=e373]: Included
+                      - cell "$0" [ref=e374]
+                    - row [ref=e375]:
+                      - cell "Monthly Total" [ref=e376]
+                      - cell [ref=e377]
+                      - cell "$350.00" [ref=e378]
+                - generic [ref=e379]:
+                  - paragraph [ref=e380]: "Example 2: Enterprise Research Assistant (using Agentic Retrieval)"
+                  - paragraph [ref=e381]: You index 50 GB of content from your SharePoint site — approximately 100,000 documents including PDFs, presentations, Word files, and images. Your agent handles 100,000 Agentic Retrieve API calls per month. On average, each agentic call makes 2 underlying Retrieve API calls.
+                - table [ref=e383]:
+                  - rowgroup [ref=e384]:
+                    - row [ref=e385]:
+                      - cell "Line Item" [ref=e386]
+                      - cell "Calculation" [ref=e387]
+                      - cell "Cost" [ref=e388]
+                    - row [ref=e389]:
+                      - cell [ref=e390]:
+                        - paragraph [ref=e391]: Index Storage
+                      - cell [ref=e392]:
+                        - paragraph [ref=e393]: 50 GB × $5.00
+                      - cell [ref=e394]:
+                        - paragraph [ref=e395]: $250.00
+                    - row [ref=e396]:
+                      - cell [ref=e397]:
+                        - paragraph [ref=e398]: Multimodal Document Parsing (managed parser)
+                      - cell "Included" [ref=e399]
+                      - cell "$0" [ref=e400]
+                    - row [ref=e401]:
+                      - cell [ref=e402]:
+                        - paragraph [ref=e403]: Embeddings Generation (managed model)
+                      - cell "Included" [ref=e404]
+                      - cell "$0" [ref=e405]
+                    - row [ref=e406]:
+                      - cell [ref=e407]:
+                        - paragraph [ref=e408]: Agentic Retrieve API calls
+                      - cell [ref=e409]:
+                        - paragraph [ref=e410]: 100,000 ÷ 1,000 × $4.00
+                      - cell [ref=e411]:
+                        - paragraph [ref=e412]: $400.00
+                    - row [ref=e413]:
+                      - cell [ref=e414]:
+                        - paragraph [ref=e415]: Underlying Retrieve API calls
+                      - cell [ref=e416]:
+                        - paragraph [ref=e417]: (100,000 × 2) ÷ 1,000 × $1.00
+                      - cell [ref=e418]:
+                        - paragraph [ref=e419]: $200.00
+                    - row [ref=e420]:
+                      - cell [ref=e421]:
+                        - paragraph [ref=e422]: Re-ranking (managed reranker)
+                      - cell "Included" [ref=e423]
+                      - cell "$0" [ref=e424]
+                    - row [ref=e425]:
+                      - cell "Monthly Total" [ref=e426]
+                      - cell [ref=e427]
+                      - cell "$850.00" [ref=e428]
+          - listitem [ref=e429]:
+            - button [ref=e430] [cursor=pointer]:
+              - text: 
+              - heading "Anthropic" [level=3] [ref=e431]
+            - 'generic " Anthropic On-Demand pricing An application developer makes the following API calls to Amazon Bedrock in the US West (Oregon) Region: a request to Anthropic’s Claude model to summarize an input of 11K tokens of input text to an output of 4K tokens. Total cost incurred = 11K tokens/1000 * $0.008 + 4K tokens/1000 * $0.024 = $0.088 + $0.096 = $0.184 Provisioned Throughput pricing An application developer buys one model unit of Anthropic Claude Instant in the US West (Oregon) Region: Total monthly cost incurred = 1 model unit * $39.60 * 24 hours * 31 days = $29,462.40"':
+              - generic [ref=e432]:
+                - heading "On-Demand pricing" [level=4] [ref=e433]
+                - generic [ref=e434]:
+                  - paragraph [ref=e435]: "An application developer makes the following API calls to Amazon Bedrock in the US West (Oregon) Region: a request to Anthropic’s Claude model to summarize an input of 11K tokens of input text to an output of 4K tokens."
+                  - paragraph [ref=e436]: Total cost incurred = 11K tokens/1000 * $0.008 + 4K tokens/1000 * $0.024 = $0.088 + $0.096 = $0.184
+                - heading "Provisioned Throughput pricing" [level=4] [ref=e437]
+                - generic [ref=e438]:
+                  - paragraph [ref=e439]: "An application developer buys one model unit of Anthropic Claude Instant in the US West (Oregon) Region:"
+                  - paragraph [ref=e440]: Total monthly cost incurred = 1 model unit * $39.60 * 24 hours * 31 days = $29,462.40
+          - listitem [ref=e441]:
+            - button [ref=e442] [cursor=pointer]:
+              - text: 
+              - heading "Cohere" [level=3] [ref=e443]
+            - generic:
+              - generic [ref=e444]:
+                - heading "On-Demand pricing" [level=4] [ref=e445]
+                - generic [ref=e446]:
+                  - paragraph [ref=e447]: "An application developer makes the following API calls to Amazon Bedrock: a request to Cohere’s Command model to summarize an input of 6K tokens of input text to an output of 2K tokens."
+                  - paragraph [ref=e448]: Total cost incurred = 6K tokens/1,000 * $0.0015 + 2K tokens/1,000 * $0.0020 = $0.013
+                  - paragraph [ref=e449]: "An application developer makes the following API calls to Amazon Bedrock: A request to Cohere’s Command - Light model to summarize an input of 6K tokens of input text to an output of 2K tokens."
+                  - paragraph [ref=e450]: Total cost incurred = 6K tokens/1000 * $0.0003 + 2K tokens/1000 * $0.0006 = $0.003
+                  - paragraph [ref=e451]: "An application developer makes the following API calls to Amazon Bedrock: A request to either Cohere’s Embed English or Embed Multilingual model to generate embeddings for 10K tokens of input."
+                  - paragraph [ref=e452]: Total cost incurred = 10K tokens/1000 * $0.0001 = $.001
+                - heading "Customization (fine-tuning) pricing" [level=4] [ref=e453]
+                - generic [ref=e454]:
+                  - paragraph [ref=e455]: An application developer customizes a Cohere Command model using 1000 tokens of data. After training, uses custom model provisioned throughput for 1 hour to evaluate the performance of the model. The fine-tuned model is stored for 1 month. After evaluation, the developer uses provisioned throughput (1mo commit) to host the customized model.
+                  - paragraph [ref=e456]: Monthly cost incurred for fine-tuning = Fine-tuning training ($0.004 * 1000) + custom model storage per month ($1.95) + 1 hour of custom model inference ($49.50) = $55.45
+                  - paragraph [ref=e457]: Monthly cost incurred for provisioned throughput (1-month commitment) of custom model = $39.60
+                - paragraph [ref=e459]: Provisioned Throughput pricing
+                - generic [ref=e460]:
+                  - paragraph [ref=e461]: An application developer, buys one model unit of Cohere Command with a 1-month commitment for their text summarization use case.
+                  - paragraph [ref=e462]: Total monthly cost incurred = 1 model unit * $39.60 * 24 hours * 31 days = $29,462.40
+          - listitem [ref=e463]:
+            - button [ref=e464] [cursor=pointer]:
+              - text: 
+              - heading "Custom Model Import" [level=3] [ref=e465]
+            - generic:
+              - generic [ref=e467]:
+                - paragraph [ref=e468]: "Pricing Example: An application developer imports a customized Llama 3.1 type model that is 8B parameter in size with a 128K sequence length in us-east-1 region and deletes the model after 1 month. This requires 2 Custom Model Units. So, the price per minute will be $0.1570 because 2 Custom Model Units are required. The model storage costs for 2 Custom Model Units would be $3.90 for the month."
+                - paragraph [ref=e469]: "There is no charge to import the model. The first successful invocation is at 8:03 AM, at which time the metering starts. The 5-minute metering windows are from 8:03 AM - 8:07 AM; 8:07 AM - 8:11 AM, and so on. If there is at least one invocation during any 5-minute period, the window will be considered active for billing. If there is an invocation at 8:03 AM and no further invocations after 8:07 AM, the metering will stop at 8:07 AM. In this case, the bill would be calculated as follows: $0.1570 * 5 minutes * 1 five minute windows = $0.785."
+          - listitem [ref=e470]:
+            - button [ref=e471] [cursor=pointer]:
+              - text: 
+              - heading "Data Automation" [level=3] [ref=e472]
+            - generic:
+              - generic [ref=e474]:
+                - paragraph [ref=e475]: "Pricing example 1: Let’s say you process a 1,000 page document using BDA Custom Output. All 1,000 pages are processed using blueprint 1 which has 15 fields. The per page price for any blueprint with 30 fields or less is $0.040. The total cost would be $40. Total pages processed = 1,000 Price per page for blueprints with less than 30 fields = $0.040 Total charge = 1,000 * $0.040 = $40"
+                - paragraph [ref=e476]
+                - paragraph [ref=e477]: "Pricing example 2: Let’s say you process 2 documents using BDA Custom Output. Document 1 has 40 pages and is processed using blueprint 1 which has 20 fields. Document 2 has 10 pages and is processed using blueprint 2, which has 40 fields. The per page price of blueprint 1 is $0.040 since it contains 30 fields or less. The per page price of blueprint 2 is $0.045. The processing cost for Document 1 using blueprint 1 is $1.60. The processing cost for Document 2 using blueprint 2 is $0.45. The total cost of processing both documents would be $2.05. Total pages processed = 50 Price per page for Blueprint 1 with less than 30 fields = $0.040 Price per page for Blueprint 2 with 40 fields = $0.040 + (# of additional fields above 30 *$0.0005 per field) Number of additional fields above 30 = 40 - 30 = 10 Price per page for Blueprint 2 with 40 fields = $0.040 + (10 *$0.0005 per field) = $0.045 Charge for Document 1 using Blueprint 1 = 40 pages x $0.040 per page = $1.6 Charge for Document 2 using Blueprint 2 = 10 pages x $0.045 per page = $0.45 Total charge = Charge for Document 1 + Charge for Document 2 = $1.6 + $0.45 = $2.05"
+                - paragraph [ref=e478]
+                - paragraph [ref=e479]: "Pricing Example 3: Let’s say you setup Bedrock Knowledge Bases to use Bedrock Data Automation as a parser and then ingest a 1,000 page document. Note, cost structures differ between the Knowledge Bases parsing options. BDA uses per-page pricing, while Foundational Model parsers charge based on input and output tokens. For context, processing 1,000 pages, where 30% contain tables and 30% contain figures, typically requires 2,900 input tokens and 750 output tokens. Token consumption varies by content type, so customers are encouraged to test using their own data to get more accurate estimates. Bedrock Knowledge Bases and Bedrock Data Automation integration uses standard output, where the per page price is $0.010. The total cost would be $10."
+                - paragraph [ref=e480]: Total pages processed = 1,000 Price per page for standard output = $0.010 Total charge = 1,000 * $0.010 = $10
+                - paragraph [ref=e481]
+                - paragraph [ref=e482]: "Pricing example 4: Let’s say you process a 60 minute video using BDA Standard Output. The per minute price for video standard output is $0.050. The total cost would be $3.00. Total minutes processed = 60 Price per minute for video standard output = $0.050 Total charge = 60 * $0.050 = $3.00"
+                - paragraph [ref=e483]
+                - paragraph [ref=e484]: "Pricing example 5: Let’s say you process 2,000 images using BDA Custom Output. The first 1,000 images are processed using blueprint 1, which has 10 fields. The last 1,000 pages are processed using blueprint 2, which has 40 fields. The per image price for blueprint 1 is $0.005, since it contains 30 fields or less. The per image price of blueprint 2 is $0.01. The processing cost for the first 1,000 images using blueprint 1 is $5.00. The processing cost for the second 1,000 images using blueprint 2 is $10.00. The total cost of processing all 2,000 images would be $15.00 Cost for first 1000 images = 1,000 images * $0.005 per image = $5.00 Cost for second 1,000 images = 1,000 images * ($0.005 + (# of additional fields above 30 *$0.0005 per field)) = 1,000 * ($0.005 + ((40-30)*$0.0005)) = 1,000 * ($0.005 + (10*$0.0005)) = $10.00 Total cost = $5.00 + $10.00 = $15.00"
+                - paragraph [ref=e485]
+                - paragraph [ref=e486]: "Pricing example 6: Let’s assume that you want to use Bedrock Data Automation Standard Output to process 15,000 minutes of meeting audio recordings in your organization. The total cost of processing all 15,000 audio minutes would be $90. Total minutes processed = 15,000 minutes Total charge = 15,000 min × $0.006 = $90"
+                - paragraph [ref=e487]
+          - listitem [ref=e488]:
+            - button [ref=e489] [cursor=pointer]:
+              - text: 
+              - heading "DeepSeek" [level=3] [ref=e490]
+            - 'generic " DeepSeek On-Demand pricing An application developer makes the following API calls to Amazon Bedrock on an hourly basis: a request to the DeepSeek-R1 model to summarize an input of 2K tokens of input text to an output of 1K tokens (including reasoning tokens): Total hourly cost incurred = 2K tokens/1000 * $0.00135 + 1K tokens/1000 * $0.0054 = $0.0081"':
+              - generic [ref=e492]:
+                - paragraph [ref=e493]: On-Demand pricing
+                - paragraph [ref=e494]: "An application developer makes the following API calls to Amazon Bedrock on an hourly basis: a request to the DeepSeek-R1 model to summarize an input of 2K tokens of input text to an output of 1K tokens (including reasoning tokens):"
+                - paragraph [ref=e495]: Total hourly cost incurred = 2K tokens/1000 * $0.00135 + 1K tokens/1000 * $0.0054 = $0.0081
+          - listitem [ref=e496]:
+            - button [ref=e497] [cursor=pointer]:
+              - text: 
+              - heading "Flows" [level=3] [ref=e498]
+            - generic:
+              - generic [ref=e500]:
+                - paragraph [ref=e501]: "Example: News summarization An application developer creates a flow to automate news summarization for traders. The flow includes an Input node that takes in an S3 location, and a S3 retrieval node that retrieves 10 files that include articles from 10 major news agency in S3 (2 node transitions). It then uses an iterator node to invoke a model with a prompt node to summarize each file (+ 10 files x 2 node transitions). It then collects all the results using a collector node, write the results to S3 using S3 storage node, and complete in an Output node (+ 3 node transition). They run this flow every half hour of every week day."
+                - paragraph [ref=e502]: "The number of node transition per flow execution is: 2+1+10*2 + 3 = 25 node transitions/flow execution"
+                - paragraph [ref=e503]: "The number of flow execution per month is: 24 hours *2* 5 days * 4 weeks = 960 flow executions/month."
+                - paragraph [ref=e504]: "Total monthly bill is: 25 * 960 * $0.035/1000 = $0.84"
+                - paragraph [ref=e505]: Additional charges The bill will also include additional charges for AWS services used in the workflow execution, including Amazon S3 usages in the retrieval and storage nodes, and Amazon Bedrock foundation model usage in the prompt node.
+          - listitem [ref=e506]:
+            - button [ref=e507] [cursor=pointer]:
+              - text: 
+              - heading "Meta" [level=3] [ref=e508]
+            - generic:
+              - generic [ref=e509]:
+                - heading "On-Demand pricing" [level=4] [ref=e510]
+                - generic [ref=e511]:
+                  - paragraph [ref=e512]: "An application developer makes the following API calls to Amazon Bedrock: a request to Meta’s Llama 2 Chat (13B) model to summarize an input of 2K tokens of input text to an output of 500 tokens."
+                  - paragraph [ref=e513]: Total cost incurred = 2K tokens/1000 * $0.00075 + 500 tokens/1000 * $0.001 = $0.002
+                - heading "Customization (fine-tuning) pricing" [level=4] [ref=e514]
+                - generic [ref=e515]:
+                  - paragraph [ref=e516]: An application developer customizes the Llama 2 Pretrained (70B) model using 1000 tokens of data. After training, uses custom model provisioned throughput for 1 hour to evaluate the performance of the model. The fine-tuned model is stored for 1 month. After evaluation, the developer uses provisioned throughput (1mo commit) to host the customized model.
+                  - paragraph [ref=e517]: Monthly cost incurred for fine-tuning = Fine tuning training ($0.00799 * 1000) + custom model storage per month ($1.95) + 1 hour of custom model inference ($23.50) = $33.44
+                  - paragraph [ref=e518]: Monthly cost incurred for provisioned throughput (a 1-month commit) of custom model = $21.18
+                - heading "Provisioned Throughput pricing" [level=4] [ref=e519]
+                - generic [ref=e520]:
+                  - paragraph [ref=e521]: An application developer buys one model unit of Meta Llama 2 with a 1-month commitment for their text summarization use case.
+                  - paragraph [ref=e522]: Total monthly cost incurred = 1 model unit * $21.18 * 24 hours * 31 days = $15,757.92
+          - listitem [ref=e523]:
+            - button [ref=e524] [cursor=pointer]:
+              - text: 
+              - heading "Mistral AI" [level=3] [ref=e525]
+            - generic:
+              - generic [ref=e526]:
+                - heading "On-Demand pricing" [level=4] [ref=e527]
+                - generic [ref=e528]:
+                  - paragraph [ref=e529]: "An application developer makes the following API calls to Amazon Bedrock on an hourly basis: a request to Mistral 7B model to summarize an input of 2K tokens of input text to an output of 1K tokens."
+                  - paragraph [ref=e530]: Total hourly cost incurred = 2K tokens/1000 * $0.00015 + 1K tokens/1000 * $0.0002 = $0.0005
+                  - paragraph [ref=e531]: "An application developer makes the following API calls to Amazon Bedrock on an hourly basis: a request to Mixtral 8x7B model to summarize an input of 2K tokens of input text to an output of 1K tokens."
+                  - paragraph [ref=e532]: Total hourly cost incurred = 2K tokens/1000 * $0.00045 + 1K tokens/1000 * $0.0007 = $0.0016
+                  - paragraph [ref=e533]: "An application developer makes the following API calls to Amazon Bedrock on an hourly basis: a request to Mistral Large model to summarize an input of 2K tokens of input text to an output of 1K tokens."
+                  - paragraph [ref=e534]: Total hourly cost incurred = 2K tokens/1000 * $0.008 + 1K tokens/1000 * $0.024 = $0.04
+          - listitem [ref=e535]:
+            - button [ref=e536] [cursor=pointer]:
+              - text: 
+              - heading "Model evaluation" [level=3] [ref=e537]
+            - generic:
+              - generic [ref=e538]:
+                - heading "Model evaluation example 1:" [level=3] [ref=e539]
+                - generic [ref=e540]:
+                  - paragraph [ref=e541]: On-demand pricing An application developer submits a dataset for human-based model evaluation using Anthropic Claude 2.1 and Anthropic Claude Instant in the US East (N. Virginia) AWS Region.
+                  - paragraph [ref=e542]: "The dataset contains 50 prompts, and the developer requires one worker to rate each prompt-response set (configurable in the evaluation job creation as “workers per prompt” parameter). There will be 50 tasks in this evaluation job (one task for each prompt-response set per each worker). The 50 prompts combine to 5000 input tokens, and the associated responses combine to 15,000 tokens for Anthropic Claude Instant and 20,000 tokens for Anthropic Claude 2.1. The following charges are incurred for this model evaluation job:"
+                - table [ref=e544]:
+                  - rowgroup [ref=e545]:
+                    - row [ref=e546]:
+                      - columnheader "Item" [ref=e547]
+                      - columnheader "Number of input tokens" [ref=e548]
+                      - columnheader "Price per 1000 input tokens" [ref=e549]
+                      - columnheader "Cost of input" [ref=e550]
+                      - columnheader "Number of output tokens" [ref=e551]
+                      - columnheader "Price per 1000 output tokens" [ref=e552]
+                      - columnheader "Cost of output" [ref=e553]
+                      - columnheader "Number of human tasks" [ref=e554]
+                      - columnheader "Price per human task" [ref=e555]
+                      - columnheader "Cost of human tasks" [ref=e556]
+                      - columnheader "Total" [ref=e557]
+                    - row [ref=e558]:
+                      - cell "Claude Instant Inference" [ref=e559]
+                      - cell "5000" [ref=e560]
+                      - cell "$0.0008" [ref=e561]
+                      - cell "$0.004" [ref=e562]
+                      - cell "15000" [ref=e563]
+                      - cell "$0.0024" [ref=e564]
+                      - cell "$0.036" [ref=e565]
+                      - cell [ref=e566]
+                      - cell [ref=e567]
+                      - cell [ref=e568]
+                      - cell "$0.04" [ref=e569]
+                    - row [ref=e570]:
+                      - cell "Claude 2.1 Inference" [ref=e571]
+                      - cell "5000" [ref=e572]
+                      - cell "$0.008" [ref=e573]
+                      - cell "$0.04" [ref=e574]
+                      - cell "20000" [ref=e575]
+                      - cell "$0.024" [ref=e576]
+                      - cell "$0.48" [ref=e577]
+                      - cell [ref=e578]
+                      - cell [ref=e579]
+                      - cell [ref=e580]
+                      - cell "$0.52" [ref=e581]
+                    - row [ref=e582]:
+                      - cell "Human Tasks" [ref=e583]
+                      - cell [ref=e584]
+                      - cell [ref=e585]
+                      - cell [ref=e586]
+                      - cell [ref=e587]
+                      - cell [ref=e588]
+                      - cell [ref=e589]
+                      - cell "50" [ref=e590]
+                      - cell "$0.21" [ref=e591]
+                      - cell "$10.50" [ref=e592]
+                      - cell "$10.50" [ref=e593]
+                    - row [ref=e594]:
+                      - cell "Total" [ref=e595]
+                      - cell [ref=e596]
+                      - cell [ref=e597]
+                      - cell [ref=e598]
+                      - cell [ref=e599]
+                      - cell [ref=e600]
+                      - cell [ref=e601]
+                      - cell [ref=e602]
+                      - cell [ref=e603]
+                      - cell [ref=e604]
+                      - cell "$11.06" [ref=e605]
+                - heading "Model evaluation example 2:" [level=3] [ref=e606]
+                - paragraph [ref=e608]: "On-demand pricing An application developer submits a dataset for human-based model evaluation using Anthropic Claude 2.1 and Anthropic Claude Instant in the US East (N. Virginia) AWS Region. The dataset contains 50 prompts, and the developer requires two workers to rate each prompt-response set (configurable in the evaluation job creation as “workers per prompt” parameter). There will be 100 tasks in this evaluation job (1 task for each prompt-response set per each worker: 2 workers x 50 prompt-response sets = 100 human tasks). The 50 prompts combine to 5000 input tokens, and the associated responses combine to 15000 tokens for Anthropic Claude Instant and 20000 tokens for Anthropic Claude 2.1. The following charges are incurred for this model evaluation job:"
+                - table [ref=e610]:
+                  - rowgroup [ref=e611]:
+                    - row [ref=e612]:
+                      - columnheader "Item" [ref=e613]
+                      - columnheader "Number of input tokens" [ref=e614]
+                      - columnheader "Price per 1000 input tokens" [ref=e615]
+                      - columnheader "Cost of input" [ref=e616]
+                      - columnheader "Number of output tokens" [ref=e617]
+                      - columnheader "Price per 1000 output tokens" [ref=e618]
+                      - columnheader "Cost of output" [ref=e619]
+                      - columnheader "Number of human tasks" [ref=e620]
+                      - columnheader "Price per human task" [ref=e621]
+                      - columnheader "Cost of human tasks" [ref=e622]
+                      - columnheader "Total" [ref=e623]
+                    - row [ref=e624]:
+                      - cell "Claude Instant Inference" [ref=e625]
+                      - cell "5000" [ref=e626]
+                      - cell "$0.0008" [ref=e627]
+                      - cell "$0.0040" [ref=e628]
+                      - cell "15000" [ref=e629]
+                      - cell "$0.0024" [ref=e630]
+                      - cell "$0.036" [ref=e631]
+                      - cell [ref=e632]
+                      - cell [ref=e633]
+                      - cell [ref=e634]
+                      - cell "$0.04" [ref=e635]
+                    - row [ref=e636]:
+                      - cell "Claude 2.1 Inference" [ref=e637]
+                      - cell "5000" [ref=e638]
+                      - cell "$0.008" [ref=e639]
+                      - cell "$0.0400" [ref=e640]
+                      - cell "20000" [ref=e641]
+                      - cell "$0.024" [ref=e642]
+                      - cell "$0.48" [ref=e643]
+                      - cell [ref=e644]
+                      - cell [ref=e645]
+                      - cell [ref=e646]
+                      - cell "$0.52" [ref=e647]
+                    - row [ref=e648]:
+                      - cell "Human Tasks" [ref=e649]
+                      - cell [ref=e650]
+                      - cell [ref=e651]
+                      - cell [ref=e652]
+                      - cell [ref=e653]
+                      - cell [ref=e654]
+                      - cell [ref=e655]
+                      - cell "100" [ref=e656]
+                      - cell "$0.21" [ref=e657]
+                      - cell "$21.00" [ref=e658]
+                      - cell "$21.00" [ref=e659]
+                    - row [ref=e660]:
+                      - cell "Total" [ref=e661]
+                      - cell [ref=e662]
+                      - cell [ref=e663]
+                      - cell [ref=e664]
+                      - cell [ref=e665]
+                      - cell [ref=e666]
+                      - cell [ref=e667]
+                      - cell [ref=e668]
+                      - cell [ref=e669]
+                      - cell [ref=e670]
+                      - cell "$21.56" [ref=e671]
+          - listitem [ref=e672]:
+            - button [ref=e673] [cursor=pointer]:
+              - text: 
+              - heading "Prompt Optimization" [level=3] [ref=e674]
+            - 'generic " Prompt Optimization Example: News summarization An application developer creates a prompt to summarize news for traders using Claude 3.5. The original prompt includes 429 tokens. The optimized prompt has 511 tokens, and includes more specific instructions and examples to generate more concise answer from the FMs. He uses the optimized prompt with 511 tokens as the input for prompt optimizer, and creates 2 new variants for Claude 3.7 and Nova Pro with 582 and 579 tokens. The total number of input and output tokens for prompt optimization: 429 + 511 + 511 + 582 + 511 + 579 = 3,123 Total monthly bill is: 3,123 / 1000 * $0.03 = $0.09"':
+              - generic [ref=e676]:
+                - paragraph [ref=e677]: "Example: News summarization An application developer creates a prompt to summarize news for traders using Claude 3.5. The original prompt includes 429 tokens. The optimized prompt has 511 tokens, and includes more specific instructions and examples to generate more concise answer from the FMs. He uses the optimized prompt with 511 tokens as the input for prompt optimizer, and creates 2 new variants for Claude 3.7 and Nova Pro with 582 and 579 tokens."
+                - paragraph [ref=e678]: "The total number of input and output tokens for prompt optimization: 429 + 511 + 511 + 582 + 511 + 579 = 3,123"
+                - paragraph [ref=e679]: "Total monthly bill is: 3,123 / 1000 * $0.03 = $0.09"
+          - listitem [ref=e680]:
+            - button [ref=e681] [cursor=pointer]:
+              - text: 
+              - heading "Stability AI" [level=3] [ref=e682]
+            - 'generic " Stability AI On-Demand pricing An application developer makes the following API calls to Amazon Bedrock: a request to the SDXL model to generate a 512 x 512 image with a step size of 70 (premium quality). Total cost incurred = 1 image * $0.036 per image = $0.036 An application developer makes the following API calls to Amazon Bedrock: A request to the SDXL 1.0 model to generate a 1024 x 1024 image with a step size of 70 (premium quality). Total cost incurred = 1 image * $0.08 per image = $0.08 Provisioned Throughput pricing An application developer buys one model unit of SDXL 1.0 with a 1-month commitment. Total cost incurred = 1 * $49.86 * 24 hours * 31 days = $37,095.84"':
+              - generic [ref=e683]:
+                - heading "On-Demand pricing" [level=4] [ref=e684]
+                - generic [ref=e685]:
+                  - paragraph [ref=e686]: "An application developer makes the following API calls to Amazon Bedrock: a request to the SDXL model to generate a 512 x 512 image with a step size of 70 (premium quality)."
+                  - paragraph [ref=e687]: Total cost incurred = 1 image * $0.036 per image = $0.036
+                  - paragraph [ref=e688]: "An application developer makes the following API calls to Amazon Bedrock: A request to the SDXL 1.0 model to generate a 1024 x 1024 image with a step size of 70 (premium quality)."
+                  - paragraph [ref=e689]: Total cost incurred = 1 image * $0.08 per image = $0.08
+                - heading "Provisioned Throughput pricing" [level=4] [ref=e690]
+                - generic [ref=e691]:
+                  - paragraph [ref=e692]: An application developer buys one model unit of SDXL 1.0 with a 1-month commitment.
+                  - paragraph [ref=e693]: Total cost incurred = 1 * $49.86 * 24 hours * 31 days = $37,095.84
+          - listitem [ref=e694]:
+            - button [ref=e695] [cursor=pointer]:
+              - text: 
+              - heading "TwelveLabs" [level=3] [ref=e696]
+            - generic:
+              - generic [ref=e698]:
+                - paragraph [ref=e699]: On-Demand pricing
+                - paragraph [ref=e700]: "An application developer makes the following API calls to Amazon Bedrock: a request to the Pegasus 1.2 model to describe what a 10-second-long video entails, which provides an output of 2,000 tokens."
+                - paragraph [ref=e701]: Total cost incurred = 10 seconds * $0.00049 + 2K tokens / 1000 * $0.0075 = $0.0199
+                - paragraph [ref=e702]: "An application developer makes the following API calls to Amazon Bedrock: a request to the Marengo Embed [3.0 or 2.7] model to embed 10 videos, with a combined duration of 100 minutes."
+                - paragraph [ref=e703]: Total cost incurred = 100 minutes (i.e. 6000 secs) * $0.00070 = $4.2
+                - paragraph [ref=e704]: "An application developer makes the following API calls to Amazon Bedrock: a request to the Marengo Embed 3.0 model to by providing a text and image together, to generate an embedding that they could use to find the clip that has the bag shown in the given image, across the embedding repository that they would have crated using above example."
+                - paragraph [ref=e705]: Total cost incurred = 1 text request * $0.00007 +1 image request * $0.0001 = $0.00017
+                - paragraph [ref=e706]: "An application developer makes the following API calls to Amazon Bedrock: a request to the Marengo Embed [3.0 or 2.7] model to by providing a text to generate an embedding that they could use to find matching clips from an the embedding repository that they would have crated using above example."
+                - paragraph [ref=e707]: Total cost incurred = 1 text request * $0.00007 = $0.00007
+          - listitem [ref=e708]:
+            - button [ref=e709] [cursor=pointer]:
+              - text: 
+              - heading "Writer" [level=3] [ref=e710]
+            - 'generic " Writer An application developer makes the following API calls to Amazon Bedrock: a request to Writer’s Palmyra X5 model to summarize an input of 10K tokens of input text to an output of 2K tokens. Total cost incurred = 10K tokens/1000 * $0.003 + 2K tokens/1000 * $0.015 = $0.06"':
+              - generic [ref=e712]:
+                - paragraph [ref=e713]: "An application developer makes the following API calls to Amazon Bedrock: a request to Writer’s Palmyra X5 model to summarize an input of 10K tokens of input text to an output of 2K tokens."
+                - paragraph [ref=e714]: Total cost incurred = 10K tokens/1000 * $0.003 + 2K tokens/1000 * $0.015 = $0.06
+      - generic [ref=e976]:
+        - generic [ref=e982]:
+          - generic [ref=e983]:
+            - generic [ref=e984]: Build, connect, and optimize AI agents at scale
+            - generic [ref=e985]: With Amazon Bedrock AgentCore, ship agents fast with any framework or model, connect to enterprise systems, and optimize continuously.
+          - link "Explore AgentCore" [ref=e987] [cursor=pointer]:
+            - /url: https://aws.amazon.com/bedrock/agentcore/?sc_icampaign=aware_agentcore-build_2026&sc_ichannel=ha&sc_iplace=banner&trk=cb500c99-6b0c-4639-b4be-5b37aac931aa
+          - button "Close" [ref=e989] [cursor=pointer]
+        - generic [ref=e995]:
+          - generic [ref=e996]:
+            - generic [ref=e997]: Build, connect, and optimize AI agents at scale
+            - generic [ref=e998]: With Amazon Bedrock AgentCore, ship agents fast with any framework or model, connect to enterprise systems, and optimize continuously.
+          - link "Explore AgentCore" [ref=e1000] [cursor=pointer]:
+            - /url: https://aws.amazon.com/bedrock/agentcore/?sc_icampaign=aware_agentcore-build_2026&sc_ichannel=ha&sc_iplace=banner&trk=cb500c99-6b0c-4639-b4be-5b37aac931aa
+          - button "Close" [ref=e1002] [cursor=pointer]
+      - generic [ref=e723]:
+        - heading "Next steps" [level=2] [ref=e729]
+        - generic [ref=e730]:
+          - link "Workshop Explore common Amazon Bedrock use cases with a guided workshop View workshop" [ref=e733] [cursor=pointer]:
+            - /url: https://catalog.us-east-1.prod.workshops.aws/workshops/a4bdb007-5600-4368-81c5-ff5b4154f518/en-US
+            - generic [ref=e734]:
+              - generic [ref=e735]: Workshop
+              - generic [ref=e738]:
+                - heading "Explore common Amazon Bedrock use cases with a guided workshop" [level=2] [ref=e740]
+                - generic [ref=e741]: View workshop
+          - link "Demo View demos of Amazon Bedrock capabilities Explore the demo library" [ref=e749] [cursor=pointer]:
+            - /url: https://www.youtube.com/playlist?list=PLhr1KZpdzukfmv7jxvB0rL8SWoycA9TIM
+            - generic [ref=e750]:
+              - generic [ref=e751]: Demo
+              - generic [ref=e754]:
+                - heading "View demos of Amazon Bedrock capabilities" [level=2] [ref=e756]
+                - generic [ref=e757]: Explore the demo library
+  - contentinfo [ref=e768]:
+    - generic [ref=e776]:
+      - button "Create an AWS account" [ref=e778] [cursor=pointer]
+      - generic [ref=e780]:
+        - heading "Learn" [level=2] [ref=e781]
+        - list [ref=e782]:
+          - listitem [ref=e783]:
+            - link "What Is AWS?" [ref=e784] [cursor=pointer]:
+              - /url: /what-is-aws/?nc1=f_cc
+          - listitem [ref=e785]:
+            - link "What Is Cloud Computing?" [ref=e786] [cursor=pointer]:
+              - /url: /what-is-cloud-computing/?nc1=f_cc
+          - listitem [ref=e787]:
+            - link "What Is Agentic AI?" [ref=e788] [cursor=pointer]:
+              - /url: /what-is/agentic-ai/?nc1=f_cc
+          - listitem [ref=e789]:
+            - link "Cloud Computing Concepts Hub" [ref=e790] [cursor=pointer]:
+              - /url: /what-is/?nc1=f_cc
+          - listitem [ref=e791]:
+            - link "AWS Cloud Security" [ref=e792] [cursor=pointer]:
+              - /url: /security/?nc1=f_cc
+          - listitem [ref=e793]:
+            - link "What's New" [ref=e794] [cursor=pointer]:
+              - /url: /new/?nc1=f_cc
+          - listitem [ref=e795]:
+            - link "Blogs" [ref=e796] [cursor=pointer]:
+              - /url: /blogs/?nc1=f_cc
+          - listitem [ref=e797]:
+            - link "Press Releases" [ref=e798] [cursor=pointer]:
+              - /url: https://press.aboutamazon.com/aws
+      - generic [ref=e799]:
+        - heading "Resources" [level=2] [ref=e800]
+        - list [ref=e801]:
+          - listitem [ref=e802]:
+            - link "Getting Started" [ref=e803] [cursor=pointer]:
+              - /url: /getting-started/?nc1=f_cc
+          - listitem [ref=e804]:
+            - link "Training" [ref=e805] [cursor=pointer]:
+              - /url: /training/?nc1=f_cc
+          - listitem [ref=e806]:
+            - link "AWS Trust Center" [ref=e807] [cursor=pointer]:
+              - /url: /trust-center/?nc1=f_cc
+          - listitem [ref=e808]:
+            - link "AWS Solutions Library" [ref=e809] [cursor=pointer]:
+              - /url: /solutions/?nc1=f_cc
+          - listitem [ref=e810]:
+            - link "Architecture Center" [ref=e811] [cursor=pointer]:
+              - /url: /architecture/?nc1=f_cc
+          - listitem [ref=e812]:
+            - link "Product and Technical FAQs" [ref=e813] [cursor=pointer]:
+              - /url: /faqs/?nc1=f_dr
+          - listitem [ref=e814]:
+            - link "Analyst Reports" [ref=e815] [cursor=pointer]:
+              - /url: /resources/analyst-reports/?nc1=f_cc
+          - listitem [ref=e816]:
+            - link "AWS Partners" [ref=e817] [cursor=pointer]:
+              - /url: /partners/work-with-partners/?nc1=f_dr
+      - generic [ref=e818]:
+        - heading "Developers" [level=2] [ref=e819]
+        - list [ref=e820]:
+          - listitem [ref=e821]:
+            - link "Builder Center" [ref=e822] [cursor=pointer]:
+              - /url: https://builder.aws.com/?nc1=f_dr
+          - listitem [ref=e823]:
+            - link "SDKs & Tools" [ref=e824] [cursor=pointer]:
+              - /url: https://builder.aws.com/build/tools?nc1=f_dr
+          - listitem [ref=e825]:
+            - link ".NET on AWS" [ref=e826] [cursor=pointer]:
+              - /url: https://builder.aws.com/content/2zSx6gTiseJULEcqQFXqm3pzJoW/aws-tools-and-resources-net?nc1=f_dr
+          - listitem [ref=e827]:
+            - link "Python on AWS" [ref=e828] [cursor=pointer]:
+              - /url: https://builder.aws.com/content/2zYQkMbmrsxHPtT89s3teyKJh79/aws-tools-and-resources-python?nc1=f_dr
+          - listitem [ref=e829]:
+            - link "Java on AWS" [ref=e830] [cursor=pointer]:
+              - /url: https://builder.aws.com/content/2zZDrpGNFIOPAOT9PXifxnumRUC/aws-tools-and-resources-java?nc1=f_dr
+          - listitem [ref=e831]:
+            - link "PHP on AWS" [ref=e832] [cursor=pointer]:
+              - /url: https://builder.aws.com/content/2zYR2daUzavSaUwnAI9X92Q1tfd/aws-tools-and-resources-php?nc1=f_dr
+          - listitem [ref=e833]:
+            - link "JavaScript on AWS" [ref=e834] [cursor=pointer]:
+              - /url: https://builder.aws.com/content/2zYRIN2NxZTNLhwP9ZyaiJBEWrI/aws-tools-and-resources-javascript?nc1=f_dr
+      - generic [ref=e835]:
+        - heading "Help" [level=2] [ref=e836]
+        - list [ref=e837]:
+          - listitem [ref=e838]:
+            - link "Contact Us" [ref=e839] [cursor=pointer]:
+              - /url: /contact-us/?nc1=f_m
+          - listitem [ref=e840]:
+            - link "File a Support Ticket" [ref=e841] [cursor=pointer]:
+              - /url: https://console.aws.amazon.com/support/home/?nc1=f_dr
+          - listitem [ref=e842]:
+            - link "AWS re:Post" [ref=e843] [cursor=pointer]:
+              - /url: https://repost.aws/?nc1=f_dr
+          - listitem [ref=e844]:
+            - link "Knowledge Center" [ref=e845] [cursor=pointer]:
+              - /url: https://repost.aws/knowledge-center?nc1=f_dr
+          - listitem [ref=e846]:
+            - link "AWS Support Overview" [ref=e847] [cursor=pointer]:
+              - /url: /premiumsupport/?nc1=f_dr
+          - listitem [ref=e848]:
+            - link "AWS Accessibility" [ref=e849] [cursor=pointer]:
+              - /url: /accessibility/?nc1=f_cc
+          - listitem [ref=e850]:
+            - link "Legal" [ref=e851] [cursor=pointer]:
+              - /url: /legal/?nc1=f_cc
+          - listitem [ref=e852]:
+            - link "Event Code of Conduct" [ref=e853] [cursor=pointer]:
+              - /url: /codeofconduct/?nc1=f_cc
+          - listitem [ref=e854]:
+            - link "Event Terms & Conditions" [ref=e855] [cursor=pointer]:
+              - /url: /events/terms/?nc1=f_cc
+      - button "English" [ref=e857] [cursor=pointer]
+      - button [ref=e860] [cursor=pointer]
+      - generic [ref=e863]: Amazon is an equal opportunity employer and does not discriminate on the basis of protected veteran status, disability or other legally protected status. Veterans, military spouses, and people with disabilities are encouraged to apply.
+      - generic [ref=e866]:
+        - link "X" [ref=e867] [cursor=pointer]:
+          - /url: https://x.com/awscloud
+        - link "Facebook" [ref=e870] [cursor=pointer]:
+          - /url: https://www.facebook.com/amazonwebservices
+        - link "Linkedin" [ref=e873] [cursor=pointer]:
+          - /url: https://www.linkedin.com/company/amazon-web-services/
+        - link "Instagram" [ref=e876] [cursor=pointer]:
+          - /url: https://www.instagram.com/amazonwebservices/
+        - link "Twitch" [ref=e879] [cursor=pointer]:
+          - /url: https://www.twitch.tv/aws
+        - link "Youtube" [ref=e882] [cursor=pointer]:
+          - /url: https://www.youtube.com/user/AmazonWebServices/Cloud/
+        - link "Podcasts" [ref=e885] [cursor=pointer]:
+          - /url: /podcasts/?nc1=f_cc
+        - link "Email" [ref=e888] [cursor=pointer]:
+          - /url: /preferences/email/manage?nc1=f_icon
+      - generic [ref=e891]:
+        - list [ref=e892]:
+          - listitem [ref=e893]:
+            - link "Privacy" [ref=e894] [cursor=pointer]:
+              - /url: /privacy/?nc1=f_pr
+          - listitem [ref=e895]:
+            - link "Site terms" [ref=e896] [cursor=pointer]:
+              - /url: /terms/?nc1=f_pr
+          - listitem [ref=e897]:
+            - link "Cookie Preferences" [ref=e1006] [cursor=pointer]:
+              - /url: /bedrock/pricing/
+        - generic [ref=e910]: © 2026, Amazon Web Services, Inc. or its affiliates. All rights reserved.
+  - generic:
+    - group "Page tools" [ref=e1007]:
+      - generic "Explainer" [ref=e1010] [cursor=pointer]:
+        - checkbox "Explainer"
+    - region:
+      - generic [ref=e1014]:
+        - button "I can connect you with an AWS sales representative if you like to learn more about our products and services. Close notification" [ref=e1015] [cursor=pointer]:
+          - generic [ref=e1020]: I can connect you with an AWS sales representative if you like to learn more about our products and services.
+          - button "Close notification" [ref=e1021]
+        - button "Need more info? Highlight any text to get an explanation generated with AWS generative AI. Close notification" [ref=e1025] [cursor=pointer]:
+          - generic [ref=e1030]: Need more info? Highlight any text to get an explanation generated with AWS generative AI.
+          - button "Close notification" [ref=e1031]
+      - button "Ask a Question" [ref=e1035] [cursor=pointer]:
+        - img "Ask a Question" [ref=e1036]
+        - generic "2 messages" [ref=e1037]: "2"
