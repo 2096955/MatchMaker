@@ -12,6 +12,11 @@ __pycache__/
 htmlcov/
 build/
 dist/
+# JPMC-LOCAL: re-include the console bundle. `dist/` above is a Python
+# packaging rule; it also matches frontend/dist/, which must be vendored so a
+# Node-blocked desktop can run the UI. See the frontend section below.
+!frontend/dist/
+!frontend/dist/**
 
 # Virtualenvs
 .venv/
@@ -21,7 +26,17 @@ ENV/
 
 # ─── Node / frontend ────────────────────────────────────────────────────
 node_modules/
-frontend/dist/
+# JPMC-LOCAL: frontend/dist/ is deliberately NOT ignored.
+#
+# Citrix group policy blocks node_modules/@esbuild/win32-x64/esbuild.exe, so
+# `npm run dev` and `npm run build` both fail with spawn UNKNOWN and Vite
+# cannot start. A vendored bundle is the only way that desktop can run the
+# console UI at all — Flask serves it at /app/ with SCUDO_SERVE_FRONTEND_DIST=1
+# and no Node is involved.
+#
+# Same precedent as dashboard-dist/, which is tracked for the same reason.
+# Rebuild with:  cd frontend && npx vite build --base=/app/
+# The --base is load-bearing: without it assets resolve to /assets/* and 404.
 frontend/.vite/
 *.tsbuildinfo
 
@@ -50,6 +65,12 @@ infra/*.env.local
 # ─── Vendor data staging (out-of-scope for source control) ──────────────
 landing_zone/
 backend/uploads/
+
+# ─── JPMC-LOCAL: local durable memory (STORE_BACKEND=local_file) ────────
+# The precedent journal records product names/descriptions, the reviewer's
+# identity and source audit ids. It is local operational state, not source,
+# and must never be staged by accident.
+backend/local_memory/
 
 # ─── Local secrets / credentials ────────────────────────────────────────
 *.pem

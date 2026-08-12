@@ -61,12 +61,40 @@ def get_conn() -> psycopg.Connection:
 
     Rows come back as dicts and autocommit is disabled — the caller commits or
     rolls back and closes the connection.
+
+    JPMC-LOCAL: with ``CONSOLE_DB_BACKEND=sqlite`` this returns a file-backed
+    SQLite stand-in instead, so Providers / Datasets / Admin / Ingestion work
+    with no PostgreSQL and no Docker. Checked at CALL time, not import time,
+    so nothing changes for a deployed run that never sets it. See
+    ``db_sqlite_fallback``.
     """
+    if _sqlite_enabled():
+        from db_sqlite_fallback import connect as _sqlite_connect
+
+        return _sqlite_connect()  # type: ignore[return-value]
     return _connect("console")
 
 
 def get_ingestion_conn() -> psycopg.Connection:
     """Return a new psycopg connection to the *ingestion* schema (physical data
     tables). Used by the ingestion engine to bulk-insert data rows.
+
+    JPMC-LOCAL: same SQLite stand-in as ``get_conn``. SQLite has no schemas, so
+    both collapse onto one file — fine locally, where the two schemas never
+    collide on a table name.
     """
+    if _sqlite_enabled():
+        from db_sqlite_fallback import connect as _sqlite_connect
+
+        return _sqlite_connect()  # type: ignore[return-value]
     return _connect("ingestion")
+
+
+def _sqlite_enabled() -> bool:
+    """JPMC-LOCAL: is the no-Docker SQLite stand-in selected?
+
+    Deliberately reads the environment on every call (not a module constant)
+    so a test can flip it with monkeypatch and so import order cannot bake in
+    the wrong answer.
+    """
+    return os.environ.get("CONSOLE_DB_BACKEND", "").strip().lower() == "sqlite"

@@ -1,0 +1,57 @@
+# JPMC-LOCAL: laptop/VDI install list.
+#
+# requirements.txt MINUS the two packages below that cannot install or are not
+# used on a local run, PLUS the two test-only packages at the bottom of this
+# file (pytest, openai) that requirements.txt never listed.
+#
+# Dropped:
+#   falkordb>=1.0.8          - graph DB client. Not installed here. The FILE
+#                              store/falkordb_store.py MUST STAY on disk (the
+#                              default scoring path imports _jaro_winkler from
+#                              it), but the pip package is never imported
+#                              unless STORE_BACKEND=falkordb.
+#   requests-aws4auth>=1.2   - Neptune SigV4 signer. Only used by
+#                              store/neptune_store.py, which is never loaded
+#                              unless STORE_BACKEND=neptune.
+#
+# Everything below installs from PyPI with no native build steps.
+#   pip install -r requirements-local.txt
+
+flask==3.1.0
+flask-cors==5.0.1
+psycopg[binary]==3.3.4  # console DB driver (PostgreSQL); only needed for the /api/providers, /api/datasets, /api/admin pages
+pandas==2.2.3
+openpyxl==3.1.5
+xlrd==2.0.1
+pyarrow==18.1.0
+lxml==5.3.0
+python-dotenv==1.0.1
+pydantic>=2,<3
+scipy>=1.16,<2
+boto3>=1.34  # AWS SDK — Bedrock AND S3 vendor frames. Lazy-imported, so with
+             # SCUDO_AGENT_BACKEND=scripted and FRAME_SOURCE=mock (both set by
+             # start_local.py) it is never actually called. Kept installed so
+             # turning on Bedrock needs no second pip run.
+strands-agents>=0.1  # Bedrock-backed SCUDO agent runtime
+mcp>=1.2.0
+gunicorn>=22.0
+requests>=2.32
+rdflib>=7.0.0
+pyshacl>=0.26.0
+urllib3>=2.0
+cryptography>=44  # Ed25519 protected-evaluator envelope verification/signing
+
+# Test-only. Not needed to RUN the app - only to run `pytest`, which the
+# Tier 4 instructions ask you to do. They are here rather than in a separate
+# file because a second pip command is a second thing to get wrong, and both
+# are small pure-Python wheels.
+pytest>=8.0        # the test runner itself; requirements.txt never listed it
+openai>=1.0        # NOT called at runtime. test_agent_provider.py patches
+                   # `openai.AzureOpenAI`, and @patch needs the real module to
+                   # exist before it can replace it -- so 3 tests ERROR without
+                   # it even though no request is ever made.
+
+# JPMC-LOCAL: Streamlit console (streamlit_app.py). Pure Python — the fallback
+# UI for desktops where Citrix group policy blocks esbuild.exe and Vite cannot
+# start. Not needed for the API, the React console, or any deployed path.
+streamlit>=1.36

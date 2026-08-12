@@ -1,0 +1,49 @@
+# JPMC-LOCAL: local console database.
+#
+# ONLY needed for the Providers / Datasets / Admin pages. The matching demo
+# (Catalogue + Matching Test) needs NO database at all -- if Docker is blocked
+# on your machine, skip this file entirely and the app still runs.
+#
+#   docker compose up -d          start
+#   docker compose down           stop  (data survives)
+#   docker compose down -v        stop and ERASE the data
+#
+# init_db.sql runs automatically on FIRST start only (Postgres runs
+# /docker-entrypoint-initdb.d/* against an empty data directory). If you edit
+# the schema afterwards, you must `docker compose down -v` to re-run it.
+#
+# WARNING: init_db.sql starts with DROP TABLE for tp_provider / tp_dataset /
+# tp_dataset_col. Re-running it by hand against a populated database will
+# destroy those three tables' contents.
+#
+# YOU MUST ALSO SET THE PASSWORD. db.py defaults CONSOLE_DB_PASSWORD to an
+# empty string for localhost, but postgres:16 demands a real password over
+# TCP, so without this you get an auth failure that reads like a bug:
+#     macOS/Linux   export CONSOLE_DB_PASSWORD=scudo_local_dev
+#     Windows       set CONSOLE_DB_PASSWORD=scudo_local_dev
+# The other three defaults (user=scudo, db=scudo_console, port=5432) already
+# match db.py, so no further configuration is needed.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: scudo-postgres
+    environment:
+      POSTGRES_USER: scudo
+      POSTGRES_PASSWORD: scudo_local_dev
+      POSTGRES_DB: scudo_console
+    ports:
+      - "5432:5432"
+    volumes:
+      # Mounted read-only: the container may run it, but cannot alter your copy.
+      - ./backend/init_db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - scudo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Without this, the app can connect before the schema has been created.
+      test: ["CMD-SHELL", "pg_isready -U scudo -d scudo_console"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  scudo_pgdata:

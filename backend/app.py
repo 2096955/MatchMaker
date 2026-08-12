@@ -101,6 +101,74 @@ if os.getenv("SCUDO_SERVE_DASHBOARD_DIST"):
         return send_from_directory(_DASHBOARD_DIST_DIR, filename)
 
 
+# JPMC-LOCAL: serve the CONSOLE frontend (frontend/dist) from Flask too.
+#
+# WHY. On a locked-down desktop, Citrix group policy blocks
+# node_modules/@esbuild/win32-x64/esbuild.exe, so `npm run dev` and
+# `npm run build` both fail with spawn UNKNOWN and Vite cannot start at all.
+# That leaves the API reachable and the UI unreachable, with no Node fix
+# available to the person sitting at the machine.
+#
+# A pre-built bundle needs no Node, no Vite and no esbuild — only Flask, which
+# is already running. Serving it SAME-ORIGIN also removes the dev-server proxy
+# from the picture entirely: the bundle's relative /api/* fetches land on this
+# process, so VITE_API_PROXY becomes irrelevant.
+#
+# This is the console (frontend/), NOT the separate dashboard-dist application
+# served at /demo/ above.
+#
+# Unset by default, so nothing changes for anyone running Vite normally.
+if os.getenv("SCUDO_SERVE_FRONTEND_DIST"):
+    from flask import send_from_directory
+
+    _FRONTEND_DIST_DIR = os.path.join(
+        os.path.dirname(__file__), "..", "frontend", "dist"
+    )
+
+    @app.get("/app/")
+    def _serve_frontend_dist_index():
+        return send_from_directory(_FRONTEND_DIST_DIR, "index.html")
+
+    @app.get("/app/<path:filename>")
+    def _serve_frontend_dist_asset(filename):
+        # SPA fallback: unknown paths are client-side routes, not 404s, so a
+        # deep link or a refresh on /app/providers still loads the app.
+        full = os.path.join(_FRONTEND_DIST_DIR, filename)
+        if not os.path.isfile(full):
+            return send_from_directory(_FRONTEND_DIST_DIR, "index.html")
+        return send_from_directory(_FRONTEND_DIST_DIR, filename)
+
+
+# JPMC-LOCAL: without this, http://127.0.0.1:5000/ returns a raw 404 JSON blob
+# and looks broken. It is not broken — the backend is an API, the UI is served
+# by Vite on :3000. This route says so, and lists the endpoints that need no
+# database so you can confirm the backend works before touching Postgres.
+@app.get("/")
+def _index():
+    """Human-readable landing page for the API process."""
+    return (
+        jsonify(
+            {
+                "service": "SCUDO backend API",
+                "ui": "http://localhost:3000  <-- open THIS in the browser",
+                "note": "This process serves /api/* only. It is working if you can see this.",
+                "no_database_needed": [
+                    "/healthz",
+                    "/readyz",
+                    "/api/catalogue/products",
+                    "/api/mapping/vendors",
+                ],
+                "needs_postgres": [
+                    "/api/providers",
+                    "/api/datasets",
+                    "/api/admin/users",
+                ],
+            }
+        ),
+        200,
+    )
+
+
 @app.get("/healthz")
 def _healthz():
     """Unauthenticated liveness probe for the ALB target group.
@@ -198,4 +266,10 @@ def handle_error(e):
 
 if __name__ == "__main__":
     # Run in debug mode on port 5000 for local development.
-    app.run(debug=True, port=5000)
+    # JPMC-LOCAL: port made configurable. 5000 was hard-coded, so if anything
+    # already held that port the process died with "Address already in use"
+    # and there was no way out without editing code. macOS AirPlay Receiver
+    # squats on 5000 by default, and locked-down desktops often have their own
+    # agent there. Now: PORT=5050 python start_local.py (and point the UI at
+    # it with VITE_API_PROXY=http://localhost:5050). Default is unchanged.
+    app.run(debug=True, port=int(os.getenv("PORT", "5000")))
