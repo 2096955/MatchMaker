@@ -382,6 +382,56 @@ The matcher package and MCP services expose the same typed contracts to
 automation clients. Raw Cypher, SPARQL, and unrestricted graph queries are not
 agent-facing tools.
 
+## Where the code lives
+
+Two folders sit under `backend/`. Telling them apart answers most "where is
+the agent?" questions:
+
+| Folder | What it holds | When it runs |
+|---|---|---|
+| `backend/scudo_mapping_mcp/` | **The product** — the agent, the matching engine, the catalogue and review logic | Always |
+| `backend/scudo/` | **The AWS wiring** — Lambda, cloud memory, deployment | Only in AWS |
+
+Running it on a laptop or on Streamlit uses the first folder. You can ignore
+the second.
+
+### The four things people look for
+
+Everything below is in `backend/scudo_mapping_mcp/`.
+
+| Looking for | File | In one line |
+|---|---|---|
+| **The agent** | `agent.py` | Explains the match. Two versions: an offline narrator, and Claude via Bedrock |
+| **The agent's tools** | `agent.py` (also `mcp_server.py`) | Six tools it may call — search the catalogue, read a taxonomy node, compare candidates, run the match |
+| **The matching engine** | `matching.py` | Produces the score, the band, and the mapped node |
+| **The memory** | `store/` and `feedback.py` | Reviewer decisions become precedents the next match reuses |
+
+**The agent does not decide the score.** The matching engine does, and it is
+deterministic — the same product scores the same every time. The agent
+explains the result in readable language and can be switched off entirely
+without changing a single number. That is deliberate: the score is auditable,
+the narration is helpful.
+
+The agent also answers one question at a time about one product. It is not a
+chatbot you can ask anything.
+
+### If you need more detail
+
+| Concern | File |
+|---|---|
+| Which retrieval store is in use (`memory`, `local_file`, FalkorDB, Neptune) | `store/factory.py` |
+| Durable local memory that survives a restart | `store/local_file_store.py` |
+| Reviewer approve / override / reject | `feedback.py` |
+| Reading and normalising vendor files | `ingest.py`, `frames.py`, `url_ingest.py` |
+| Business rules applied to a candidate | `validations.py` |
+| Confidence thresholds | `config.py` |
+| Signed verdicts and the write boundary | `verdict.py`, `persistence_mcp.py` |
+
+In `backend/scudo/` (AWS only): `lambda_handler.py` for cloud entry points,
+`orchestrator.py` for the publish gate, `aurora_memory.py` and
+`aurora_store.py` for cloud memory. Note that cloud memory is **not** used by
+the local or Streamlit run — that uses `store/local_file_store.py` instead.
+
 ## Technical architecture
 
 The approved target architecture has five business-relevant zones:
@@ -390,8 +440,8 @@ The approved target architecture has five business-relevant zones:
 |---|---|---|
 | 1. Sources and ingestion | Receive vendor metadata and create normalised records. | `backend/scudo_mapping_mcp/ingest.py`, `backend/scudo_mapping_mcp/frames.py`, `backend/scudo_mapping_mcp/url_ingest.py` |
 | 2. Processing | Validate, clean, quarantine, land, and audit source data. | `backend/scudo_mapping_mcp/validations.py`, `backend/scudo/etl_handler.py` |
-| 3. Matching engine | Retrieve candidates, apply policy, score, validate, and gate. | `backend/scudo_mapping_mcp/matching.py`, `backend/scudo_mapping_mcp/store/`, `backend/scudo/matcher_bridge.py` |
-| 4. Agentic layer | Provide contextual reasoning, specialist assistance, and verification. | `backend/scudo/orchestrator.py`, `backend/scudo/agents.py`, `backend/scudo_mapping_mcp/agent.py` |
+| 3. Matching engine | Retrieve candidates, apply policy, score, validate, and gate. | `backend/scudo_mapping_mcp/matching.py`, `backend/scudo_mapping_mcp/store/` (`matcher_bridge.py` is the Lambda-side adapter — not on the Flask/Streamlit path) |
+| 4. Agentic layer | Provide contextual reasoning, specialist assistance, and verification. | `backend/scudo_mapping_mcp/agent.py` (the agent you run), `backend/scudo/orchestrator.py` (AWS publish gate) |
 | 5. Persistence and review | Store decisions, audit, lineage, memory, and review outcomes. | `backend/scudo/aurora_store.py`, `backend/scudo/aurora_memory.py`, `backend/scudo_mapping_mcp/feedback.py` |
 
 Aurora PostgreSQL is the target system of record. FalkorDB, Neptune, or the
@@ -413,9 +463,11 @@ shape. Both shapes preserve the same bounded operation contracts.
 ## Repository guide
 
 ```text
-backend/scudo_mapping_mcp/   Matching engine, MCPs, catalogue models, agents
+backend/scudo_mapping_mcp/   Matching engine, agent and its tools, MCPs,
+                              catalogue models, stores, reviewer feedback
 backend/scudo/                Orchestrator, Lambda substrate, Aurora memory,
                               self-improvement, deployment scripts
+                              (AWS only — not used by the local run)
 backend/routes/               Flask REST facade
 frontend/                     React console and matching-test experience
 dashboard-dist/               Vendored dashboard build
