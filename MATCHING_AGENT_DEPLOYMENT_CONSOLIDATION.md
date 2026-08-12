@@ -3,7 +3,7 @@
 **Written:** 2026-08-12  
 **Repository:** `/Users/anthonylui/MatchMaker/MatchMaker`  
 **Audience:** the agent consolidating the current work into the deployment workstream  
-**Status:** implementation is uncommitted and undeployed; one stale backend test expectation remains to update before final deployment acceptance
+**Status:** canonical backend implementation is committed locally and undeployed; environment-specific deployment integration remains
 
 This handoff covers the protected matching-agent improvement loop, immutable
 promotion and rollback, signed post-promotion monitoring, and bounded SciPy
@@ -419,27 +419,11 @@ PYTHONPATH=. /opt/homebrew/bin/python3.11 -m pytest \
 Result:
 
 ```text
-229 passed
-1 failed
+230 passed
 ```
 
-The failure is a stale test expectation, not a runtime failure:
-
-- [backend/scudo/tests/test_promotion_monitor.py](/Users/anthonylui/MatchMaker/MatchMaker/backend/scudo/tests/test_promotion_monitor.py)
-- test:
-  `test_runtime_rejects_wrong_audience_expired_future_and_fabricated_source`
-- the production code now correctly rejects the envelope earlier with:
-  `monitoring envelope was issued in the future`
-- the test still expects:
-  `not yet active`
-
-Required final cleanup before deployment acceptance:
-
-```text
-Change that one expected regex from "not yet active" to
-"issued in the future", or split the future-issued and future-not-before
-cases into two explicit tests.
-```
+The future-issued monitoring regression now expects the stricter runtime
+rejection `monitoring envelope was issued in the future`.
 
 Production implementations containing the stricter check:
 
@@ -502,45 +486,44 @@ Re-run the broad suite before release rather than relying only on this report.
 
 ## Deployment checklist for the consolidating agent
 
-1. Fix the single stale backend monitoring test expectation described above.
-2. Re-run the exact backend and JPMC commands in this handoff.
-3. Inspect the dirty worktree and isolate only the linked files/lines belonging
+1. Re-run the exact backend and JPMC commands in this handoff.
+2. Inspect the dirty worktree and isolate only the linked files/lines belonging
    to this work. Do not copy all modified files wholesale.
-4. Confirm `scudo.agent_memory` exists in Aurora.
-5. Ensure the deployment role can call RDS Data API transaction operations:
+3. Confirm `scudo.agent_memory` exists in Aurora.
+4. Ensure the deployment role can call RDS Data API transaction operations:
    begin, execute, commit and rollback.
-6. Provision the promotion HMAC key separately from every evaluation or
+5. Provision the promotion HMAC key separately from every evaluation or
    monitoring signing key.
-7. Provision an evaluator wrapper/service:
+6. Provision an evaluator wrapper/service:
    - protected root and allowlist;
    - Ed25519 private key;
    - candidate predictor command;
    - no promotion or Aurora credentials.
-8. Configure the promoter job with only:
+7. Configure the promoter job with only:
    - evaluator public key;
    - promotion HMAC key;
    - evaluator wrapper command;
    - optimizer command;
    - evaluation request ID;
    - Aurora Data API configuration.
-9. Provision a separate monitoring authority and immutable source audit records.
-10. Configure the external promotion-monitor scheduler and audience/deployment
+8. Provision a separate monitoring authority and immutable source audit records.
+9. Configure the external promotion-monitor scheduler and audience/deployment
     identifiers.
-11. Install/package SciPy and cryptography in every target artifact.
-12. Validate Lambda/container size and cold-start impact after adding SciPy.
-13. Run a real Aurora transaction smoke:
+10. Install/package SciPy and cryptography in every target artifact.
+11. Validate Lambda/container size and cold-start impact after adding SciPy.
+12. Run a real Aurora transaction smoke:
     - promote;
     - consult;
     - stale CAS rejection;
     - rollback;
     - consult predecessor;
     - monitor-triggered rollback.
-14. Run a real protected evaluator smoke with the production wrapper.
-15. Run a live Bedrock held-out smoke separately. Deterministic E2E evidence
+13. Run a real protected evaluator smoke with the production wrapper.
+14. Run a live Bedrock held-out smoke separately. Deterministic E2E evidence
     proves orchestration and gates, not model quality.
-16. Do not enable graph evidence as a ranking/confidence input. It remains
+15. Do not enable graph evidence as a ranking/confidence input. It remains
     advisory.
-17. Do not add a GNN until the readiness conditions in the approved design are
+16. Do not add a GNN until the readiness conditions in the approved design are
     met.
 
 ## Not deployed or not proven
@@ -589,10 +572,9 @@ Use:
 
 > The self-improvement, signed promotion/rollback, signed monitoring and sparse
 > graph-evidence implementation is complete in the local worktree and ready for
-> deployment integration review. It has not been deployed. One stale backend
-> test expectation must be updated and all environment-specific Aurora,
-> evaluator, monitoring-authority and scheduler integration must be validated
-> in the target account.
+> deployment integration review. It has not been deployed. All
+> environment-specific Aurora, evaluator, monitoring-authority and scheduler
+> integration must be validated in the target account.
 
 Do not claim:
 
