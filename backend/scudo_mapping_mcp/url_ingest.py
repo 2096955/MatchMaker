@@ -134,7 +134,15 @@ def fetch_and_extract(
 
     from lxml import html as lxml_html
 
-    tree = lxml_html.fromstring(content)
+    try:
+        tree = lxml_html.fromstring(content)
+    except lxml_html.etree.LxmlError as e:
+        # lxml's ParserError (e.g. an empty or undecodable document) is a bare
+        # Exception subclass, so it escaped the route's "except ValueError ->
+        # 400" / "except RequestException -> 502" pair and became a 500 (D2).
+        # An unusable remote document is a client-supplied-input problem:
+        # UrlIngestError IS a ValueError, so this maps to 400 unchanged.
+        raise UrlIngestError(f"could not parse document at {url}: {e}") from e
     title_els = tree.xpath("//title/text()")
     title = title_els[0].strip() if title_els else url
     for bad in tree.xpath("//script | //style"):

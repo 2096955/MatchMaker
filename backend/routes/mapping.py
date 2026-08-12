@@ -240,24 +240,33 @@ def _parse_threshold_window(body):
 
 
 def _frame(vendor, product_id, name="", description=""):
-    """Same resolution rule as scudo_mapping_mcp.mcp_server._frame.
+    """Resolve the ref to score. Same fail-closed rules as the Match & Verify
+    MCP's ``_resolve_frame`` — and deliberately reading the SAME env flag, so
+    an operator cannot close one ingress while believing they closed both.
 
-    Inline name/description wins so the endpoint is exercisable without an
-    ingestion pipeline; otherwise fall back to the working-set / S3 frame
-    lookup. If neither is available we still return a minimal ref so the
-    matcher can run on the product_id alone.
+    This function used to be a byte-equivalent copy of the pre-fix MCP version:
+    inline ``name``/``description`` short-circuited the frame lookup
+    unconditionally, and a missing frame fabricated ``name=product_id``. That
+    mattered more here than in the MCP — these are the routes the deployed
+    console actually calls (``/mapping/similar``, ``/mapping/map``,
+    ``/mapping/decision``, ``/mapping/agent/run``).
+
+    Rules now:
+      1. Inline text is IGNORED unless ``SCUDO_MV_ALLOW_INLINE_FRAME`` is set.
+         Unset (the production default) the ingested frame always wins.
+      2. A missing frame returns ``None`` rather than inventing a name. Callers
+         decide how to surface that; none of them may score a fabricated label.
     """
-    if name or description:
+    from scudo_mapping_mcp.match_verify_mcp import env_allow_inline_frame
+
+    if (name or description) and env_allow_inline_frame():
         return VendorProductRef(
             vendor=vendor,
             product_id=product_id,
             name=name,
             description=description,
         )
-    ref = _read_vendor_frame(vendor, product_id)
-    if ref is None:
-        return VendorProductRef(vendor=vendor, product_id=product_id, name=product_id)
-    return ref
+    return _read_vendor_frame(vendor, product_id)
 
 
 @mapping_bp.get("/mapping/vendors")
@@ -431,6 +440,19 @@ def find_similar_products():
             error=f"{type(e).__name__}: {e}",
         )
         return jsonify({"error": f"frame source unavailable: {e}"}), 503
+    if ref is None:
+        # No ingested frame, and inline text is not permitted. Refuse rather
+        # than scoring a fabricated name=product_id (see _frame).
+        return jsonify(
+            {
+                "error": "frame_not_found",
+                "detail": (
+                    f"no ingested frame for {vendor}/{product_id}; ingest it "
+                    "first, or set SCUDO_MV_ALLOW_INLINE_FRAME to score "
+                    "caller-supplied text"
+                ),
+            }
+        ), 404
 
     try:
         cands = get_store().find_similar_products(
@@ -514,6 +536,19 @@ def map_product():
             error=f"{type(e).__name__}: {e}",
         )
         return jsonify({"error": f"frame source unavailable: {e}"}), 503
+    if ref is None:
+        # No ingested frame, and inline text is not permitted. Refuse rather
+        # than scoring a fabricated name=product_id (see _frame).
+        return jsonify(
+            {
+                "error": "frame_not_found",
+                "detail": (
+                    f"no ingested frame for {vendor}/{product_id}; ingest it "
+                    "first, or set SCUDO_MV_ALLOW_INLINE_FRAME to score "
+                    "caller-supplied text"
+                ),
+            }
+        ), 404
 
     # Wire the real (opus_dense-backed) specialist into the public REST path so
     # borderline cases get a genuine pick instead of auto-mapping on the raw
@@ -700,6 +735,19 @@ def record_decision():
             error=f"{type(e).__name__}: {e}",
         )
         return jsonify({"error": f"frame source unavailable: {e}"}), 503
+    if ref is None:
+        # No ingested frame, and inline text is not permitted. Refuse rather
+        # than scoring a fabricated name=product_id (see _frame).
+        return jsonify(
+            {
+                "error": "frame_not_found",
+                "detail": (
+                    f"no ingested frame for {vendor}/{product_id}; ingest it "
+                    "first, or set SCUDO_MV_ALLOW_INLINE_FRAME to score "
+                    "caller-supplied text"
+                ),
+            }
+        ), 404
 
     try:
         result = apply_decision(
@@ -1361,6 +1409,20 @@ def describe_agent():
         and os.getenv("AZURE_OPENAI_SPECIALIST_DEPLOYMENT")
     )
     providers = [
+        # JPMC-LOCAL: without this entry the dropdown offered ONLY cloud
+        # runtimes, and get_agent() treats an explicit provider as an override
+        # -- so picking "bedrock" called AWS even when SCUDO_AGENT_BACKEND was
+        # "scripted". There was no way to drive the demo offline from the UI.
+        # This option maps to the scripted narrator (agent.py get_agent falls
+        # through to it for any provider that is not bedrock/azure).
+        # start_local.py sets SCUDO_AGENT_PROVIDER_DEFAULT=scripted so a local
+        # run selects it automatically. Deploys are unaffected: they set
+        # SCUDO_AGENT_PROVIDER_DEFAULT (or leave the "bedrock" default).
+        {
+            "id": "scripted",
+            "label": "Local scripted narrator (no AWS)",
+            "enabled": True,
+        },
         {
             "id": "bedrock",
             "label": "Amazon Bedrock (Claude)",
@@ -1413,7 +1475,19 @@ def run_agent():
     vendor = (body.get("vendor") or "").strip()
     product_id = (body.get("product_id") or "").strip()
     agent_provider = (body.get("agent_provider") or "").strip().lower() or None
-    if agent_provider is not None and agent_provider not in ("bedrock", "azure"):
+    # JPMC-LOCAL: "scripted" added. /agent/describe offers it, so rejecting it
+    # here made the offline runtime a menu entry that 400s. Keep this tuple in
+    # step with the provider list in describe_agent() below — a provider the
+    # UI can pick must be a provider the route accepts. It must NOT be kept in
+    # step with scudo/lambda_handler.py: that tuple deliberately omits
+    # "scripted" because _get_agents_for_provider() there routes everything
+    # except "azure" to Bedrock, so accepting it would silently call AWS while
+    # reporting the offline narrator. See the comment at that call site.
+    if agent_provider is not None and agent_provider not in (
+        "bedrock",
+        "azure",
+        "scripted",
+    ):
         # Matches scudo/lambda_handler.py's handler() validation — an unknown
         # provider must 400, not silently fall through to whatever
         # SCUDO_AGENT_BACKEND happens to resolve to.
@@ -1451,6 +1525,19 @@ def run_agent():
         return jsonify({"error": f"upstream frame invalid: {e}"}), 502
     except NotImplementedError as e:
         return jsonify({"error": f"frame source unavailable: {e}"}), 503
+    if ref is None:
+        # No ingested frame, and inline text is not permitted. Refuse rather
+        # than scoring a fabricated name=product_id (see _frame).
+        return jsonify(
+            {
+                "error": "frame_not_found",
+                "detail": (
+                    f"no ingested frame for {vendor}/{product_id}; ingest it "
+                    "first, or set SCUDO_MV_ALLOW_INLINE_FRAME to score "
+                    "caller-supplied text"
+                ),
+            }
+        ), 404
 
     agent = get_agent(provider=agent_provider)
     ui_logger.info(

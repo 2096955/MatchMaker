@@ -1660,10 +1660,19 @@ def _():
 
 def _ensure_dev_signing_key():
     """Smoke runs with the dev fallback HMAC key. Production sets
-    SCUDO_VERDICT_SIGNING_KEY via Secrets Manager."""
+    SCUDO_VERDICT_SIGNING_KEY via Secrets Manager.
+
+    Two SEPARATE dev switches, deliberately. ``SCUDO_VERDICT_ALLOW_DEV``
+    selects the dev signing key; ``SCUDO_PERSIST_ALLOW_DEV_WRITES`` opens the
+    canonical-write gate. They used to be one, which meant the README's
+    documented local-run recipe (``export SCUDO_VERDICT_ALLOW_DEV=1``)
+    silently disabled the write gate for every operator who followed it. The
+    smoke runner needs both; a README reader must get neither by accident.
+    """
     import os as _os
 
     _os.environ["SCUDO_VERDICT_ALLOW_DEV"] = "1"
+    _os.environ["SCUDO_PERSIST_ALLOW_DEV_WRITES"] = "1"
 
 
 @case("VERDICT_sign_verify_roundtrip_is_ok")
@@ -1748,65 +1757,585 @@ def _():
     assert r.reason == "identity_mismatch", r.reason
 
 
-@case("TRUST_ingestion_mcp_imports_no_writers")
-def _():
-    """Static AST check: the Ingestion MCP module does NOT import any
-    write-side module. If a future change adds `from .feedback import ...`
-    or `from .bundle import import_bundle`, this fails — making the trust
-    boundary load-bearing, not aspirational."""
+# ===========================================================================
+# TRUST-BOUNDARY WRITE REACHABILITY — transitive, not one-hop
+# ===========================================================================
+#
+# HISTORY / WHY THIS IS NOT A ONE-HOP AST SCAN ANY MORE
+# -----------------------------------------------------
+# The original ``TRUST_*_imports_no_writers`` gates parsed only the entry
+# module's own AST and looked for three literal imported names
+# (``apply_decision`` / ``import_bundle`` / ``upsert_precedent``) plus any
+# module whose name ended in "feedback". That is defeated by one alias hop:
+#
+#     match_verify_mcp.py:59   from .hydrate import HydrationError, hydrate
+#     hydrate.py:40            from .bundle import import_bundle
+#     bundle.py:253            store.upsert_precedent(...)
+#
+# ``hydrate`` is not one of the three literal names, so the gate passed while
+# Match & Verify demonstrably reached ``upsert_precedent``. Worse, it is not
+# merely a static reachability: Match & Verify's own ``_lifespan`` CALLS the
+# write path at boot — ``seed_taxonomy()`` (ingest.py -> upsert_taxonomy_node)
+# and ``hydrate(strict=False)`` (-> import_bundle -> upsert_precedent).
+#
+# So the old invariant ("Match & Verify imports no writers") was not merely
+# incomplete, it was FALSE, and the gate was manufacturing assurance.
+#
+# THE HONEST INVARIANT, RESTATED
+# ------------------------------
+# Ingestion:      reaches ZERO write surfaces, transitively. (True today.)
+# Match & Verify: reaches write surfaces ONLY through a narrow, named,
+#                 boot-time seed/hydrate seam, and those bindings are used
+#                 ONLY inside the documented boot region (``_lifespan``).
+#                 No request-handling path may reach a write. (True today,
+#                 and now enforced.)
+# Persistence:    OWNS the write role — asserted positively.
+#
+# WHY THE ALLOWLIST INSTEAD OF MOVING SEED/HYDRATE OUT (option (b))
+# -----------------------------------------------------------------
+# ``hydrate``'s own contract (hydrate.py module docstring) is that the
+# container's health check MUST NOT pass until ``hydrate()`` returns —
+# a half-hydrated FalkorDB serving "confident-but-empty" results during a
+# rolling deploy is the exact drift class it exists to prevent. Hoisting it
+# to a sidecar/init-container is a deployment-topology change (infra
+# templates, health-check ordering, cold-start semantics), not a test fix,
+# and getting it wrong reintroduces the failure mode hydrate was written to
+# close. So: option (a) — restate honestly, allowlist narrowly, document.
+#
+# WHY THE ALLOWLIST IS STILL TIGHT
+# --------------------------------
+# It is keyed on the exact BINDING NAMES imported into the entry module, not
+# on "anything called from _lifespan" and not on module names. Consequences:
+#   * a NEW write surface imported under a new name fails, even at boot;
+#   * an allowlisted name used OUTSIDE the boot region fails;
+#   * a direct write call (e.g. ``get_store().upsert_precedent(...)``) added
+#     to a tool handler fails, naming the handler;
+#   * renaming/removing the boot region fails CLOSED.
+#
+# LIMITS (stated, not hidden)
+# ---------------------------
+# This is static analysis of the import graph plus call-name matching. It
+# does not resolve dynamic dispatch, ``getattr``, or a write reached via a
+# callback handed in from elsewhere. It is a tripwire against drift, not a
+# proof of read-onlyness.
+
+# Call names that constitute the package's canonical write surface.
+_TRUST_WRITE_CALL_NAMES = frozenset({"apply_decision", "import_bundle"})
+_TRUST_WRITE_CALL_PREFIXES = ("upsert_", "bump_")
+
+# First-party modules that are legitimately absent from the tree. A module
+# that does not exist cannot be imported at runtime; anything NOT on this
+# list that fails to resolve makes the gate fail closed.
+#   - strands_specialist: optional Strands backend, imported inside a
+#     try/except in specialist.py:162 and explicitly "not built yet".
+_TRUST_UNRESOLVED_ALLOWLIST = frozenset({"scudo_mapping_mcp.strands_specialist"})
+
+# RESIDUAL RISK — what this gate provably does NOT catch.
+#
+# Six bypasses were found by adversarial verification and five are now closed
+# (each pinned by a mutation test in tests/test_trust_transitive_write_gate.py):
+#   * aliasing a writer onto an allowlisted NAME      -> origin-keyed allowlist
+#   * indirection module behind an allowlisted name   -> origin-keyed allowlist
+#   * `_w = store.upsert_precedent; _w(...)`          -> bare-reference rule
+#   * `import os; hydrate(...)` sharing one line      -> node-identity skip set
+#   * `scudo_mapping_mcp.hydrate.hydrate(...)`        -> dotted-attribute rule
+#
+# STILL OPEN, by construction: dynamic dispatch, e.g.
+#     getattr(get_store(), 'upsert_' + 'precedent')(...)
+# No literal write name appears in the AST, so no static analysis can see it.
+# This is a real limit, not an oversight — do not read a green gate as proof
+# that no write exists, only that no *statically visible* write does. Closing
+# it needs a runtime control (an audit hook on the store, or a read-only store
+# handle injected into the request path), which is out of this gate's scope.
+#
+# The ONLY bindings in match_verify_mcp.py permitted to reach a write
+# surface, and the ONLY region they may be used from.
+#
+# Expressed as RESOLVED ORIGINS ("<module>.<symbol>"), not local binding
+# names. A name-keyed allowlist is bypassable by aliasing a writer onto an
+# allowlisted name (`from .feedback import apply_decision as HydrationError`)
+# — proven by an adversarial verifier. The origin is not the importer's to
+# choose, so it is the only safe key.
+_TRUST_MV_BOOT_BINDING_ORIGINS = frozenset(
+    {
+        "scudo_mapping_mcp.ingest.seed_taxonomy",
+        "scudo_mapping_mcp.hydrate.hydrate",
+        "scudo_mapping_mcp.hydrate.HydrationError",
+    }
+)
+# Retained for the boot-REGION check and failure messages, which key on the
+# local name as used at the call site.
+_TRUST_MV_BOOT_BINDINGS = frozenset({"seed_taxonomy", "hydrate", "HydrationError"})
+_TRUST_MV_BOOT_REGION = "_lifespan"
+
+
+def _trust_module_paths(root, package_name: str, module: str):
+    """(path, is_package) for a dotted first-party module, or (None, False)."""
+    import pathlib
+
+    if module != package_name and not module.startswith(package_name + "."):
+        return None, False
+    rel = module.replace(".", "/")
+    mod_file = pathlib.Path(root) / (rel + ".py")
+    pkg_file = pathlib.Path(root) / rel / "__init__.py"
+    if mod_file.exists():
+        return mod_file, False
+    if pkg_file.exists():
+        return pkg_file, True
+    return None, False
+
+
+def _trust_resolve_relative(current: str, is_pkg: bool, level: int, module) -> str:
+    """Resolve a relative ``from ... import`` target to an absolute module."""
+    parts = current.split(".")
+    keep = len(parts) - (level - 1) if is_pkg else len(parts) - level
+    base = ".".join(parts[: max(keep, 1)])
+    return f"{base}.{module}" if module else base
+
+
+def _trust_is_self_or_super(func) -> bool:
+    """True for ``self.x(...)`` / ``super().x(...)``.
+
+    A store implementation calling its OWN ``upsert_precedent`` is the
+    definition of the write surface, not a caller reaching one. Counting
+    those would flood the gate with noise from every module that merely
+    calls ``get_store()``.
+    """
+    import ast
+
+    if not isinstance(func, ast.Attribute):
+        return False
+    value = func.value
+    if isinstance(value, ast.Name) and value.id == "self":
+        return True
+    if (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id == "super"
+    ):
+        return True
+    return False
+
+
+def _trust_is_write_name(name) -> bool:
+    if not name:
+        return False
+    return name in _TRUST_WRITE_CALL_NAMES or name.startswith(
+        _TRUST_WRITE_CALL_PREFIXES
+    )
+
+
+def _trust_scan_module(tree, module: str, is_pkg: bool, root, package_name: str):
+    """Return (first_party_imports, unresolved, bindings, write_calls).
+
+    ``bindings`` maps a name bound in this module -> the first-party module
+    it came from. ``write_calls`` is a list of (lineno, call_name).
+    """
+    import ast
+
+    imports: set = set()
+    unresolved: set = set()
+    bindings: dict = {}
+    # local binding name -> "<module>.<original symbol>". Kept alongside
+    # ``bindings`` (rather than changing this function's return arity, which
+    # has other callers) so the allowlist can match the resolved origin
+    # instead of the importer's chosen alias. See the comment at the
+    # ImportFrom handler below.
+    binding_origins: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = _trust_resolve_relative(module, is_pkg, node.level, node.module)
+            elif node.module and (
+                node.module == package_name
+                or node.module.startswith(package_name + ".")
+            ):
+                base = node.module
+            else:
+                continue
+            if _trust_module_paths(root, package_name, base)[0]:
+                imports.add(base)
+            else:
+                unresolved.add(base)
+            for alias in node.names:
+                child = f"{base}.{alias.name}"
+                # Key the binding by its LOCAL name but remember the ORIGINAL
+                # symbol. Keying on the local name alone was a bypass: an
+                # adversarial verifier proved that
+                #     from .feedback import apply_decision as HydrationError
+                # renames a writer to an allowlisted binding name and slips
+                # through untouched. The allowlist must match the resolved
+                # (module, symbol) origin, not whatever the importer chose to
+                # call it. Same failure class as the one-hop gate this
+                # replaced: trusting a name instead of a target.
+                local = alias.asname or alias.name
+                if _trust_module_paths(root, package_name, child)[0]:
+                    imports.add(child)
+                    bindings[local] = child
+                    binding_origins[local] = f"{base}.{alias.name}"
+                else:
+                    bindings[local] = base
+                    binding_origins[local] = f"{base}.{alias.name}"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                name = alias.name
+                if name != package_name and not name.startswith(package_name + "."):
+                    continue
+                if _trust_module_paths(root, package_name, name)[0]:
+                    imports.add(name)
+                    bindings[alias.asname or name.split(".")[-1]] = name
+                else:
+                    unresolved.add(name)
+
+    write_calls = []
+    seen_write_sites: set = set()
+    for node in ast.walk(tree):
+        # (a) Direct calls: ``store.upsert_precedent(...)`` / ``apply_decision(...)``.
+        if isinstance(node, ast.Call):
+            func = node.func
+            if _trust_is_self_or_super(func):
+                continue
+            if isinstance(func, ast.Attribute):
+                name = func.attr
+            elif isinstance(func, ast.Name):
+                name = func.id
+            else:
+                continue
+            if (
+                _trust_is_write_name(name)
+                and (node.lineno, name) not in seen_write_sites
+            ):
+                seen_write_sites.add((node.lineno, name))
+                write_calls.append((node.lineno, name))
+        # (b) BARE REFERENCES to a write surface, e.g.
+        #         _w = get_store().upsert_precedent
+        #         _w(vendor=...)
+        #     The call is named ``_w``, so (a) alone never fires — an
+        #     adversarial verifier proved this one-line indirection walked
+        #     straight past the gate while the direct form was caught. Taking a
+        #     REFERENCE to a writer is itself the thing worth flagging: there is
+        #     no legitimate reason for a request handler to hold one.
+        elif isinstance(node, ast.Attribute):
+            if _trust_is_self_or_super(node):
+                continue
+            if (
+                _trust_is_write_name(node.attr)
+                and (
+                    node.lineno,
+                    node.attr,
+                )
+                not in seen_write_sites
+            ):
+                seen_write_sites.add((node.lineno, node.attr))
+                write_calls.append((node.lineno, node.attr))
+    # Expose origins without changing the return arity (other callers
+    # unpack exactly four values).
+    bindings["__origins__"] = binding_origins
+    return imports, unresolved, bindings, write_calls
+
+
+def _trust_write_reachability(
+    entry_module: str,
+    *,
+    package_root=None,
+    package_name: str = None,
+    max_depth: int = 12,
+):
+    """Bounded, cycle-safe, first-party-only transitive write reachability.
+
+    Returns a dict with:
+      ``modules``         visited module names
+      ``writers``         module -> sorted write-call names found in it
+      ``chains``          module -> import chain from the entry module
+      ``truncated``       True if ``max_depth`` stopped an unexplored edge
+                          (callers MUST fail closed on this — a silently
+                          truncated walk is the same false assurance the
+                          one-hop gate gave)
+      ``unresolved``      first-party module names with no file on disk
+      ``bindings``        entry-module binding name -> source module
+      ``binding_writers`` entry-module binding names whose source module
+                          transitively reaches a write surface
+    """
     import ast
     import pathlib
 
-    path = pathlib.Path("scudo_mapping_mcp/ingestion_mcp.py").resolve()
-    src = path.read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    forbidden = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            mod = node.module
-            if mod.endswith("feedback") or mod.endswith("bundle"):
-                forbidden.add(mod)
-            for n in node.names:
-                if n.name in {"apply_decision", "import_bundle", "upsert_precedent"}:
-                    forbidden.add(f"{mod}.{n.name}")
-        elif isinstance(node, ast.Import):
-            for n in node.names:
-                if n.name.endswith(".feedback") or n.name.endswith(".bundle"):
-                    forbidden.add(n.name)
-    assert not forbidden, (
-        f"Ingestion MCP must not import write surfaces; found: {forbidden}"
+    root = pathlib.Path(package_root) if package_root else pathlib.Path.cwd()
+    root = root.resolve()
+    pkg = package_name or entry_module.split(".")[0]
+
+    def walk(start: str):
+        seen: dict = {}
+        writers: dict = {}
+        chains: dict = {start: [start]}
+        unresolved: set = set()
+        truncated = False
+        queue = [(start, 0)]
+        while queue:
+            module, depth = queue.pop(0)
+            if module in seen:
+                continue
+            seen[module] = depth
+            path, is_pkg = _trust_module_paths(root, pkg, module)
+            if path is None:
+                unresolved.add(module)
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            imports, unres, _bind, calls = _trust_scan_module(
+                tree, module, is_pkg, root, pkg
+            )
+            unresolved |= unres
+            if calls:
+                writers[module] = sorted({name for _ln, name in calls})
+            if imports and depth >= max_depth:
+                truncated = True
+                continue
+            for child in sorted(imports):
+                if child not in chains:
+                    chains[child] = chains[module] + [child]
+                queue.append((child, depth + 1))
+        return seen, writers, chains, unresolved, truncated
+
+    seen, writers, chains, unresolved, truncated = walk(entry_module)
+
+    entry_path, entry_is_pkg = _trust_module_paths(root, pkg, entry_module)
+    bindings: dict = {}
+    if entry_path is not None:
+        entry_tree = ast.parse(entry_path.read_text(encoding="utf-8"))
+        _imp, _unres, bindings, _calls = _trust_scan_module(
+            entry_tree, entry_module, entry_is_pkg, root, pkg
+        )
+
+    origins = bindings.pop("__origins__", {})
+    binding_writers = set()
+    binding_writer_origins = set()
+    for name, source in bindings.items():
+        _s, sub_writers, _c, _u, sub_trunc = walk(source)
+        if sub_writers or sub_trunc:
+            binding_writers.add(name)
+            # The RESOLVED origin, immune to `import X as <allowlisted_name>`.
+            binding_writer_origins.add(origins.get(name, name))
+
+    return {
+        "modules": sorted(seen),
+        "writers": writers,
+        "chains": chains,
+        "truncated": truncated,
+        "unresolved": sorted(unresolved - _TRUST_UNRESOLVED_ALLOWLIST),
+        "unresolved_allowlisted": sorted(unresolved & _TRUST_UNRESOLVED_ALLOWLIST),
+        "bindings": bindings,
+        "binding_writers": sorted(binding_writers),
+        "binding_writer_origins": sorted(binding_writer_origins),
+    }
+
+
+def _trust_enclosing_functions(tree):
+    """(lineno, end_lineno, qualified_name) for every def, innermost last."""
+    import ast
+
+    spans = []
+
+    def visit(node, prefix):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name = f"{prefix}{child.name}"
+                spans.append(
+                    (child.lineno, getattr(child, "end_lineno", child.lineno), name)
+                )
+                visit(child, name + ".")
+            elif isinstance(child, ast.ClassDef):
+                visit(child, f"{prefix}{child.name}.")
+            else:
+                visit(child, prefix)
+
+    visit(tree, "")
+    return spans
+
+
+def _trust_locate(spans, lineno: int) -> str:
+    best = None
+    for start, end, name in spans:
+        if start <= lineno <= end:
+            if best is None or (end - start) < (best[1] - best[0]):
+                best = (start, end, name)
+    return best[2] if best else "<module scope>"
+
+
+def _trust_assert_ingestion_read_only(package_root=None) -> None:
+    """Ingestion reaches ZERO write surfaces, transitively.
+
+    Ingestion has no boot-time seed/hydrate seam, so no allowlist is needed
+    and none is granted. Any write reachability at all is a failure — and
+    since the entry module is itself the first node of the walk, a direct
+    ``get_store().upsert_*(...)`` in a handler is covered by the same check.
+    """
+    report = _trust_write_reachability(
+        "scudo_mapping_mcp.ingestion_mcp", package_root=package_root
     )
+    assert not report["truncated"], (
+        "Ingestion import walk hit the depth bound — the gate cannot vouch "
+        "for what lies beyond it. Raise max_depth or flatten the graph."
+    )
+    assert not report["unresolved"], (
+        "Ingestion imports first-party modules that are not on disk: "
+        f"{report['unresolved']}. Cannot prove they hold no writes."
+    )
+    assert not report["writers"], (
+        "Ingestion MCP must not reach ANY write surface. Reached: "
+        + "; ".join(
+            f"{mod} {names} via {' -> '.join(report['chains'][mod])}"
+            for mod, names in sorted(report["writers"].items())
+        )
+    )
+
+
+def _trust_assert_match_verify_read_only(package_root=None) -> None:
+    """Match & Verify reaches writes ONLY via the boot-time seed/hydrate seam.
+
+    See the block comment above for why this is an allowlist rather than a
+    flat "no writers" claim, and why the allowlist is still tight.
+    """
+    import ast
+    import pathlib
+
+    root = pathlib.Path(package_root).resolve() if package_root else pathlib.Path.cwd()
+    entry = "scudo_mapping_mcp.match_verify_mcp"
+    report = _trust_write_reachability(entry, package_root=root)
+
+    assert not report["truncated"], (
+        "Match & Verify import walk hit the depth bound — a truncated walk "
+        "is exactly the false assurance this gate replaced."
+    )
+    assert not report["unresolved"], (
+        "Match & Verify imports first-party modules not on disk: "
+        f"{report['unresolved']}. Cannot prove they hold no writes."
+    )
+
+    # (1) Only the documented boot-time bindings may reach a write surface.
+    #
+    # Matched on RESOLVED ORIGIN ("<module>.<symbol>"), never on the local
+    # binding name. Keying on the local name was a real bypass, proven by an
+    # adversarial verifier:
+    #     from .feedback import apply_decision as HydrationError
+    # renames a writer to an allowlisted name and the gate saw nothing. The
+    # importer does not get to choose whether it is allowlisted.
+    leaked = sorted(
+        set(report["binding_writer_origins"]) - _TRUST_MV_BOOT_BINDING_ORIGINS
+    )
+    assert not leaked, (
+        "Match & Verify binds NEW names that transitively reach the write "
+        f"surface: {leaked}. Only the documented boot-time seam "
+        f"{sorted(_TRUST_MV_BOOT_BINDINGS)} is allowed, and only inside "
+        f"{_TRUST_MV_BOOT_REGION}(). Reached writers: "
+        + "; ".join(f"{mod}{names}" for mod, names in sorted(report["writers"].items()))
+    )
+
+    path, is_pkg = _trust_module_paths(root, "scudo_mapping_mcp", entry)
+    assert path is not None, f"cannot locate {entry} under {root}"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    spans = _trust_enclosing_functions(tree)
+
+    # (2) The boot region must exist and be wired as the server lifespan.
+    #     Renaming or deleting it fails CLOSED — otherwise confinement would
+    #     silently stop being enforced.
+    region = [s for s in spans if s[2] == _TRUST_MV_BOOT_REGION]
+    assert region, (
+        f"Match & Verify boot region {_TRUST_MV_BOOT_REGION}() not found. The "
+        "write allowlist is scoped to that function by name; if it moved, "
+        "re-derive the allowlist deliberately instead of losing the gate."
+    )
+    src = path.read_text(encoding="utf-8")
+    assert f"lifespan={_TRUST_MV_BOOT_REGION}" in src, (
+        f"{_TRUST_MV_BOOT_REGION}() is no longer wired as the FastMCP "
+        "lifespan; the boot-time justification for the allowlist is gone."
+    )
+    r_start, r_end, _ = region[0]
+
+    # (3) Allowlisted bindings may be referenced ONLY inside the boot region.
+    # Collect the exact ast.Name nodes that BELONG to an import statement, not
+    # every line an import happens to sit on. Keying on lineno was a hole: an
+    # adversarial verifier showed ``import os; hydrate(strict=False)`` — one
+    # line, two statements — made the hydrate call invisible, because the line
+    # was in the skip set. Node identity cannot be shared that way.
+    import_name_nodes = {
+        id(child)
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.Import, ast.ImportFrom))
+        for child in ast.walk(n)
+        if isinstance(child, ast.Name)
+    }
+    stray = []
+    for node in ast.walk(tree):
+        # Bare name: ``hydrate(...)``.
+        if isinstance(node, ast.Name) and node.id in _TRUST_MV_BOOT_BINDINGS:
+            found = node.id
+        # Dotted access: ``scudo_mapping_mcp.hydrate.hydrate(...)``. The AST
+        # Name here is the ROOT package, never ``hydrate``, so a bare-Name-only
+        # check missed it entirely while the relative import was caught — an
+        # adversarial verifier proved the absolute-import spelling walked past
+        # the gate. Match the trailing attribute too.
+        elif isinstance(node, ast.Attribute) and node.attr in _TRUST_MV_BOOT_BINDINGS:
+            found = node.attr
+        else:
+            continue
+        if id(node) in import_name_nodes:
+            continue
+        if r_start <= node.lineno <= r_end:
+            continue
+        stray.append((found, node.lineno, _trust_locate(spans, node.lineno)))
+    assert not stray, (
+        "Boot-time write seam used outside "
+        f"{_TRUST_MV_BOOT_REGION}(): {stray}. Seeding/hydration is permitted "
+        "at container boot only, never on a request-handling path."
+    )
+
+    # (4) No direct write call anywhere in the entry module outside the boot
+    #     region — this is what catches ``get_store().upsert_precedent(...)``
+    #     dropped into a tool handler.
+    _i, _u, _b, calls = _trust_scan_module(
+        tree, entry, is_pkg, root, "scudo_mapping_mcp"
+    )
+    offenders = [
+        (name, lineno, _trust_locate(spans, lineno))
+        for lineno, name in calls
+        if not (r_start <= lineno <= r_end)
+    ]
+    assert not offenders, (
+        "Match & Verify calls a write surface outside "
+        f"{_TRUST_MV_BOOT_REGION}(): {offenders}. Match & Verify signs "
+        "verdicts; Persistence commits them."
+    )
+
+
+@case("TRUST_ingestion_mcp_imports_no_writers")
+def _():
+    """TRANSITIVE reachability check (was a one-hop AST scan, which an alias
+    defeated). The Ingestion MCP must reach NO write surface through any
+    first-party import chain — not just in its own import list."""
+    _trust_assert_ingestion_read_only()
 
 
 @case("TRUST_match_verify_mcp_imports_no_writers")
 def _():
-    """Same static check for Match & Verify. The verifier runs here but
-    nothing it does should mutate canonical state."""
-    import ast
-    import pathlib
+    """TRANSITIVE reachability check with a narrow, documented boot-time
+    allowlist.
 
-    path = pathlib.Path("scudo_mapping_mcp/match_verify_mcp.py").resolve()
-    src = path.read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    forbidden = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            mod = node.module
-            if mod.endswith("feedback"):
-                forbidden.add(mod)
-            for n in node.names:
-                if n.name in {"apply_decision", "import_bundle", "upsert_precedent"}:
-                    forbidden.add(f"{mod}.{n.name}")
-    assert not forbidden, (
-        f"Match & Verify MCP must not import write surfaces; found: {forbidden}"
-    )
+    The old one-hop version of this gate asserted "Match & Verify imports no
+    writers". That was FALSE: ``_lifespan`` calls ``seed_taxonomy()`` and
+    ``hydrate()``, and hydrate -> bundle.import_bundle -> upsert_precedent.
+    The honest invariant, now enforced, is: writes are reachable ONLY through
+    the named boot-time seed/hydrate seam, used ONLY inside ``_lifespan``.
+    Adding a write to any request-handling path — or importing any new write
+    surface under any name — fails this gate.
+    """
+    _trust_assert_match_verify_read_only()
 
 
 @case("TRUST_persistence_mcp_imports_writers")
 def _():
     """The inverse: Persistence MCP IS the only writer, so it must
     import feedback (for record_decision) and bundle (for import_bundle).
-    Asserts the writer role is co-located, not scattered."""
+    Asserts the writer role is co-located, not scattered — now with the
+    transitive walk confirming it genuinely reaches the write surface."""
     import ast
     import pathlib
 
@@ -1821,6 +2350,18 @@ def _():
                     seen.add(n.name)
     assert "apply_decision" in seen, "Persistence MCP must own the HITL write path"
     assert "import_bundle" in seen, "Persistence MCP must own bundle import"
+
+    report = _trust_write_reachability("scudo_mapping_mcp.persistence_mcp")
+    assert not report["truncated"], "Persistence import walk hit the depth bound"
+    assert not report["unresolved"], report["unresolved"]
+    writers = report["writers"]
+    assert "scudo_mapping_mcp.feedback" in writers, (
+        "Persistence must reach the HITL precedent write path"
+    )
+    own = writers.get("scudo_mapping_mcp.persistence_mcp", [])
+    assert "apply_decision" in own and "import_bundle" in own, (
+        f"Persistence must CALL the write surface it owns; found {own}"
+    )
 
 
 @case("GATE_refuses_agent_driven_auto_mapped_per_I5")

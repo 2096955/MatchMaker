@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -70,9 +71,7 @@ log.setLevel(logging.INFO)
 _ONTOLOGY_SNAPSHOT = os.environ.get("SCUDO_ONTOLOGY_SNAPSHOT", "cdao-2026-05-19")
 _RUBRIC_VERSION = os.environ.get("SCUDO_RUBRIC_VERSION", "v1")
 _PROMPT_VERSION = os.environ.get("SCUDO_PROMPT_VERSION", "v1")
-_MATCHER_VERSION = os.environ.get(
-    "SCUDO_MATCHER_VERSION", "orchestrator-agent-v1"
-)
+_MATCHER_VERSION = os.environ.get("SCUDO_MATCHER_VERSION", "orchestrator-agent-v1")
 
 
 def _resp(status: int, body: Any) -> dict:
@@ -201,6 +200,75 @@ def _candidate_dicts(payload: dict, vendor_product: dict, term: str) -> list[dic
     return sidecar_mock.candidate_nodes(term=term, limit=10)
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Canonical vendor-product IRI mint
+#
+# WHAT THIS REPLACES. This module used to mint the bundle's vendor IRI INLINE:
+#
+#     ns = uuid5(NAMESPACE_URL, "https://mds.jpmc.internal/catalogue")
+#     vendor_iri = f"mds.{request.vendor}:{uuid5(ns, f'{vendor}:{ref}')}"
+#
+# Three defects in one line. It used a DIFFERENT namespace seed, a DIFFERENT key
+# separator (single ':' vs the canonical '::') and interpolated the RAW vendor
+# string as the slug — so an in-scope vendor name emitted
+# ``mds.S&P Global:<uuid>``: a space and an ampersand inside the IRI. That
+# violates the documented ``mds.<vendor>:<uuid5>`` convention
+# (scudo_mapping_mcp/config.py) and is rejected outright by the orchestrator's
+# publish gate (``orchestrator._IRI_DETERMINISM``).
+#
+# WHY IT MATTERS. The IRI is the MERGE key for the VendorProduct node
+# (``MERGE (v:VendorProduct {iri:$v})`` in falkordb_store). Two mints for one
+# logical product fork the NODE, which breaks the deterministic-identity
+# invariant (I8) and the single-positive-precedent guarantee built on it.
+# (Precedent LOOKUP itself keys on the (vendor, product_id) literals, not on the
+# IRI, so reuse was never broken by this — the damage is node identity.)
+#
+# WHY THERE IS A REPLICATION AND NOT JUST AN IMPORT. ``scudo`` must import with
+# no third-party deps and no network so the offline smoke
+# (``python -m scudo.tests.smoke``) runs anywhere; ``scudo_mapping_mcp`` pulls in
+# pydantic. matcher_bridge.py's docstring spells out that contract. So the
+# canonical module is imported LAZILY and preferred when present, with a
+# stdlib-only replication of the exact same algorithm as the fallback for a
+# Lambda image that did not vendor the package. The replication is pinned
+# byte-for-byte against ``models.mds_iri`` by
+# ``backend/scudo/tests/test_iri_mint_parity.py`` so it cannot silently drift.
+# ────────────────────────────────────────────────────────────────────────────
+
+# Mirrors scudo_mapping_mcp.models._IRI_SEED and config.IRI_NAMESPACE. Changing
+# either constant re-forks every IRI in the system; the parity test is the gate.
+_IRI_SEED = uuid.UUID("6f2a9c4e-1d3b-4f8a-9c7e-2b5d8a1f4c63")
+_IRI_NAMESPACE = "mds"
+
+
+def _mds_iri_offline(vendor: str, product_id: str) -> str:
+    """Stdlib-only replication of ``scudo_mapping_mcp.models.mds_iri``.
+
+    MUST stay byte-identical to it — see test_iri_mint_parity.py. Do not "tidy"
+    the strip/lower/replace order: it is the identity rule for every
+    VendorProduct node in the store.
+    """
+    key = f"{vendor.strip().lower()}::{product_id.strip()}"
+    u = uuid.uuid5(_IRI_SEED, key)
+    slug = vendor.strip().lower().replace(" ", "").replace("&", "and")
+    return f"{_IRI_NAMESPACE}.{slug}:{u}"
+
+
+def _canonical_vendor_iri(vendor: str, vendor_product_ref: str) -> str:
+    """Return the canonical ``mds.<slug>:<uuid5>`` IRI for a vendor product.
+
+    Prefers the real ``scudo_mapping_mcp.models.mds_iri`` (single source of
+    truth) via a LAZY import; falls back to the byte-identical stdlib
+    replication when that package is not vendored into the runtime image. The
+    fallback is safe precisely because parity is test-enforced — it is not a
+    "best effort" degrade.
+    """
+    try:
+        from scudo_mapping_mcp.models import mds_iri as _mds_iri
+    except Exception:  # noqa: BLE001 — package not vendored / deps absent
+        return _mds_iri_offline(vendor, vendor_product_ref)
+    return _mds_iri(vendor, vendor_product_ref)
+
+
 def _build_bundle_assembler(payload: dict):
     """Returns a callable(IntakeRequest, Route) -> BriefBundle that reads the
     vendor product from the request body and the candidates from FalkorDB (or
@@ -211,11 +279,10 @@ def _build_bundle_assembler(payload: dict):
     candidates = [CandidateNode(**c) for c in candidate_dicts]
 
     def _assemble(request: IntakeRequest, route: Route) -> BriefBundle:
-        # Synthesise a deterministic vendor IRI from (vendor, ref) for the bundle.
-        from uuid import uuid5, NAMESPACE_URL
-
-        ns = uuid5(NAMESPACE_URL, "https://mds.jpmc.internal/catalogue")
-        vendor_iri = f"mds.{request.vendor}:{uuid5(ns, f'{request.vendor}:{request.vendor_product_ref}')}"
+        # Deterministic vendor IRI for the bundle — the CANONICAL mint, shared
+        # with Runtime-B. See _canonical_vendor_iri below for why this is not
+        # minted inline any more.
+        vendor_iri = _canonical_vendor_iri(request.vendor, request.vendor_product_ref)
 
         # CONSULT — real Aurora-backed precedent (scudo.agent_memory), not the
         # fabricated canned mapping this used to invent whenever the caller
@@ -554,6 +621,13 @@ def handler(event: dict, context: Any) -> dict:
         os.environ.get("SCUDO_AGENT_PROVIDER_DEFAULT", "bedrock").strip().lower()
     )
     agent_provider = (payload.get("agent_provider") or provider_default).strip().lower()
+    # JPMC-LOCAL: "scripted" is deliberately NOT accepted here, unlike in
+    # routes/mapping.py. This is the deployed Lambda path, and
+    # _get_agents_for_provider() above sends every provider except "azure" to
+    # _build_bedrock_agents(). Accepting "scripted" here would therefore call
+    # Bedrock while telling the caller it ran the offline narrator -- worse
+    # than the 400 it returns today, because it is silent. The local Flask
+    # route is safe because get_agent() has a real "scripted" branch.
     if agent_provider not in ("bedrock", "azure"):
         return _resp(400, {"error": f"unknown agent provider: {agent_provider}"})
 

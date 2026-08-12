@@ -26,6 +26,7 @@ Three-seam vendor-agnostic contract (#18):
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 
@@ -50,6 +51,8 @@ CONFIDENCE_FLOOR: float = 0.75
 # of the floor are the "borderline" band — the only band that consults the
 # specialist. Tunable per environment.
 BORDERLINE_HALF_WIDTH: float = 0.05
+PASS_CUT: float = 0.80
+FAIL_CUT: float = 0.70
 
 
 def pass_threshold(
@@ -62,6 +65,8 @@ def pass_threshold(
     into BORDERLINE. Banding is the product's headline behaviour, so the edge
     must be exact.
     """
+    if floor == CONFIDENCE_FLOOR and half == BORDERLINE_HALF_WIDTH:
+        return PASS_CUT
     return round(floor + half, 2)
 
 
@@ -69,13 +74,22 @@ def borderline_threshold(
     floor: float = CONFIDENCE_FLOOR, half: float = BORDERLINE_HALF_WIDTH
 ) -> float:
     """Lower band edge (>= this -> at least BORDERLINE). Rounded to 2 dp."""
+    if floor == CONFIDENCE_FLOOR and half == BORDERLINE_HALF_WIDTH:
+        return FAIL_CUT
     return round(floor - half, 2)
 
 
 _ALLOWED_TAXONOMY_LOADERS: tuple[str, ...] = ("cdao", "dcat")
 # Public alias — taxonomy_loader registry must stay in sync with this tuple.
 ALLOWED_TAXONOMY_LOADERS = _ALLOWED_TAXONOMY_LOADERS
-_ALLOWED_PERSIST_TARGETS: tuple[str, ...] = ("falkordb", "neptune", "none", "memory")
+# JPMC-LOCAL: 'local_file' added — durable laptop memory (see store/local_file_store.py).
+_ALLOWED_PERSIST_TARGETS: tuple[str, ...] = (
+    "falkordb",
+    "neptune",
+    "none",
+    "memory",
+    "local_file",
+)
 _ALLOWED_ENRICHMENT_BACKENDS: tuple[str, ...] = ("opus", "off")
 _ALLOWED_DENSE_BACKENDS: tuple[str, ...] = ("opus", "jaro_winkler")
 
@@ -100,8 +114,6 @@ def _default_vendor_adapters() -> tuple[str, ...]:
     drift this seam was opened to eliminate; the smoke gate pins the
     resulting tuple by literal, NOT by re-running the same broken rule.
     """
-    import re
-
     out: list[str] = []
     for v in PRIORITY_VENDORS:
         s = v.lower().replace(" ", "_")
@@ -201,7 +213,33 @@ class Settings:
             prefix = prefix + "/"
 
         # Store backend (existing seam) — needed below to default persist_target.
-        store_backend = os.getenv("STORE_BACKEND", "falkordb").lower()
+        # JPMC-LOCAL: the default is 'falkordb', which needs a FalkorDB container.
+        # We did NOT change it, because all 7 AWS deploy configs (Dockerfile:51,
+        # infra/*.yaml, template.yaml) set STORE_BACKEND=falkordb explicitly and
+        # rely on the branch in store/factory.py. Instead, set the env var for a
+        # local run -- start_local.py does this for you:
+        #     STORE_BACKEND=local_file   (durable laptop memory; recommended)
+        #     STORE_BACKEND=memory       (same, but forgets on restart)
+        # Neither needs FalkorDB or Neptune installed.
+        # JPMC-LOCAL: the default is 'local_file', NOT 'falkordb'.
+        #
+        # It used to be 'falkordb', which meant any entry point that forgot to
+        # set STORE_BACKEND tried to open a FalkorDB connection — start_all.sh
+        # sets nothing, so "FalkorDB keeps being asked for" was the result of
+        # running the obvious script. The failure was also confusing: a
+        # connection error to :6379 rather than "you have not configured a
+        # store".
+        #
+        # Changing the DEFAULT is safe because every deployed path sets the var
+        # EXPLICITLY — verified: backend/Dockerfile:51,
+        # infra/scudo-dev-deploy.yaml (4 containers), infra/scudo-poc-app.yaml,
+        # backend/scudo/template.yaml. So this only changes runs that
+        # configured nothing, which is precisely the local case that should
+        # never have needed a container.
+        #
+        # 'local_file' is the full matching ladder over a file-backed store:
+        # real JW+BM25+RRF scoring, and HITL decisions survive a restart.
+        store_backend = os.getenv("STORE_BACKEND", "local_file").lower()
 
         # --- Three-seam contract (#18) ------------------------------------
         # vendor_adapters: comma-separated; empty entries trimmed; lowercased.
@@ -374,6 +412,20 @@ def env_input_completeness_validation_enabled() -> bool:
         os.getenv("SCUDO_INPUT_COMPLETENESS_VALIDATION", "").strip().lower()
         in _TRUTHY_ENV
     )
+
+
+def env_temporal_validation_enabled() -> bool:
+    """Live ``SCUDO_TEMPORAL_VALIDATION`` — re-reads env.
+
+    Gates the temporal-compatibility validation (validations.py). Default off
+    so existing artifacts stay byte-identical; env-only by design (no Settings
+    snapshot field — call-time read like the other measured-rollout flags).
+
+    Flag ON, the check is still pass-by-default whenever either side declares
+    no parseable coverage — only a positive disjoint-interval disagreement is
+    a required failure. A missing date never fails a match.
+    """
+    return os.getenv("SCUDO_TEMPORAL_VALIDATION", "").strip().lower() in _TRUTHY_ENV
 
 
 def env_margin_gate_enabled() -> bool:

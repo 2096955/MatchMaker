@@ -87,6 +87,55 @@ def test_lambda_unknown_provider_rejection():
     assert "unknown agent provider" in body
 
 
+def test_scripted_provider_is_offered_and_accepted():
+    """JPMC-LOCAL: the offline runtime must be selectable END TO END.
+
+    Offering 'scripted' in the dropdown while the run route rejects it gives
+    the user a menu entry that 400s — worse than not offering it, because it
+    looks supported. Describe and run must agree.
+    """
+    r = client.get("/api/mapping/agent/describe", headers=AUTH)
+    providers = r.get_json()["providers"]
+    assert any(p["id"] == "scripted" and p["enabled"] is True for p in providers)
+
+    resp = client.post(
+        "/api/mapping/agent/run",
+        headers=AUTH,
+        json={
+            "vendor": "LSEG",
+            "product_id": "LSEG-CARBON-029",
+            "agent_provider": "scripted",
+        },
+    )
+    assert resp.status_code != 400, resp.get_data(as_text=True)
+
+
+def test_scripted_provider_never_resolves_to_a_cloud_agent():
+    """Picking 'scripted' must run the scripted narrator even when the
+    ambient backend is bedrock.
+
+    get_agent() treats an explicit provider as an override precisely so the
+    dropdown cannot lie about which runtime ran. Without an explicit branch,
+    'scripted' fell through to the SCUDO_AGENT_BACKEND default and returned
+    BedrockMappingAgent -- i.e. the 'no AWS' option called AWS.
+    """
+    from scudo_mapping_mcp.agent import ScriptedMappingAgent, get_agent
+
+    with patch.dict(os.environ, {"SCUDO_AGENT_BACKEND": "bedrock"}):
+        assert isinstance(get_agent(provider="scripted"), ScriptedMappingAgent)
+
+
+def test_unknown_provider_is_still_rejected_by_the_route():
+    """Allowing 'scripted' must not turn the allow-list into a pass-through."""
+    resp = client.post(
+        "/api/mapping/agent/run",
+        headers=AUTH,
+        json={"vendor": "LSEG", "product_id": "X", "agent_provider": "nonsense"},
+    )
+    assert resp.status_code == 400
+    assert "unknown agent provider" in resp.get_data(as_text=True)
+
+
 @patch("openai.AzureOpenAI")
 def test_azure_openai_shim_success(mock_azure_client):
     """Verify that AzureOpenAIShim correctly uses the client.beta.chat.completions.parse API."""

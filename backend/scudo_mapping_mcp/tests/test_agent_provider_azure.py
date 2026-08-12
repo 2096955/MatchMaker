@@ -235,6 +235,16 @@ def test_agent_run_route_passes_agent_provider_through_to_get_agent(monkeypatch)
     import routes.mapping as mapping_routes
     from app import app
 
+    # Seed a real ingested frame. This test is about PROVIDER PLUMBING, but the
+    # route now refuses (404 frame_not_found) when no frame exists and inline
+    # text is not explicitly permitted -- it used to silently score the inline
+    # name. Seeding keeps the test exercising what it is named for instead of
+    # depending on the removed fail-open path.
+    from scudo_mapping_mcp.frames import put_frame
+    from scudo_mapping_mcp.models import VendorProductRef
+
+    put_frame(VendorProductRef(vendor="LSEG", product_id="X-1", name="Some Product"))
+
     captured = {}
 
     class _StubAgent:

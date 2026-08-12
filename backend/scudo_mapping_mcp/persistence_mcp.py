@@ -31,10 +31,18 @@ Verify and runs, in order:
      forges a "trust me" status string, the seal verifies and the gate
      STILL refuses agent-driven auto_mapped.
 
-``persist.record_decision`` is the HITL write path. A human approves /
-overrides / rejects via the Flask Admin UI; that endpoint calls into
-this tool. Human-approved decisions DO write to canon — the human IS
-the verifier. Scope gate layer 3 still applies.
+``persist.record_decision`` is the HITL write path. Human-approved
+decisions DO write to canon — the human IS the verifier. Scope gate
+layer 3 still applies, and a write-authorization gate runs ahead of it
+(see ``_check_write_authorization``).
+
+  NOTE — two ingresses, not one. The Flask Admin UI route
+  ``POST /api/mapping/decision`` does NOT call this tool: it calls
+  ``feedback.apply_decision`` directly, binding ``decided_by`` to the
+  authenticated ``flask.g.principal``. This tool is a SECOND, independent
+  ingress reachable on the ``/mcp/persist`` ALB path, so it enforces its
+  own gate rather than inheriting the route's. ``decided_by`` here is
+  asserted by the token holder and is not independently verifiable.
 
 WHAT'S IMPORTED HERE
 --------------------
@@ -48,14 +56,19 @@ TOOLS
   - ``persist.commit_mapping``  — agent path: refuses except on
                                   HITL-pre-approved verdicts.
   - ``persist.record_decision`` — HITL path: approve / override /
-                                  reject. Decided_by must be supplied
-                                  by the caller (the Flask Admin route
-                                  injects it from ``g.principal``).
+                                  reject. Requires ``write_token``
+                                  (fail-closed). ``decided_by`` is
+                                  ASSERTED by the token holder — this
+                                  tool cannot verify it.
   - ``persist.export_bundle``   — M6 bundle export (read of confirmed
                                   precedents, but lives on the
                                   Persistence side because the bundle
                                   is the cutover artefact).
-  - ``persist.import_bundle``   — M6 bundle import. Writes.
+  - ``persist.import_bundle``   — M6 bundle import. Writes. Requires
+                                  ``write_token`` (fail-closed).
+  - ``persist.publish_bundle``  — writes the bundle to the canonical S3
+                                  key ``hydrate()`` reads at boot.
+                                  Requires ``write_token`` (fail-closed).
 
 Run locally with:
     python -m scudo_mapping_mcp.persistence_mcp
@@ -63,6 +76,7 @@ Run locally with:
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import time
@@ -86,6 +100,92 @@ _RW = {
     "openWorldHint": False,
 }
 _RO = {**_RW, "readOnlyHint": True, "destructiveHint": False}
+
+# NOTE: the dicts above are MCP *annotations* — advisory metadata shipped to
+# clients in the tool listing. ``mcp.types.ToolAnnotations`` says so itself:
+# "all properties in ToolAnnotations are **hints** ... Clients should never
+# make tool use decisions based on ToolAnnotations received from untrusted
+# servers." They enforce NOTHING server-side. The enforcement for the write
+# path is ``_check_write_authorization`` below.
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Write authorization — the trust boundary for the canonical write path
+# ──────────────────────────────────────────────────────────────────────
+# ``record_decision`` writes canon (apply_decision -> upsert_precedent).
+# ``commit_mapping`` is protected by the HMAC verdict seal; the HITL path
+# had no equivalent control, and ``decided_by`` is a caller-supplied field.
+# The Flask console route (backend/routes/mapping.py) binds the principal
+# from ``g.principal`` — but that is a SEPARATE ingress which calls
+# ``feedback.apply_decision`` directly and never reaches this tool. This
+# MCP server is published on its own ALB path (/mcp/persist), so the tool
+# needs its own gate.
+#
+# WHY A SHARED SECRET AND NOT THE VERDICT SEAL:
+#   - The seal binds ``mapped_node_iri`` to the node MATCH & VERIFY chose.
+#     An ``override`` decision writes a DIFFERENT node by definition, so no
+#     seal can ever bind an override — the control would have to be skipped
+#     precisely where the human disagrees with the machine.
+#   - Seals expire after ``SCUDO_VERDICT_MAX_AGE_SECONDS`` (default 300s).
+#     Human review routinely takes longer than five minutes.
+#   - Most importantly: a seal proves M&V PRODUCED a verdict. It says
+#     nothing about WHO is calling. Authentication is the missing control
+#     and the seal is not an authentication primitive.
+#
+# Fail-closed: with no secret configured the tool refuses every write. A
+# deploy that forgets to inject the secret gets a dead write path, never an
+# open one. Same posture as ``auth.can_write_decision`` and ``verdict.py``.
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _dev_writes_allowed() -> bool:
+    """Whether the unauthenticated dev bypass is active. OFF by default.
+
+    ONE dedicated switch, deliberately. An earlier version also honoured
+    ``SCUDO_VERDICT_ALLOW_DEV`` on the reasoning that a process holding the
+    dev HMAC signing key is a development process by definition. That was
+    wrong, and an adversarial verifier caught it: ``README.md`` (the local-run
+    recipe) and ``docs/demo-runbook.md`` both instruct operators to
+    ``export SCUDO_VERDICT_ALLOW_DEV=1``. Anyone following the documented
+    setup would therefore have silently disabled the canonical-write gate —
+    a convenience flag must never be load-bearing for an access control.
+
+    The two concerns are now separate:
+      * ``SCUDO_VERDICT_ALLOW_DEV``      — seal signing key (verdict.py)
+      * ``SCUDO_PERSIST_ALLOW_DEV_WRITES`` — THIS gate, and nothing else
+
+    Neither appears in any infra template (checked: infra/scudo-dev-deploy.yaml,
+    infra/scudo-poc-app.yaml), so a deployed environment cannot inherit either.
+    """
+    return os.getenv("SCUDO_PERSIST_ALLOW_DEV_WRITES", "").strip().lower() in _TRUTHY
+
+
+def _check_write_authorization(presented_token: str) -> Optional[str]:
+    """Return a refusal reason, or ``None`` when the caller may write.
+
+    A single opaque reason (``write_not_authorized``) is returned for every
+    failure mode — unset secret, absent token, wrong token — so a prober
+    cannot distinguish "this deployment has no secret" from "your token was
+    wrong". Comparison is constant-time.
+    """
+    if _dev_writes_allowed():
+        return None
+    expected = (os.getenv("SCUDO_PERSIST_WRITE_TOKEN", "") or "").strip()
+    if not expected:
+        # Fail CLOSED. No secret configured -> nobody writes.
+        return "write_not_authorized"
+    # Compare as BYTES. ``hmac.compare_digest`` raises TypeError on str inputs
+    # containing non-ASCII, and that raise was itself a deployment-posture
+    # oracle: with no secret configured a prober got a clean refusal, while a
+    # configured secret produced an unhandled TypeError — telling the prober a
+    # secret exists, the exact distinction the refusal below is meant to hide.
+    # Found by a completeness critic. Encoding first keeps the comparison
+    # constant-time and total over any input.
+    if not hmac.compare_digest(
+        expected.encode("utf-8"), (presented_token or "").strip().encode("utf-8")
+    ):
+        return "write_not_authorized"
+    return None
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -148,16 +248,39 @@ class DecisionInput(_Base):
         ...,
         description="approve | override | reject",
     )
-    decided_by: str = Field(..., min_length=1)
+    decided_by: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Identity ASSERTED by the token holder and recorded as provenance "
+            "on the precedent edge. This tool cannot independently verify it — "
+            "the write_token is what authorises the write."
+        ),
+    )
     node_iri: str = Field(..., min_length=1)
     name: str = Field("")
     description: str = Field("")
     suggested_confidence: Optional[float] = Field(default=None)
+    write_token: str = Field(
+        "",
+        description=(
+            "Shared secret authorising a canonical write; must match "
+            "SCUDO_PERSIST_WRITE_TOKEN. Refused when unset (fail-closed)."
+        ),
+    )
 
 
 class BundleExportInput(_Base):
     source_env: Optional[str] = None
     created_at: Optional[str] = None
+    write_token: str = Field(
+        "",
+        description=(
+            "Shared secret authorising a canonical write; must match "
+            "SCUDO_PERSIST_WRITE_TOKEN. Refused when unset (fail-closed). "
+            "Ignored by persist.export_bundle, which only reads."
+        ),
+    )
 
 
 def _refusal(reason: str, **detail) -> str:
@@ -289,11 +412,36 @@ async def record_decision(params: DecisionInput) -> str:
     """The HITL write path. Approve / override / reject from a human.
 
     Wraps ``feedback.apply_decision`` which is itself the atomic write
-    surface (scope gate + node resolve + single Cypher upsert). The Flask
-    Admin route at ``/api/mapping/decision`` is the user-facing front of
-    this tool; the principal (decided_by) comes from the gateway auth
-    header, never from the tool body.
+    surface (scope gate + node resolve + single Cypher upsert).
+
+    AUTHORIZATION — what this tool actually enforces:
+      ``params.write_token`` must match ``SCUDO_PERSIST_WRITE_TOKEN``.
+      Checked FIRST, before scope and before decision validation, so an
+      unauthorised caller cannot probe policy through refusal reasons.
+      Fail-closed: with the secret unset, every write is refused.
+
+    IDENTITY — read this before trusting an audit trail:
+      ``decided_by`` is ASSERTED by whoever holds the write token; this
+      tool cannot verify it. The token authorises *a* write, it does not
+      attest *who* made it. Anyone holding the token can write under any
+      name, so treat the token as a service credential and scope it
+      accordingly.
+
+      The Flask console route ``POST /api/mapping/decision`` DOES bind the
+      principal to ``flask.g.principal`` and ignores any body-supplied
+      ``decided_by`` — but that route is a SEPARATE ingress: it calls
+      ``feedback.apply_decision`` directly and never invokes this tool.
+      Its guarantee therefore does not extend here, which is why this gate
+      exists. (An earlier version of this docstring asserted that the
+      gateway auth header — not the request body — supplied the principal
+      for this tool. That was a description of the Flask route, and was
+      false as a statement about this function.)
     """
+    # Layer 0 — authorization. FIRST, ahead of every other check.
+    auth_err = _check_write_authorization(params.write_token)
+    if auth_err:
+        return _refusal(auth_err)
+
     err = _validate_vendor(params.vendor)
     if err:
         return _refusal("out_of_scope", detail=err)
@@ -351,7 +499,19 @@ async def export_bundle_tool(params: BundleExportInput) -> str:
 async def publish_bundle_tool(params: BundleExportInput) -> str:
     """Build the confirmed-precedent bundle AND write it to the canonical S3
     key that hydrate() reads at boot. Read-write: the only write side of the
-    export->hydrate cycle. Bucket/key resolve exactly like hydration."""
+    export->hydrate cycle. Bucket/key resolve exactly like hydration.
+
+    AUTHORISED WRITE. This is the highest-leverage write on the server: the
+    key it lands on is the one every Match & Verify container replays into
+    its graph at boot (``match_verify_mcp`` lifespan -> ``hydrate`` ->
+    ``import_bundle`` -> ``upsert_precedent``). An unauthenticated caller
+    here poisons every container's working graph on its next restart, so it
+    takes the same fail-closed ``write_token`` as ``record_decision``.
+    """
+    auth_err = _check_write_authorization(params.write_token)
+    if auth_err:
+        return _refusal(auth_err)
+
     bundle = export_bundle(
         source_env=params.source_env,
         created_at=params.created_at,
@@ -371,13 +531,22 @@ async def publish_bundle_tool(params: BundleExportInput) -> str:
     name="persist.import_bundle",
     annotations={"title": "Import an M6 mapping bundle", **_RW},
 )
-async def import_bundle_tool(bundle: dict) -> str:
+async def import_bundle_tool(bundle: dict, write_token: str = "") -> str:
     """Idempotent re-seed of confirmed precedents from a bundle.
 
-    Same scope-gate + identity discipline as a HITL write: the bundle's
-    own ``check_scope`` filter excludes out-of-scope vendors from being
-    imported.
+    AUTHORISED WRITE. Takes the same fail-closed ``write_token`` as
+    ``record_decision``.
+
+    The bundle's ``check_scope`` filter excludes out-of-scope vendors, but
+    scope is NOT authorisation: every pattern in an in-scope bundle is
+    written as a CONFIRMED precedent carrying its own ``decided_by``
+    provenance. Ungated, this was a strictly cheaper attack than forging a
+    single HITL decision — one call writes a whole bundle of them.
     """
+    auth_err = _check_write_authorization(write_token)
+    if auth_err:
+        return _refusal(auth_err)
+
     try:
         parsed = MappingBundle.model_validate(bundle)
     except Exception as e:  # noqa: BLE001

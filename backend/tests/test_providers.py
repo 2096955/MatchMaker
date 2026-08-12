@@ -3,7 +3,10 @@
 Each function is a standalone test.  Run the file directly:
     python test_providers.py
 
-Requires MySQL running locally (metadata + ingestion databases).
+Requires PostgreSQL running locally (the `console` and `ingestion` schemas).
+JPMC-LOCAL: this line used to say MySQL. It was stale -- the console DB was
+ported to Aurora PostgreSQL (see db.py, psycopg v3) and no MySQL driver
+remains anywhere in the Python code. `docker compose up -d` provides it.
 """
 
 import sys

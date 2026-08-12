@@ -11,6 +11,7 @@ Run:
 
 from __future__ import annotations
 
+import inspect
 import logging
 import sys
 from dataclasses import dataclass
@@ -158,6 +159,15 @@ def _verifier_with_total(total: int, rubric_version: str):
     )
 
 
+_IRI_IN_PROMPT = __import__("re").compile(r"mds\.[A-Za-z0-9_-]+:[0-9a-f-]{36}")
+
+
+def _iri_from_prompt(prompt: str) -> str:
+    """First mds.* IRI appearing in the brief — the bundle's vendor_product_iri."""
+    m = _IRI_IN_PROMPT.search(prompt or "")
+    return m.group(0) if m else "mds.lseg:9b911986-764b-529c-be8f-9744d86ec0b8"
+
+
 def mapping_responder(
     *,
     target_iri: str,
@@ -165,7 +175,16 @@ def mapping_responder(
     requires_review: bool = False,
     include_evidence: bool = True,
     include_triples: bool = True,
+    vendor_product_iri: str = "",
 ):
+    """Fake mapping specialist.
+
+    ``vendor_product_iri`` is a PARAMETER, not a constant, because the publish
+    gate now requires the specialist to ECHO the bundle's deterministically
+    minted IRI. A hardcoded fixture value is exactly the drift that gate
+    exists to catch, so callers that run the full publish path must pass
+    ``bundle.vendor_product_iri``.
+    """
     def _respond(model_cls, prompt):
         evidence = (
             [
@@ -181,8 +200,13 @@ def mapping_responder(
             if include_evidence
             else []
         )
+        # Echo the bundle's minted IRI. The publish gate REQUIRES this, and a
+        # real specialist reads it from the brief it was handed; the fake does
+        # the same by pulling it out of the prompt rather than hardcoding a
+        # value that silently drifts from whatever mint the assembler used.
+        echoed = vendor_product_iri or _iri_from_prompt(prompt)
         return MappingResult(
-            vendor_product_iri="mds.lseg:9b911986-764b-529c-be8f-9744d86ec0b8",
+            vendor_product_iri=echoed,
             proposed_target_iri=target_iri,
             rationale="Bundle candidate #1 matches the vendor assertion on theme.",
             confidence=confidence,
@@ -275,9 +299,7 @@ def main() -> None:
         )
         assert obj.outcome is Outcome.PUBLISHED
         assert obj.route is Route.NEW_MAPPING
-        assert obj.published_graph.startswith(
-            "jpmorgan:data:cdao:graphs:enrichment:"
-        )
+        assert obj.published_graph.startswith("jpmorgan:data:cdao:graphs:enrichment:")
         assert orch.publisher.published[0]["graph"] == obj.published_graph
         assert orch.publisher.published[0]["triples"]
 
@@ -487,6 +509,66 @@ def main() -> None:
         band_defects = orch_ev._pre_verify_defects(wrong_band, sample_bundle)
         print(f"[12] band-mismatch defects: {band_defects}")
         assert any("disagrees with confidence" in d for d in band_defects)
+
+        # 12b) The specialist must ECHO the minted vendor_product_iri, never
+        #      invent one. MappingResult.vendor_product_iri is an unvalidated
+        #      str the LLM fills in, and it becomes the PRIMARY KEY of the
+        #      projection table; the publish gate's _IRI_DETERMINISM only
+        #      inspects triple subjects, so nothing else catches a drifted or
+        #      hallucinated identity here.
+        good_result = bad_evidence_responder(MappingResult, "").model_copy(
+            update={"evidence": [Evidence(claim="x", source_iris=[candidate_iri])]}
+        )
+        echoed = good_result.model_copy(
+            update={"vendor_product_iri": sample_bundle.vendor_product_iri}
+        )
+        assert not any(
+            "vendor_product_iri" in d
+            for d in orch_ev._pre_verify_defects(echoed, sample_bundle)
+        ), "echoing the minted IRI must NOT be flagged"
+
+        hallucinated = good_result.model_copy(
+            update={
+                "vendor_product_iri": "mds.lseg:00000000-dead-beef-0000-000000000000"
+            }
+        )
+        # 12c) BOTH identity checks must be HARD gates, not prompt hints.
+        #      _pre_verify_defects output is only concatenated into the
+        #      verifier's PROMPT (_call_verifier) — a verifier that scores well
+        #      and ignores the injected text publishes anyway. Both were
+        #      reproduced publishing end-to-end before being moved into
+        #      _gate_and_decide, so pin that they now RAISE.
+        from scudo.orchestrator import PublishGateError as _PGE
+
+        _gate_src = inspect.getsource(orch_ev._gate_and_decide)
+        assert "vendor_product_iri" in _gate_src and "PublishGateError" in _gate_src, (
+            "vendor_product_iri echo check is not in the deterministic publish gate"
+        )
+        assert "proposed_target_iri" in _gate_src, (
+            "off-candidate check is not in the deterministic publish gate — the "
+            "specialist could publish a node that was never offered"
+        )
+        print("[12c] both identity checks are hard publish gates:", _PGE.__name__)
+        # 12d) The candidate gate must fail CLOSED on the degenerate shapes.
+        #      The first version guarded on `and candidate_iris and ...`, so an
+        #      EMPTY candidate list published anything the model proposed —
+        #      exactly the case where it has the LEAST grounding. Found by an
+        #      external reviewer.
+        assert "bundle.candidates is empty" in _gate_src, (
+            "empty candidate list is fail-OPEN: an ungrounded model pick publishes"
+        )
+        assert "proposed_target_iri is empty" in _gate_src, (
+            "empty proposed_target_iri is not rejected at the publish gate"
+        )
+        print("[12d] candidate gate fails closed on empty candidates + empty target")
+
+
+        iri_defects = orch_ev._pre_verify_defects(hallucinated, sample_bundle)
+        print(f"[12b] hallucinated-IRI defects: {iri_defects}")
+        assert any("vendor_product_iri" in d for d in iri_defects), (
+            "a specialist-invented vendor_product_iri was not flagged — it would "
+            "key a projection row under an identity the mint never produced"
+        )
 
         # 13) Gate-2 thresholds are per-instance: raising verifier_retry_hi to
         #     17 turns a verifier total of 16 — normally PUBLISHED — into a RETRY.

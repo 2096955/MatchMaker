@@ -55,6 +55,23 @@ class VendorProductRef(BaseModel):
         default=None,
         description="x-amz-meta-file-audit-id from the S3 object; None when absent or on non-s3 paths.",
     )
+    # Temporal coverage — the period/vintage/as-of the vendor product covers.
+    # Optional with a None default: every pre-existing construction site
+    # (137 of them) keeps working untouched, and None means "vendor declared
+    # nothing", which the temporal validation treats as PASS-BY-DEFAULT.
+    # Free text by design (vendor rows carry "2019-2021", "2020-06",
+    # "historical", ...); the comparator parses what it can and passes on
+    # anything it cannot. Consumed ONLY behind SCUDO_TEMPORAL_VALIDATION
+    # (validations.temporal comparator) — never composed into any matching
+    # text surface, so it can never move ``Candidate.similarity``.
+    temporal_coverage: Optional[str] = Field(
+        default=None,
+        description=(
+            "Period/vintage/as-of the vendor product covers, as declared "
+            "upstream (e.g. '2019-01-01/2020-12-31', '2019-2021', '2020-06'). "
+            "None when the vendor declares nothing."
+        ),
+    )
 
     @property
     def iri(self) -> str:
@@ -86,6 +103,24 @@ class TaxonomyNode(BaseModel):
     business_concept: Optional[str] = None
     asset_class: Optional[str] = None
     super_asset_class: Optional[str] = None
+    # ── Temporal coverage (catalogue side) ─────────────────────────────────
+    # The period the CDAO node's data covers, mirroring
+    # ``DcatDataset.temporal_coverage`` (UML Dataset.temporalCoverage,
+    # models_dcat.py). Optional/None default so every existing construction
+    # site is unaffected. Same boundary discipline as the Phase E signals
+    # above: STRUCTURED only, never concatenated into ``definition`` /
+    # ``alt_labels`` and never composed into any text surface, so it cannot
+    # move ``Candidate.similarity``. Read ONLY by the deterministic temporal
+    # comparator behind SCUDO_TEMPORAL_VALIDATION (validations.py).
+    #
+    # NOT YET POPULATED by the loader/projector paths: ``project_dcat_dataset``
+    # and ``dcat_loader._extract_node`` still drop DcatDataset.temporal_coverage
+    # on the floor (they must be wired in lockstep — test_dcat_phase_c_lockstep
+    # pins full model_dump equality between the two). Until then callers pass
+    # the value explicitly via ``run_validations(node_temporal_coverage=...)``,
+    # exactly as ``node_data_class`` is plumbed for asset_class. Absent on both
+    # sides is a PASS, so an unpopulated field is inert, never a false failure.
+    temporal_coverage: Optional[str] = None
 
 
 class Candidate(BaseModel):

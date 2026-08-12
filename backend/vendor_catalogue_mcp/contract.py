@@ -5,6 +5,7 @@ deterministic IRI mint. Both `server` (which hosts the @mcp.tool decorators)
 and `mock_backend` (which implements them) import from here, eliminating the
 type-injection seam — the module file IS the seam, not individual callables.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -30,7 +31,32 @@ _IRI_NAMESPACE = uuid5(NAMESPACE_URL, "https://mds.jpmc.internal/catalogue")
 
 
 def product_iri(vendor: VendorId, vendor_product_ref: str) -> str:
-    """Canonical product IRI: `mds.<vendor>:<uuid5>`. Deterministic in inputs."""
+    """NON-CANONICAL, DEMO-ONLY product IRI. Never use for anything that reaches
+    the store.
+
+    Shape is `mds.<vendor>:<uuid5>` and it is deterministic in its inputs, but it
+    is NOT the system's identity mint. The canonical mint is
+    ``scudo_mapping_mcp.models.mds_iri`` — it uses a different namespace seed
+    (``6f2a9c4e-…``) and a different key (``"<vendor>::<ref>"``, double colon,
+    lower-cased), so the two produce DIFFERENT uuid5s for the same product:
+
+        mds_iri("S&P Global", "SPGI-1") -> mds.sandpglobal:724e610b-9dfb-5012-9125-fe7e16e99eff
+        product_iri(SPGLOBAL, "SPGI-1") -> mds.spglobal:848af514-595e-55f5-b34c-f9a7ccdfc712
+
+    WHY IT IS LEFT DIVERGENT (deliberate, 2026-08). This package is parallel demo
+    code: a synthetic-parquet catalogue behind the stdio MCP server and the
+    ``/api/catalogue`` HTTP facade. ``product_iri`` has ZERO callers outside this
+    package, and nothing in ``scudo_mapping_mcp`` imports ``vendor_catalogue_mcp``
+    at all, so no IRI minted here is a MERGE key for a VendorProduct node. Making
+    it delegate to ``mds_iri`` would change every IRI the catalogue facade already
+    serves (and every ``ProductRef.iri`` in its cursors/deltas) to buy nothing on
+    the store side — strictly more risk than labelling it. If this package ever
+    starts feeding the matcher or the store, DELETE this function and call
+    ``scudo_mapping_mcp.models.mds_iri`` instead; do not "align" it here.
+
+    Guarded by ``backend/scudo/tests/test_iri_mint_parity.py``, which fails if
+    this symbol is ever imported into ``scudo`` or ``scudo_mapping_mcp``.
+    """
     u = uuid5(_IRI_NAMESPACE, f"{vendor.value}:{vendor_product_ref}")
     return f"mds.{vendor.value}:{u}"
 

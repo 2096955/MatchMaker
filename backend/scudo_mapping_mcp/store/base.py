@@ -257,11 +257,24 @@ class RetrievalStore(ABC):
 
     # Shared canonicalisation so FalkorDB and Neptune key rank signals the
     # same way. Whitespace normalised; vendor and (name|product_id) joined.
+    #
+    # VENDOR IS LOWER-CASED — and must stay that way. The other two keys
+    # derived from the vendor already canonicalise it:
+    #
+    #     models.mds_iri       f"{vendor.strip().lower()}::{product_id.strip()}"
+    #     verdict.input_hash   f"{vendor.strip().lower()}::{product_id.strip()}"
+    #
+    # This function used to ``.strip()`` the vendor without lower-casing it,
+    # so "LSEG" and "lseg" produced the SAME IRI and the SAME seal identity
+    # but DIFFERENT signatures. Identity converged while rank signals forked:
+    # ``rank_signals_for`` bucketed the two casings apart, so the precedent
+    # ordering boost silently split and under-performed — no error, no failing
+    # test, just degraded matching. Pinned by tests/test_vendor_signature_casing.py.
     @staticmethod
     def vendor_signature(vendor: str, name: str, product_id: str) -> str:
         base = (name or product_id or "").strip().lower()
         base = " ".join(base.split())
-        return f"{(vendor or '').strip()}::{base}"
+        return f"{(vendor or '').strip().lower()}::{base}"
 
     # Per-approval rank-signal weight and overall cap. Single swap point for
     # the scorer's tuning surface (I10): retuning happens here and propagates

@@ -246,7 +246,17 @@ def ingest_bytes(
             raise ValueError("each product row must be a JSON object.")
     else:  # default to CSV / TSV
         delimiter = "\t" if filename.lower().endswith((".tsv", ".tab")) else ","
-        rows = list(csv.DictReader(io.StringIO(text), delimiter=delimiter))
+        try:
+            rows = list(csv.DictReader(io.StringIO(text), delimiter=delimiter))
+        except csv.Error as e:
+            # csv.Error subclasses Exception, NOT ValueError, so it escaped the
+            # routes' "except (UnicodeDecodeError, ValueError) -> 400" handlers
+            # and surfaced as an opaque HTTP 500 (D2). A file this parser cannot
+            # read is a CLIENT error; re-raise in the ValueError family the
+            # routes already classify as 400, naming the file and the attempted
+            # format. NOT a format decision: which formats are supported is a
+            # separate open question — this only fixes the classification.
+            raise ValueError(f"{filename} is not valid CSV: {e}") from e
 
     # Bound row count so a huge file can't exhaust memory/CPU (A3). The byte
     # ceiling is enforced earlier by Flask MAX_CONTENT_LENGTH; this caps rows.
