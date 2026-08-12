@@ -8,7 +8,7 @@ needs Bedrock (the agents) and Aurora (the memory).
 1. **There is no Terraform in this repository.** Not one `.tf` file. Every
    piece of infrastructure-as-code here is **CloudFormation YAML**
    (`infra/scudo-poc-*.yaml`, `infra/scudo-dev-*.yaml`,
-   `backend/scudo/data-platform.yaml`). If you are being asked to "do the
+   [`backend/scudo/data-platform.yaml`](backend/scudo/data-platform.yaml)). If you are being asked to "do the
    Terraform", the honest answer is that this codebase has none to fix —
    Bedrock and Aurora access are an **account-permissions** task, not a
    code task. See §4.
@@ -28,12 +28,12 @@ Only one needs new code, and it is optional for a demo.
 
 | # | What you want | Files to touch | Change type |
 |---|---|---|---|
-| 1a | Console CRUD (Providers/Datasets/Admin) on Aurora instead of SQLite | `backend/db.py` — **read only, no edit** | **env vars only** |
-| 1b | Run the console schema on Aurora | `backend/init_db.sql` (223 lines, already PostgreSQL) | **run it, don't edit it** |
-| 2 | Agents on real Bedrock instead of the scripted narrator | `streamlit_app.py` sidebar — **no edit needed** | **env vars + paste key** |
+| 1a | Console CRUD (Providers/Datasets/Admin) on Aurora instead of SQLite | [`backend/db.py`](backend/db.py) — **read only, no edit** | **env vars only** |
+| 1b | Run the console schema on Aurora | [`backend/init_db.sql`](backend/init_db.sql) (223 lines, already PostgreSQL) | **run it, don't edit it** |
+| 2 | Agents on real Bedrock instead of the scripted narrator | [`streamlit_app.py`](streamlit_app.py) sidebar — **no edit needed** | **env vars + paste key** |
 | 2a | The region/model mismatch (was a real bug, see §2.3) | *(none)* — **already fixed in the file you have** | **set `AWS_REGION`, type nothing** |
-| 3 | Agent memory in Aurora rather than a local file | `backend/scudo/aurora_memory.py`, `aurora_store.py` (exist, unreachable from Streamlit) | **new file needed** — optional |
-| 4 | Let users **correct** the agent in the Streamlit UI | *(none)* — Approve/Reject **already present**, `streamlit_app.py:997-1079` | **nothing to type** — see §5 |
+| 3 | Agent memory in Aurora rather than a local file | [`backend/scudo/aurora_memory.py`](backend/scudo/aurora_memory.py), [`backend/scudo/aurora_store.py`](backend/scudo/aurora_store.py) (exist, unreachable from Streamlit) | **new file needed** — optional |
+| 4 | Let users **correct** the agent in the Streamlit UI | *(none)* — Approve/Reject **already present**, [`streamlit_app.py:1018-1101`](streamlit_app.py) | **nothing to type** — see §5 |
 
 ---
 
@@ -52,17 +52,17 @@ console DB tells you nothing about whether C works.
 
 ### 1A — Console DB: env vars only, zero code edits
 
-`backend/db.py` already speaks both. The switch is one env var:
+[`backend/db.py`](backend/db.py) already speaks both. The switch is one env var:
 
-- `backend/db.py:93-100` — `_sqlite_enabled()` returns True only when
+- [`backend/db.py:93-100`](backend/db.py) — `_sqlite_enabled()` returns True only when
   `CONSOLE_DB_BACKEND=sqlite`
-- `backend/db.py:71-74` and `:86-89` — when sqlite, returns the
+- [`backend/db.py:71-74`](backend/db.py) and `:86-89` — when sqlite, returns the
   `db_sqlite_fallback` connection
-- `backend/db.py:46-55` — otherwise `psycopg.connect(...)` to Aurora
+- [`backend/db.py:46-55`](backend/db.py) — otherwise `psycopg.connect(...)` to Aurora
 
 **To move to Aurora: set `CONSOLE_DB_BACKEND` to anything other than
 `sqlite`, and set these five.** (Do not just `unset` it if you launch via
-Streamlit — `streamlit_app.py:82` re-defaults it back to `sqlite`. See §3
+Streamlit — [`streamlit_app.py:82`](streamlit_app.py) re-defaults it back to `sqlite`. See §3
 Config C.)
 
 ```bash
@@ -78,19 +78,19 @@ export CONSOLE_DB_NAME=scudo_console
 variable, not an environment variable — the Python process never sees it and
 you get the SQLite file with no error to tell you why.
 
-Safety rail worth knowing: `db.py:41-45` **refuses to start** if
+Safety rail worth knowing: [`backend/db.py:41-45`](backend/db.py) **refuses to start** if
 `CONSOLE_DB_HOST` is not localhost and `CONSOLE_DB_PASSWORD` is empty. That
 error is the code protecting you from silently connecting nowhere, not a bug.
 
 **Two known holes in the SQLite side — reproduced, not theoretical.** They
 argue *for* moving to Aurora, and they only bite the local stand-in:
 
-1. `db_sqlite_fallback.py:73-80` `translate_params()` calls `.replace()` on
-   the SQL, but `routes/datasets.py:103-110` (CREATE TABLE) and `:131-137`
+1. [`backend/db_sqlite_fallback.py:73-80`](backend/db_sqlite_fallback.py) `translate_params()` calls `.replace()` on
+   the SQL, but [`backend/routes/datasets.py:103-110`](backend/routes/datasets.py) (CREATE TABLE) and `:131-137`
    (ALTER TABLE ADD COLUMN) pass a `psycopg.sql.Composed`, which has no
    `.replace` → `AttributeError`.
 2. `ingestion/engine.py:559,566` uses `ing.transaction()` (including a nested
-   per-row SAVEPOINT); `SqliteConnection` (`db_sqlite_fallback.py:178-193`)
+   per-row SAVEPOINT); `SqliteConnection` ([`backend/db_sqlite_fallback.py:178-193`](backend/db_sqlite_fallback.py))
    has no `transaction()` method → `AttributeError`.
 
 Read paths are fine. It is schema-mutating Datasets operations and Ingestion
@@ -99,14 +99,14 @@ psycopg features — so if you hit either, that is the stand-in's limit, not
 your configuration.
 
 Call sites that light up (counted as actual `get_conn()` invocations, import
-lines excluded): `routes/admin.py` (10), `routes/datasets.py` (7),
-`routes/providers.py` (5), `routes/ingest.py` (2) — 24 in total.
+lines excluded): [`backend/routes/admin.py`](backend/routes/admin.py) (10), [`backend/routes/datasets.py`](backend/routes/datasets.py) (7),
+[`backend/routes/providers.py`](backend/routes/providers.py) (5), [`backend/routes/ingest.py`](backend/routes/ingest.py) (2) — 24 in total.
 **You do not edit any of them** — every one goes through `get_conn()`, which
 is the single switch above.
 
 ### 1B — The schema
 
-`backend/init_db.sql` is 223 lines of **portable PostgreSQL** and already
+[`backend/init_db.sql`](backend/init_db.sql) is 223 lines of **portable PostgreSQL** and already
 seeds admin roles/users. Run it against Aurora once. Do not retype or edit it.
 
 Two warnings:
@@ -117,7 +117,7 @@ Two warnings:
 ### 1B(ii) — Aurora via Data API instead of a direct connection
 
 If JPMC networking blocks port 5432 from your desktop, there is a Data API
-bootstrapper: `infra/bootstrap_console_schema_data_api.py` (415 lines,
+bootstrapper: [`infra/bootstrap_console_schema_data_api.py`](infra/bootstrap_console_schema_data_api.py) (415 lines,
 already written — you run it, you do not edit it). It takes four **required**
 arguments and defaults `--sql-file` to a path relative to the repo root, so
 **run it from the repo root**:
@@ -139,20 +139,20 @@ statements it would apply, and the DDL is destructive (see 1B).
 
 Be clear with your architects about this, because it is the one real gap.
 
-`backend/scudo_mapping_mcp/store/factory.py:19-59` is the **only** place a
+[`backend/scudo_mapping_mcp/store/factory.py:19-59`](backend/scudo_mapping_mcp/store/factory.py) is the **only** place a
 store is constructed. It accepts exactly four values and raises `ValueError`
 on anything else:
 
 | `STORE_BACKEND` | Implementation | Survives restart? |
 |---|---|---|
-| `memory` | `memory_store.py` (152 lines) | No |
-| `local_file` | `local_file_store.py` (393 lines) | **Yes — JSONL on disk** |
-| `falkordb` | `falkordb_store.py` | (not used at JPMC) |
-| `neptune` | `neptune_store.py` | (not used at JPMC) |
+| `memory` | [`backend/scudo_mapping_mcp/store/memory_store.py`](backend/scudo_mapping_mcp/store/memory_store.py) (152 lines) | No |
+| `local_file` | [`backend/scudo_mapping_mcp/store/local_file_store.py`](backend/scudo_mapping_mcp/store/local_file_store.py) (393 lines) | **Yes — JSONL on disk** |
+| `falkordb` | [`backend/scudo_mapping_mcp/store/falkordb_store.py`](backend/scudo_mapping_mcp/store/falkordb_store.py) | (not used at JPMC) |
+| `neptune` | [`backend/scudo_mapping_mcp/store/neptune_store.py`](backend/scudo_mapping_mcp/store/neptune_store.py) | (not used at JPMC) |
 
 **There is no `aurora_store` in that list.** To put matching precedents in
 Aurora you would write a new file implementing the `RetrievalStore` abstract
-base in `store/base.py:59-437` — **16** abstract methods. That is a real
+base in [`backend/scudo_mapping_mcp/store/base.py:59-437`](backend/scudo_mapping_mcp/store/base.py) — **16** abstract methods. That is a real
 piece of work and it is **not needed for a demo**.
 
 **Use `local_file` instead** — but be precise about what it replaces.
@@ -162,10 +162,10 @@ scoring, the same invariants, plus an append-only journal at
 It is human-readable — you can open it in VS Code and *see what the system
 learned*, which is a better demo than a database you cannot inspect.
 
-It is **not** a drop-in for everything `aurora_memory.py` does. That module
+It is **not** a drop-in for everything [`backend/scudo/aurora_memory.py`](backend/scudo/aurora_memory.py) does. That module
 also holds priors, trajectories and promoted skills (`consult_priors`,
 `record_trajectory`, `harvest_trajectories`, `consult_best_skill`,
-`promote_skill`). `local_file_store.py` implements **none** of those — a grep
+`promote_skill`). [`backend/scudo_mapping_mcp/store/local_file_store.py`](backend/scudo_mapping_mcp/store/local_file_store.py) implements **none** of those — a grep
 for `trajector|skill|prior` across it returns one comment and nothing else.
 So: precedent learning works locally and is what the demo shows; the
 self-improvement half is **Aurora-backed and offline-run** — not a Lambda-only
@@ -180,15 +180,19 @@ export SCUDO_PERSIST_TARGET=local_file
 
 ### 1C(ii) — Agent memory (`SCUDO_AURORA_*`) — the honest status
 
-`backend/scudo/aurora_memory.py` and `backend/scudo/aurora_store.py` are
+[`backend/scudo/aurora_memory.py`](backend/scudo/aurora_memory.py) and [`backend/scudo/aurora_store.py`](backend/scudo/aurora_store.py) are
 written and working, but they reach Aurora through the **RDS Data API**:
 
-- `aurora_store.py:14-17` — `boto3.client("rds-data")`
-- `aurora_store.py:45-47` — requires **`SCUDO_AURORA_CLUSTER_ARN`**,
-  **`SCUDO_AURORA_SECRET_ARN`**, **`SCUDO_AURORA_DATABASE_NAME`**
+- [`backend/scudo/aurora_store.py:19-20`](backend/scudo/aurora_store.py) — `_rds_data()` returns
+  `boto3.client("rds-data")`. (The bare `import boto3` is at `:16`.)
+- [`backend/scudo/aurora_store.py:50-52`](backend/scudo/aurora_store.py) — the three
+  `_require(...)` calls inside `_execute()`: **`SCUDO_AURORA_CLUSTER_ARN`**,
+  **`SCUDO_AURORA_SECRET_ARN`**, **`SCUDO_AURORA_DATABASE_NAME`**. They are
+  deliberately validated *before* the boto3 client is constructed, so a missing
+  variable fails loud without touching boto3.
 
-**Verified: no Flask route, and not `streamlit_app.py`, imports either
-module.** They are reached from `lambda_handler.py`, the AWS entrypoints, and
+**Verified: no Flask route, and not [`streamlit_app.py`](streamlit_app.py), imports either
+module.** They are reached from [`backend/scudo/lambda_handler.py`](backend/scudo/lambda_handler.py), the AWS entrypoints, and
 the offline `scudo.scripts.run_sleep_cycle_job` CLI.
 
 So on your Streamlit build, **matching-precedent memory is `local_file`, and
@@ -207,13 +211,15 @@ rewrite.
 
 ### 2.1 The switch
 
-`backend/scudo_mapping_mcp/agent.py:1224-1263` — `get_agent(provider)`:
+[`backend/scudo_mapping_mcp/agent.py:1242-1281`](backend/scudo_mapping_mcp/agent.py) — `get_agent(provider)`
+(span confirmed by AST, not by eye — an earlier draft said `:1224-1263`, which lands
+inside `AzureMappingAgent` and shows you no dispatch logic at all):
 
 - `get_agent("bedrock")` → `BedrockMappingAgent` **unconditionally**
 - `get_agent("scripted")` → `ScriptedMappingAgent` **unconditionally**
 - `get_agent(None)` → falls back to `SCUDO_AGENT_BACKEND`
 
-The Streamlit sidebar already passes this: `streamlit_app.py:528`
+The Streamlit sidebar already passes this: [`streamlit_app.py:547`](streamlit_app.py)
 (the "Agent" dropdown) and the run block (`get_agent(provider).run(ref)`).
 
 **So: pick "bedrock" in the sidebar, paste the key, press "Apply & test".
@@ -226,37 +232,41 @@ credentials. There is no access key, no secret, no session token.
 
 | Env var | Set by | Notes |
 |---|---|---|
-| `AWS_BEARER_TOKEN_BEDROCK` | the sidebar box (`streamlit_app.py:584`) | expires ~12 h |
-| `SCUDO_BEDROCK_MODEL_ID` | the sidebar dropdown (`streamlit_app.py:586,593`) | overrides the default |
-| `AWS_REGION` | your shell | drives **both** the model IDs and the preflight (`:139-165`, `:364`) **and** the agent (`agent.py:467-472`) — see §2.3 |
+| `AWS_BEARER_TOKEN_BEDROCK` | the sidebar box ([`streamlit_app.py:603`](streamlit_app.py)) | expires ~12 h |
+| `SCUDO_BEDROCK_MODEL_ID` | the sidebar dropdown (`streamlit_app.py:605,612`) | overrides the default |
+| `AWS_REGION` | your shell | drives **both** the model IDs and the preflight (`:158-184`, `:383`) **and** the agent ([`backend/scudo_mapping_mcp/agent.py:467-472`](backend/scudo_mapping_mcp/agent.py)) — see §2.3 |
 
 **On IAM roles:** the *agent* does not require a bearer token — it builds
-`BedrockModel(...)` (`agent.py:508-511`) and botocore will use a task role or
+`BedrockModel(...)` ([`backend/scudo_mapping_mcp/agent.py:508-511`](backend/scudo_mapping_mcp/agent.py)) and botocore will use a task role or
 `~/.aws` credentials if one is present. But the **sidebar preflight refuses
-to test that path**: `streamlit_app.py:350-351` returns "No API key set"
+to test that path**: [`streamlit_app.py:369-370`](streamlit_app.py) returns "No API key set"
 whenever `AWS_BEARER_TOKEN_BEDROCK` is empty. So on a role-based desktop the
 sidebar will look unhappy while a run may still succeed. Judge it by the run,
 not by the sidebar — and see §4 for what to ask your cloud team.
 
-Dependencies are already in `backend/requirements.txt:12-13`
-(`boto3`, `strands-agents`). Both are **lazy-imported**, which is why the
-SQLite/scripted build works without AWS at all.
+Dependencies are already in [`backend/requirements.txt`](backend/requirements.txt)
+— `boto3` and `strands-agents`, at **`:13-14`** as of 2026-08-12. (An earlier
+draft said `:12-13`; a `scipy>=1.16,<2` line was inserted at `:11` by the
+self-improvement work stream and pushed both down one. **Match on the package
+name, not the line number** — this file is edited by more than one work
+stream.) Both are **lazy-imported**, which is why the SQLite/scripted build
+works without AWS at all.
 
 ### 2.3 Region and model prefix — already handled, one env var to set
 
 There *was* a defect here (preflight pinned to `us-east-1` while the agent
 defaulted to `eu-west-2`, so the sidebar could go green and the run then fail
-on auth). **It is already fixed in the current `streamlit_app.py` — do not
+on auth). **It is already fixed in the current [`streamlit_app.py`](streamlit_app.py) — do not
 retype anything.** For your understanding:
 
 | Location | Behaviour now |
 |---|---|
-| `streamlit_app.py:139-141` | `SCUDO_REGION` ← `AWS_REGION` → `AWS_DEFAULT_REGION` → `eu-west-2` |
-| `streamlit_app.py:149-155` | `_MODEL_PREFIX` derived from the region: `eu-` → `eu.`, `us-` → `us.`, else empty |
-| `streamlit_app.py:157-161` | model IDs are built from that prefix |
-| `streamlit_app.py:364` | preflight uses `region_name=SCUDO_REGION` — the same region as the run |
-| `agent.py:123` | agent default is `eu.anthropic.claude-opus-4-8` |
-| `agent.py:465-472` | agent region: `AWS_REGION` → `AWS_DEFAULT_REGION` → `eu-west-2` |
+| [`streamlit_app.py:158-160`](streamlit_app.py) | `SCUDO_REGION` ← `AWS_REGION` → `AWS_DEFAULT_REGION` → `eu-west-2` |
+| [`streamlit_app.py:168-174`](streamlit_app.py) | `_MODEL_PREFIX` derived from the region: `eu-` → `eu.`, `us-` → `us.`, else empty |
+| [`streamlit_app.py:176-180`](streamlit_app.py) | model IDs are built from that prefix |
+| [`streamlit_app.py:383`](streamlit_app.py) | preflight uses `region_name=SCUDO_REGION` — the same region as the run |
+| [`backend/scudo_mapping_mcp/agent.py:123`](backend/scudo_mapping_mcp/agent.py) | agent default is `eu.anthropic.claude-opus-4-8` |
+| [`backend/scudo_mapping_mcp/agent.py:465-472`](backend/scudo_mapping_mcp/agent.py) | agent region: `AWS_REGION` → `AWS_DEFAULT_REGION` → `eu-west-2` |
 
 Inference-profile IDs are region-bound: `us.anthropic.*` does not resolve in
 an EU region and vice versa. Because both the preflight and the model list
@@ -282,20 +292,20 @@ Two caveats worth knowing:
 **In your configuration the score does not come from the model.** It is
 deterministic Jaro-Winkler:
 
-- `opus_dense.py:149` imports `_jaro_winkler` from `store/falkordb_store.py`
-- defined at `store/falkordb_store.py:166`
-- `memory_store.py:35` imports the same function
+- [`backend/scudo_mapping_mcp/opus_dense.py:149`](backend/scudo_mapping_mcp/opus_dense.py) imports `_jaro_winkler` from [`backend/scudo_mapping_mcp/store/falkordb_store.py`](backend/scudo_mapping_mcp/store/falkordb_store.py)
+- defined at [`backend/scudo_mapping_mcp/store/falkordb_store.py:166`](backend/scudo_mapping_mcp/store/falkordb_store.py)
+- [`backend/scudo_mapping_mcp/store/memory_store.py:35`](backend/scudo_mapping_mcp/store/memory_store.py) imports the same function
 
-`agent.py:571` — *"matcher runs regardless of what the LLM recommended"*.
+[`backend/scudo_mapping_mcp/agent.py:572`](backend/scudo_mapping_mcp/agent.py) — *"matcher runs regardless of what the LLM recommended"*.
 
 State the precondition, because it is one env var wide: this holds while
 `SCUDO_DENSE_BACKEND` is unset or `jaro_winkler`, which is the default
-(`config.py:296`). Set `SCUDO_DENSE_BACKEND=opus` and the model **becomes
-the score** — `memory_store.py:73-77` calls `opus_dense_score()` and
+([`backend/scudo_mapping_mcp/config.py:301`](backend/scudo_mapping_mcp/config.py)). Set `SCUDO_DENSE_BACKEND=opus` and the model **becomes
+the score** — [`backend/scudo_mapping_mcp/store/memory_store.py:73-77`](backend/scudo_mapping_mcp/store/memory_store.py) calls `opus_dense_score()` and
 `:109-115` assigns it straight to `Candidate.similarity`, and with no
-specialist `matching.py:439-443` takes `confidence = best.similarity`
+specialist [`backend/scudo_mapping_mcp/matching.py:439-443`](backend/scudo_mapping_mcp/matching.py) takes `confidence = best.similarity`
 unchanged. It can move the number **either way**, not just down. (The
-`min(best, specialist)` cap at `matching.py:471-479` applies only in the
+`min(best, specialist)` cap at [`backend/scudo_mapping_mcp/matching.py:471-479`](backend/scudo_mapping_mcp/matching.py) applies only in the
 narrower case where a specialist concurs.) **Leave it unset** — that is what
 makes the demo's reproducibility claim true.
 
@@ -305,26 +315,26 @@ Two consequences to say out loud in a demo:
    narrates the reasoning; the matcher scores. That is the architecture, and
    it is a feature: the score is reproducible and auditable.
 2. **If Bedrock fails *at invoke time*, you still get a score.** The invoke
-   is wrapped at `agent.py:751-766`, which yields an `error` event and then
+   is wrapped at [`backend/scudo_mapping_mcp/agent.py:751-766`](backend/scudo_mapping_mcp/agent.py), which yields an `error` event and then
    lets the matcher run anyway (`:571`). The UI warns you
-   (`streamlit_app.py:808-814`) and drops the card accent to neutral
-   (`:845-848`) — without that warning a failed Bedrock run looks identical
+   ([`streamlit_app.py:827-833`](streamlit_app.py)) and drops the card accent to neutral
+   (`:864-867`) — without that warning a failed Bedrock run looks identical
    to a successful one. Trust the warning.
 
    **Two earlier failures are not covered and give you no score at all:**
-   a missing `strands-agents` package (`agent.py:499-506` raises
-   `RuntimeError`) and `BedrockModel(...)` construction (`agent.py:508-511`).
-   Both happen *before* that try/except, and `streamlit_app.py:796` iterates
+   a missing `strands-agents` package ([`backend/scudo_mapping_mcp/agent.py:499-506`](backend/scudo_mapping_mcp/agent.py) raises
+   `RuntimeError`) and `BedrockModel(...)` construction ([`backend/scudo_mapping_mcp/agent.py:508-511`](backend/scudo_mapping_mcp/agent.py)).
+   Both happen *before* that try/except, and [`streamlit_app.py:815`](streamlit_app.py) iterates
    the generator with no handler — so you get a red Streamlit traceback
    rather than a degraded result. If you see that, it is setup, not
    credentials: `pip install strands-agents` and re-run.
 
-### 2.5 Do not delete `falkordb_store.py`
+### 2.5 Do not delete [`backend/scudo_mapping_mcp/store/falkordb_store.py`](backend/scudo_mapping_mcp/store/falkordb_store.py)
 
 Even with FalkorDB unused, the default scoring path imports
 `_jaro_winkler` from that file. Deleting it breaks matching entirely. The
 **pip package** is not needed (the real `import falkordb` is inside a
-method) — only the file must stay on disk. `factory.py:21-32` says this too.
+method) — only the file must stay on disk. [`backend/scudo_mapping_mcp/store/factory.py:21-32`](backend/scudo_mapping_mcp/store/factory.py) says this too.
 
 ---
 
@@ -347,9 +357,9 @@ export SCUDO_PERSIST_ALLOW_DEV_WRITES=1
 streamlit run streamlit_app.py
 ```
 
-`streamlit_app.py:75-82` sets all of these via `setdefault`, so it already
+[`streamlit_app.py:75-82`](streamlit_app.py) sets all of these via `setdefault`, so it already
 works with no exports at all. `local_file` is chosen automatically when your
-checkout supports it (`_best_local_store`, `streamlit_app.py:49-71`).
+checkout supports it (`_best_local_store`, [`streamlit_app.py:49-71`](streamlit_app.py)).
 
 ### Config B — add Bedrock (agents become real, still no DB)
 
@@ -377,20 +387,20 @@ export CONSOLE_DB_PASSWORD=<secret>
 export CONSOLE_DB_NAME=scudo_console
 ```
 
-**Why `export …=postgres` and not `unset`.** `streamlit_app.py:82` does
+**Why `export …=postgres` and not `unset`.** [`streamlit_app.py:82`](streamlit_app.py) does
 `os.environ.setdefault("CONSOLE_DB_BACKEND", "sqlite")` at import time, so if
 you unset the variable the app puts `sqlite` straight back and you stay on the
-file. `_sqlite_enabled()` (`db.py:93-100`) tests for the literal string
+file. `_sqlite_enabled()` ([`backend/db.py:93-100`](backend/db.py)) tests for the literal string
 `sqlite`, so **any other non-empty value** selects the PostgreSQL path;
 `postgres` is just a readable choice.
 
-`start_local.py:65` does the same defaulting for the Flask console, so `unset`
+[`start_local.py:65`](start_local.py) does the same defaulting for the Flask console, so `unset`
 does not work there either. `unset` is only sufficient if you launch
-`backend/app.py` **directly**, which is not the documented way to run it.
+[`backend/app.py`](backend/app.py) **directly**, which is not the documented way to run it.
 Simplest rule: always `export CONSOLE_DB_BACKEND=postgres` — it is correct for
 all three launch paths.
 
-Then run `backend/init_db.sql` once against that database.
+Then run [`backend/init_db.sql`](backend/init_db.sql) once against that database.
 
 **This changes nothing you can see in Streamlit** — the Streamlit app is the
 matching path only, and it does not read the console DB
@@ -413,17 +423,17 @@ requests to your cloud team, neither of which is a code change:
 3. **`ConverseStream` permission specifically.** The agent streams. A key
    that can call `Converse` and not `ConverseStream` will pass a naive test
    and fail live — this exact bug already bit once, which is why the
-   preflight streams (`streamlit_app.py:370`).
+   preflight streams ([`streamlit_app.py:389`](streamlit_app.py)).
 
 **For Aurora** — you need one of:
 - Network reachability to port 5432 plus a Secrets Manager password
   → then §1A is env vars only, or
 - RDS **Data API** enabled on the cluster plus the cluster/secret ARNs
-  → then use `infra/bootstrap_console_schema_data_api.py`
+  → then use [`infra/bootstrap_console_schema_data_api.py`](infra/bootstrap_console_schema_data_api.py)
 
 If your platform team insists on Terraform, they are writing it fresh
 against those requirements. The existing CloudFormation templates
-(`infra/scudo-poc-foundation.yaml`, `infra/scudo-poc-app.yaml`) are the
+([`infra/scudo-poc-foundation.yaml`](infra/scudo-poc-foundation.yaml), [`infra/scudo-poc-app.yaml`](infra/scudo-poc-app.yaml)) are the
 reference for what resources are expected — hand those over as the spec.
 
 ---
@@ -435,7 +445,7 @@ system, and it remembers.* Here is the true state.
 
 ### The correction UI exists in Streamlit — use it
 
-`streamlit_app.py:997-1079` renders a **Reviewer decision** block with
+[`streamlit_app.py:1018-1101`](streamlit_app.py) renders a **Reviewer decision** block with
 **Approve** and **Reject** buttons after a match, calling `apply_decision`
 into whichever store is live. Under `STORE_BACKEND=local_file` the decision
 is journalled and replayed at startup, so **it survives a restart with no
@@ -444,17 +454,17 @@ Aurora and no Bedrock**.
 Four details in that code you should know before demoing:
 
 - **The buttons live outside the `run_clicked` block on purpose**
-  (`streamlit_app.py:985-991`). Streamlit reruns the script on every click;
+  ([`streamlit_app.py:1004-1012`](streamlit_app.py)). Streamlit reruns the script on every click;
   a button drawn inside the run block would vanish before its own click was
   processed and fail *silently*. Do not "tidy" them back inside.
-- **Staleness guard** (`:1004-1005`): change vendor or product without
+- **Staleness guard** (`:1025-1026`): change vendor or product without
   re-running and the buttons disappear, rather than recording a decision
   against a product nobody is looking at.
-- **Approve and reject are not symmetric** (`:1061-1073`). Measured:
+- **Approve and reject are not symmetric** (`:1083-1094`). Measured:
   approve → the next match short-circuits to that node; reject → the node is
   filtered out and the match re-ranks without it (0.9083 equity-prices became
   0.6138 fixed-income).
-- **Failures are reported, never swallowed** (`:1047-1059`) — including an
+- **Failures are reported, never swallowed** (`:1069-1080`) — including an
   unwritable journal directory, which is realistic on a locked-down desktop
   or a network share. If you see no green message, nothing was recorded.
 
@@ -464,15 +474,15 @@ Four details in that code you should know before demoing:
 a match scoring 0.5294 `needs_review`, approved by a human, then re-matched
 → returns the approved node with rationale `"precedent"`.
 
-- **Ingress:** `backend/routes/mapping.py:585` `record_decision()` —
+- **Ingress:** [`backend/routes/mapping.py:585`](backend/routes/mapping.py) `record_decision()` —
   approve / override / reject
-- **Storage:** `store/base.py:78-117` `upsert_precedent()` — positive
+- **Storage:** [`backend/scudo_mapping_mcp/store/base.py:78-117`](backend/scudo_mapping_mcp/store/base.py) `upsert_precedent()` — positive
   precedents for approve/override, **negative** precedents for reject so the
   triple is filtered out of future candidates
 - **Durability:** with `STORE_BACKEND=local_file`, every decision is one JSON
   line in `backend/local_memory/precedents.jsonl`, replayed on startup
   through the *same* `upsert_precedent` the live path uses
-  (`local_file_store.py:92-143`) — so replay cannot drift from live
+  ([`backend/scudo_mapping_mcp/store/local_file_store.py:92-143`](backend/scudo_mapping_mcp/store/local_file_store.py)) — so replay cannot drift from live
 - **Recall:** the next match short-circuits to the human-confirmed result and
   the rank signal boosts that node for products with the same vendor
   signature
@@ -489,7 +499,7 @@ So "users query the agents intelligently" today means:
 - **ask the agent an open question in your own words** ❌ — not built
 
 **`override` is not exposed in Streamlit.** The store supports it
-(`store/base.py:78-117`) and the Flask API accepts it, but the Streamlit UI
+([`backend/scudo_mapping_mcp/store/base.py:78-117`](backend/scudo_mapping_mcp/store/base.py)) and the Flask API accepts it, but the Streamlit UI
 offers only Approve and Reject. Correcting a match *to a different node* from
 that screen would be new UI — ask before building it.
 
@@ -506,12 +516,12 @@ Aurora nor Bedrock.
 **Do not edit — read only:**
 | File | Why |
 |---|---|
-| `backend/db.py` | already dual-mode; env vars decide |
-| `backend/init_db.sql` | run it; do not retype (destructive re-run) |
-| `backend/scudo_mapping_mcp/store/factory.py` | the swap point already works |
-| `backend/scudo_mapping_mcp/store/falkordb_store.py` | **must stay on disk** — supplies `_jaro_winkler` |
-| `backend/scudo/aurora_memory.py`, `aurora_store.py` | Lambda-side; unreachable from Streamlit |
-| `infra/bootstrap_console_schema_data_api.py` | run it if 5432 is blocked |
+| [`backend/db.py`](backend/db.py) | already dual-mode; env vars decide |
+| [`backend/init_db.sql`](backend/init_db.sql) | run it; do not retype (destructive re-run) |
+| [`backend/scudo_mapping_mcp/store/factory.py`](backend/scudo_mapping_mcp/store/factory.py) | the swap point already works |
+| [`backend/scudo_mapping_mcp/store/falkordb_store.py`](backend/scudo_mapping_mcp/store/falkordb_store.py) | **must stay on disk** — supplies `_jaro_winkler` |
+| [`backend/scudo/aurora_memory.py`](backend/scudo/aurora_memory.py), [`backend/scudo/aurora_store.py`](backend/scudo/aurora_store.py) | Lambda-side; unreachable from Streamlit. **Read-only *for the Streamlit/Bedrock switch-over* — not globally**: [`MATCHING_AGENT_DEPLOYMENT_CONSOLIDATION.md`](MATCHING_AGENT_DEPLOYMENT_CONSOLIDATION.md) edits both as part of a separate work stream. That is not a violation of this checklist. |
+| [`infra/bootstrap_console_schema_data_api.py`](infra/bootstrap_console_schema_data_api.py) | run it if 5432 is blocked |
 
 **Small typed edits — none required for Bedrock:**
 | File | Lines | Change |
@@ -521,8 +531,8 @@ Aurora nor Bedrock.
 **New code, only if you want it (§5):**
 | File | Change |
 |---|---|
-| `streamlit_app.py` | an **Override** control (Approve/Reject already exist) |
-| `store/aurora_store.py` (new) | only if matching precedents must live in Aurora; ~15 ABC methods |
+| [`streamlit_app.py`](streamlit_app.py) | an **Override** control (Approve/Reject already exist) |
+| [`backend/scudo/aurora_store.py`](backend/scudo/aurora_store.py) (new) | only if matching precedents must live in Aurora; **16** abstract methods on `RetrievalStore` ([`backend/scudo_mapping_mcp/store/base.py`](backend/scudo_mapping_mcp/store/base.py)), counted from the AST |
 
 **Env vars only — no file changes at all:** everything in §3.
 
@@ -577,9 +587,15 @@ fails at first store use, not at import.
 - **A real Aurora connection and a live Bedrock invoke.** Neither is reachable
   from this machine. §1A and §3 Config C are read from the code path, not
   executed against a cluster.
-- **Independent review did not happen.** Codex CLI is not installed here and
-  three parallel audit agents failed on a provider error. Everything above is
-  single-reviewer work, verified by execution where execution was possible.
+- **Independent review — CORRECTED 2026-08-12.** This bullet previously said
+  "Codex CLI is not installed here", which was wrong and would have told you the
+  review gate could not be established. `codex-cli 0.145.0` **is** installed
+  (`/Users/anthonylui/bin/codex`) and **two full review rounds ran against this
+  document** — 12 findings, all applied — plus a later round of 7 findings on
+  [`JPMC_IMPORT_AGENT_BRIEF.md`](JPMC_IMPORT_AGENT_BRIEF.md), each hand-verified
+  against source before being applied. What *did* fail was a fan-out of three
+  parallel audit agents, on a provider error — a subagent problem, not a Codex
+  one. If you want another round, just call Codex.
 - Carried from earlier sessions rather than re-run today: reject →
   0.9083 became 0.6138 re-rank; scripted/Haiku/Opus returning identical
   confidence.

@@ -34,13 +34,18 @@ single fact invalidates the run instructions in the older documents.
 
 ## 2. The consolidation problem — the actual inventory
 
-All 12 are **untracked** (never committed). Oldest first:
+All 12 were untracked when this audit was written. **Three are now TRACKED** —
+[`JPMC_AURORA_BEDROCK_FILES.md`](JPMC_AURORA_BEDROCK_FILES.md),
+this file, and
+[`MATCHING_AGENT_DEPLOYMENT_CONSOLIDATION.md`](MATCHING_AGENT_DEPLOYMENT_CONSOLIDATION.md)
+(committed by another session at `51cff58`). The other 11 remain untracked.
+Oldest first:
 
 | Date | File | Lines | Status |
 |---|---|---|---|
 | 08-04 | [`JPMC_LOCAL_CHANGES.md`](JPMC_LOCAL_CHANGES.md) | 1391 | **stale** — React/Flask era, pre-Streamlit |
 | 08-04 | [`JPMC_UPLOAD_AND_MATCH_REVIEW.md`](JPMC_UPLOAD_AND_MATCH_REVIEW.md) | 513 | review brief, largely delivered |
-| 08-06 | [`JPMC_LOCAL_RUN_HANDOVER.md`](JPMC_LOCAL_RUN_HANDOVER.md) | 313 | **partly stale** — `start_local.py`/React path |
+| 08-06 | [`JPMC_LOCAL_RUN_HANDOVER.md`](JPMC_LOCAL_RUN_HANDOVER.md) | 313 | **partly stale** — [`start_local.py`](start_local.py)/React path |
 | 08-06 | [`JPMC_PORT_TYPE_IN.md`](JPMC_PORT_TYPE_IN.md) | 447 | `jpmc-port/` only — separate work stream |
 | 08-06 | [`CITRIX_FOLLOWUP.md`](CITRIX_FOLLOWUP.md) | 149 | superseded |
 | 08-07 | [`CITRIX_CHECK_FRONTEND.md`](CITRIX_CHECK_FRONTEND.md) | 163 | superseded |
@@ -49,19 +54,40 @@ All 12 are **untracked** (never committed). Oldest first:
 | 08-07 | [`STREAMLIT_RUN.md`](STREAMLIT_RUN.md) | 113 | current |
 | 08-07 | [`CITRIX_STREAMLIT_HANDOVER.md`](CITRIX_STREAMLIT_HANDOVER.md) | 209 | **current — the Streamlit source of truth** |
 | 08-08 | [`REMEDIATION_PLAN.md`](REMEDIATION_PLAN.md) | 273 | internal; P0/P1/P2, self-critical |
-| 08-12 | [`JPMC_AURORA_BEDROCK_FILES.md`](JPMC_AURORA_BEDROCK_FILES.md) | 592 | **current — the Aurora/Bedrock source of truth** |
+| 08-12 | [`JPMC_AURORA_BEDROCK_FILES.md`](JPMC_AURORA_BEDROCK_FILES.md) | 610 | **current — the Aurora/Bedrock source of truth** |
 
-**The two current documents are the last two.** Treat everything dated 08-06
-or earlier as historical unless you verify a specific claim still holds.
+**CORRECTED 2026-08-12 — five documents are current, not two.** This line
+previously read "the two current documents are the last two", which contradicts
+its own table two rows above (`CITRIX_NO_NODE.md` "still valid",
+`STREAMLIT_RUN.md` "current") and would have buried working documents. The
+current set is `CITRIX_STREAMLIT_HANDOVER.md`, `JPMC_AURORA_BEDROCK_FILES.md`,
+[`CITRIX_NO_NODE.md`](CITRIX_NO_NODE.md), [`STREAMLIT_RUN.md`](STREAMLIT_RUN.md),
+and [`MATCHING_AGENT_DEPLOYMENT_CONSOLIDATION.md`](MATCHING_AGENT_DEPLOYMENT_CONSOLIDATION.md)
+— the last of which post-dates this table and is **not listed in it at all**
+(a separate agent's work stream: offline skill-optimizer, promotion into Aurora
+agent memory). Treat everything dated 08-06 or earlier as historical unless you
+verify a specific claim still holds.
 
 ### The contradiction that will bite JPMC
 
-Nine documents tell the reader to run `start_local.py` and open the React UI
-on **:3000**. On the Citrix desktop **that cannot work** — Node is blocked.
-The correct instruction is `streamlit run streamlit_app.py` on **:8501**.
+**10** root `.md` files mention **:3000** (7 actually instruct you to open it);
+an earlier draft said nine. On the Citrix desktop **:3000 cannot work** — it is
+the Vite dev server and Node is blocked.
 
-`README.md`, `CLAUDE.md` and [`AGENTS.md`](AGENTS.md) also still reference the
-`start_local.py` path as the primary route. They are not wrong for a
+**Do not read that as "`start_local.py` cannot work."** An earlier version of
+this paragraph lumped the two together; that is wrong and would strip out the
+only route to the console UI. [`start_local.py`](start_local.py) is
+**required** for the Flask-served `/app/` fallback — see
+[`CITRIX_NO_NODE.md`](CITRIX_NO_NODE.md). What cannot work is the Vite dev
+server on `:3000`, not the launcher.
+
+So JPMC has **two** working surfaces: `streamlit run streamlit_app.py` on
+**:8501**, and `start_local.py` serving `/app/` on the Flask port. §7 below
+lists Streamlit only — that is an omission, not a statement that `/app/` is
+unavailable.
+
+[`README.md`](README.md), [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md) also still reference the
+[`start_local.py`](start_local.py) path as the primary route. They are not wrong for a
 developer laptop; they are wrong for JPMC's desktop. Any consolidation must
 make the audience explicit rather than deleting one or the other.
 
@@ -82,14 +108,23 @@ I ran each of these. Re-run them if you doubt them; do not trust prose.
 
 **Console DB is an env-var switch, no code edit.** `CONSOLE_DB_BACKEND=sqlite`
 → SQLite; unset → psycopg/Aurora. A remote `CONSOLE_DB_HOST` with an empty
-`CONSOLE_DB_PASSWORD` raises before connecting (`backend/db.py:41-45`).
+`CONSOLE_DB_PASSWORD` raises before connecting ([`backend/db.py:41-45`](backend/db.py)).
 
 **Nothing AWS loads locally.** Importing the Flask app with the local env
 loads **no** `aurora*` module and **does not import `boto3`**.
 
-**The score is deterministic and LLM-free.** `_jaro_winkler` returns
-`0.908333` repeatably; no boto3/Bedrock in its source. The model narrates
-only. `agent.py:571` — "matcher runs regardless of what the LLM recommended".
+**The score is deterministic and LLM-free — while `SCUDO_DENSE_BACKEND` is
+unset or `jaro_winkler`.** State that precondition; it is one env var wide.
+`_jaro_winkler` returns `0.908333` repeatably; no boto3/Bedrock in its source.
+The model narrates only. [`backend/scudo_mapping_mcp/agent.py:572`](backend/scudo_mapping_mcp/agent.py) — "matcher runs regardless of what the LLM recommended".
+
+**The precondition is load-bearing.** Set `SCUDO_DENSE_BACKEND=opus` and the
+model's score *becomes* `Candidate.similarity` and reaches published
+`confidence` **uncapped on four branches, two of which auto-map with no human
+review**. It can move the number **either way**, not just down. The default
+([`backend/scudo_mapping_mcp/config.py:301`](backend/scudo_mapping_mcp/config.py))
+is what makes the sentence above safe — **never claim a cap protects you**.
+Full derivation: [`JPMC_IMPORT_AGENT_BRIEF.md`](JPMC_IMPORT_AGENT_BRIEF.md) §1.2.
 
 **There is no Aurora matching store.** `get_store()` with
 `STORE_BACKEND=aurora` raises `ValueError`. `RetrievalStore` has **16**
@@ -101,8 +136,8 @@ store use, not import.
 CloudFormation. JPMC's "we can't do the Terraform" is an account-permissions
 task, not a code task.
 
-**`store/falkordb_store.py` must stay on disk** even though FalkorDB is
-unused — `opus_dense.py:149` imports `_jaro_winkler` from it. The pip package
+**[`backend/scudo_mapping_mcp/store/falkordb_store.py`](backend/scudo_mapping_mcp/store/falkordb_store.py) must stay on disk** even though FalkorDB is
+unused — [`backend/scudo_mapping_mcp/opus_dense.py:149`](backend/scudo_mapping_mcp/opus_dense.py) imports `_jaro_winkler` from it. The pip package
 is not needed. Deleting the file breaks scoring entirely.
 
 **The React-via-Flask fallback works, but its bundle is not in git.** Added
@@ -118,15 +153,15 @@ pointing them at `/app/`; committing the bundle needs the user's approval.
 ### Two claims I corrected mid-session — do not reintroduce them
 
 1. **The Bedrock EU/US region-prefix defect is already fixed.**
-   `streamlit_app.py:139-155` derives `SCUDO_REGION` and the `eu.`/`us.`
+   [`streamlit_app.py:158-174`](streamlit_app.py) derives `SCUDO_REGION` and the `eu.`/`us.`
    prefix together, and the preflight uses the same region as the run. Earlier
    drafts told JPMC to fix this. Do not.
 2. **The Streamlit Approve/Reject correction UI already exists**
-   (`streamlit_app.py:997-1079`), with a staleness guard and fail-loud error
+   ([`streamlit_app.py:1018-1101`](streamlit_app.py)), with a staleness guard and fail-loud error
    handling. An earlier draft called it missing.
 
 Both were caught by re-reading the live file. **Line numbers in these docs
-drift** — the Streamlit file grew from 872 to 1079 lines during the work.
+drift** — the Streamlit file grew from 872 to 1101 lines during the work.
 Verify anchors before repeating them.
 
 ---
@@ -156,7 +191,7 @@ and the user has not approved deletion. Propose, then act.
 3. **Write the agent explainer.** This is the client's actual unmet need
    ("they've not done agents like this before"). It does not exist yet.
 4. **Move superseded files to `docs/history/`** with a one-line index.
-5. **Reconcile `README.md` / `CLAUDE.md`** so the Citrix path is named
+5. **Reconcile [`README.md`](README.md) / [`CLAUDE.md`](CLAUDE.md)** so the Citrix path is named
    alongside the laptop path, rather than the laptop path appearing canonical.
 
 ### The agent explainer should answer, in this order
@@ -184,7 +219,7 @@ want genuine Q&A that is new work; scope it explicitly.
 
 **`override` is not exposed in Streamlit.** Approve and Reject exist; mapping
 to a *different* node from that screen does not. The store and the Flask API
-both support it (`store/base.py:78-119`).
+both support it ([`backend/scudo_mapping_mcp/store/base.py:78-119`](backend/scudo_mapping_mcp/store/base.py)).
 
 **No Aurora-backed matching store.** ~16 methods of new code. Not needed for
 a demo — `local_file` is the better demo anyway because the journal is
@@ -239,8 +274,11 @@ python3.11 -m pytest -vv                  # use this for real evidence
 # see JPMC_AURORA_BEDROCK_FILES.md "Verification basis" for the exact script
 ```
 
-Repo state at handover: **42 modified, 44 untracked** files on `main`; HEAD
-is `8c53dbc` (`docs: design for sterile client-demo fork`). The worktree is deliberately dirty — several unrelated work
+Repo state, **re-measured 2026-08-12**: **34 modified, 43 untracked** (77) on
+`main`; HEAD is `51cff58`. Both numbers drift within the hour — other sessions
+were committing during this work (`8c53dbc` → `a92b8d0` → `e3baa75` →
+`51cff58`), so re-run `git rev-parse --short HEAD && git status --porcelain |
+wc -l` rather than trusting this line. The worktree is deliberately dirty — several unrelated work
 streams are in flight (self-improvement gate, jpmc-port, costings). **Preserve
 unrelated uncommitted changes**; edit shared files narrowly.
 

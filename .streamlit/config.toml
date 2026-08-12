@@ -1,0 +1,15 @@
+# JPMC-LOCAL: Streamlit theme for streamlit_app.py.
+# Cognizant palette — brand blue / cream / near-black.
+[theme]
+primaryColor = "#1a5ecf"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f5f3ef"
+textColor = "#1a1a1a"
+font = "sans serif"
+
+[server]
+headless = true
+fileWatcherType = "poll"   # Citrix/network drives: inotify is unreliable
+
+[browser]
+gatherUsageStats = false
