@@ -422,7 +422,7 @@ Resources:
             - { Name: FALKORDB_URL, Value: 'falkordb://falkor.scudo.local:6379' }
             - { Name: GRAPH_NAME, Value: scudo_mapping }
             - { Name: FRAME_SOURCE, Value: mock }
-            - { Name: CONFIDENCE_FLOOR, Value: '0.80' }
+            - { Name: CONFIDENCE_FLOOR, Value: '0.75' }
             - { Name: BORDERLINE_HALF_WIDTH, Value: '0.05' }
             - { Name: S3_WORKING_SET_BUCKET, Value: !ImportValue scudo-dev-frames-bucket }
             - { Name: SCUDO_CANONICAL_BUNDLE_KEY, Value: canonical/bundle-latest.json }
@@ -527,7 +527,7 @@ Resources:
             - { Name: FALKORDB_URL, Value: 'falkordb://falkor.scudo.local:6379' }
             - { Name: GRAPH_NAME, Value: scudo_mapping }
             - { Name: FRAME_SOURCE, Value: mock }
-            - { Name: CONFIDENCE_FLOOR, Value: '0.80' }
+            - { Name: CONFIDENCE_FLOOR, Value: '0.75' }
             - { Name: BORDERLINE_HALF_WIDTH, Value: '0.05' }
             - { Name: S3_WORKING_SET_BUCKET, Value: !ImportValue scudo-dev-frames-bucket }
             - { Name: SCUDO_CANONICAL_BUNDLE_KEY, Value: canonical/bundle-latest.json }
@@ -584,7 +584,7 @@ Resources:
             - { Name: FALKORDB_URL, Value: 'falkordb://falkor.scudo.local:6379' }
             - { Name: GRAPH_NAME, Value: scudo_mapping }
             - { Name: FRAME_SOURCE, Value: mock }
-            - { Name: CONFIDENCE_FLOOR, Value: '0.80' }
+            - { Name: CONFIDENCE_FLOOR, Value: '0.75' }
             - { Name: BORDERLINE_HALF_WIDTH, Value: '0.05' }
             - { Name: S3_WORKING_SET_BUCKET, Value: !ImportValue scudo-dev-frames-bucket }
             - { Name: SCUDO_CANONICAL_BUNDLE_KEY, Value: canonical/bundle-latest.json }

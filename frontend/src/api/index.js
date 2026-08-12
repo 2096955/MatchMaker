@@ -2,6 +2,33 @@ import axios from 'axios'
 
 const api = axios.create({ baseURL: '/api' })
 
+// Keep the actionable half of a backend refusal.
+//
+// The backend returns typed refusals as {error, detail} — e.g.
+//   {"error": "frame_not_found",
+//    "detail": "no ingested frame for LSEG/X1; ingest it first, or set
+//               SCUDO_MV_ALLOW_INLINE_FRAME to score caller-supplied text"}
+//
+// Every call site reads `err.response.data.error`, so the user saw a bare
+// "frame_not_found" and the sentence telling them what to DO was discarded.
+// Sixteen call sites do this; folding the detail into `error` here fixes all
+// of them without touching any, and pages that already render `error` need no
+// change.
+//
+// `detail` is left in place as well, so anything that wants the raw code can
+// still read `response.data.code`.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const data = error?.response?.data
+    if (data && typeof data === 'object' && data.error && data.detail) {
+      data.code = data.error
+      data.error = `${data.error}: ${data.detail}`
+    }
+    return Promise.reject(error)
+  },
+)
+
 // ── Providers ────────────────────────────────────────────────────────
 export const getProviders   = (q = '') => api.get('/providers', { params: { q } })
 export const getProvider    = (id)     => api.get(`/providers/${id}`)

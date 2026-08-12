@@ -276,6 +276,26 @@ class Orchestrator:
                 f"proposed_target_iri {result.proposed_target_iri!r} is not in "
                 "bundle.candidates — specialists must select from the candidates."
             )
+        # The vendor-product IRI is MINTED deterministically by the orchestrator
+        # and handed to the specialist in the bundle. The specialist must echo
+        # it back verbatim — it does not get to invent an identity.
+        #
+        # This was unchecked: MappingResult.vendor_product_iri is a plain
+        # unvalidated `str` (schemas.py) that the LLM fills in via
+        # _structured_call, and it lands as the PRIMARY KEY of the projection
+        # table (projection_handler.py: `vendor_product_iri TEXT PRIMARY KEY`).
+        # The publish gate's _IRI_DETERMINISM only inspects proposed TRIPLE
+        # SUBJECTS, never this field. So a hallucinated or drifted identity
+        # would silently key a projection row — defeating the deterministic
+        # mint regardless of how correct the mint itself is. Found by an
+        # adversarial verifier.
+        expected_iri = bundle.vendor_product_iri
+        if expected_iri and result.vendor_product_iri != expected_iri:
+            defects.append(
+                f"vendor_product_iri {result.vendor_product_iri!r} does not match "
+                f"the deterministically minted {expected_iri!r} — the specialist "
+                "must echo the bundle's identity, never mint or alter one."
+            )
         # Evidence-when-confident: every confident assertion needs cited evidence.
         if (
             result.confidence > Orchestrator.EVIDENCE_REQUIRED_ABOVE
@@ -364,6 +384,68 @@ class Orchestrator:
                 raise PublishGateError("triple missing named graph")
             if not _IRI_DETERMINISM.match(t.subject):
                 raise PublishGateError(f"non-deterministic IRI: {t.subject!r}")
+
+        # The specialist must ECHO the deterministically minted vendor IRI.
+        #
+        # This check ALSO exists in _pre_verify_defects, but that is only a
+        # HINT: defects_pre is concatenated into the verifier's PROMPT
+        # (_call_verifier) and nothing enforces it — a verifier that scores
+        # well and ignores the injected text publishes anyway. A completeness
+        # critic proved exactly that, publishing a forked IRI end-to-end. So
+        # the real control has to live here, in the unconditional gate, where
+        # no model opinion can override it.
+        #
+        # It matters because result.vendor_product_iri is an unvalidated str
+        # the model fills in, and it lands as the PRIMARY KEY of
+        # scudo_catalog_projection (projection_handler.py) and the OpenSearch
+        # doc id. The loop above only validates TRIPLE SUBJECTS, never this
+        # field.
+        expected_iri = bundle.vendor_product_iri
+        if expected_iri and result.vendor_product_iri != expected_iri:
+            raise PublishGateError(
+                f"vendor_product_iri {result.vendor_product_iri!r} does not match "
+                f"the deterministically minted {expected_iri!r} — the specialist "
+                "must echo the bundle's identity, never mint or alter one."
+            )
+
+        # The specialist may only select a node the retrieval step OFFERED.
+        #
+        # Same prompt-only defect as the IRI check above, and found the same
+        # way: `_pre_verify_defects` computes this, `_call_verifier` pastes it
+        # into the verifier's prompt, and nothing enforces it. Reproduced
+        # end-to-end — a specialist proposing a node that was never in
+        # bundle.candidates PUBLISHED, outcome=PUBLISHED, published=1.
+        #
+        # This is the anchoring invariant the matcher relies on elsewhere
+        # (matching.py fails closed on an off-list specialist pick); Runtime-A
+        # had no equivalent. Without it the model can map a vendor product to
+        # any CDAO node it invents, which is a correctness failure the
+        # confidence score cannot catch — an invented node scores however the
+        # model says it does.
+        # Fail CLOSED on both degenerate shapes. An external reviewer pointed
+        # out the first version guarded on `and candidate_iris and ...`, so an
+        # EMPTY candidate list published anything the model proposed —
+        # reproduced: empty candidates, invented node, outcome=PUBLISHED. That
+        # is precisely the case where the model has the least grounding, so
+        # fail-open there is backwards. An empty proposed_target_iri is equally
+        # unpublishable: there is no node to map to.
+        candidate_iris = {c.iri for c in bundle.candidates}
+        if not result.proposed_target_iri:
+            raise PublishGateError(
+                "proposed_target_iri is empty — nothing to publish a mapping to."
+            )
+        if not candidate_iris:
+            raise PublishGateError(
+                "bundle.candidates is empty — retrieval offered nothing, so the "
+                f"specialist's {result.proposed_target_iri!r} is ungrounded by "
+                "construction and must not publish."
+            )
+        if result.proposed_target_iri not in candidate_iris:
+            raise PublishGateError(
+                f"proposed_target_iri {result.proposed_target_iri!r} was not in "
+                "bundle.candidates — the specialist must select from the "
+                "candidates it was given, never introduce a node."
+            )
 
         named_graph = self._named_graph_for(result)
         self.publisher.publish(

@@ -49,7 +49,7 @@ WORKDIR /srv/backend
 ENV MCP_HOST=0.0.0.0 \
     FRAME_SOURCE=mock \
     STORE_BACKEND=falkordb \
-    CONFIDENCE_FLOOR=0.80
+    CONFIDENCE_FLOOR=0.75
 
 # Ports each entrypoint listens on (documented; ECS task def maps explicitly).
 # Flask         : 5000

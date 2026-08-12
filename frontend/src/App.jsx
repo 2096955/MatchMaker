@@ -20,7 +20,10 @@ export default function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Navigate to="/providers" replace />} />
+        {/* JPMC-LOCAL: was Navigate to="/providers", which needs Postgres and
+            so greeted every new user with "Failed to load providers". /catalogue
+            needs no database, so the app now opens on a page that works. */}
+        <Route path="/" element={<Navigate to="/catalogue" replace />} />
         <Route path="/providers"          element={<ProviderList />} />
         <Route path="/providers/new"      element={<ProviderForm />} />
         <Route path="/providers/:id/edit" element={<ProviderForm />} />

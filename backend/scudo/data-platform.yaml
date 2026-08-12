@@ -6,6 +6,15 @@ Description: >
   for lexical + k-NN retrieval, AppSync for the data-steward publish stream,
   and Aurora MySQL for the Flask ingestion console.
 
+  JPMC-LOCAL NOTE: this file is a CloudFormation template for an AWS deploy.
+  It is NEVER read when you run the app locally. The "MySQL" here is the only
+  MySQL left anywhere in SCUDO -- there is no MySQL driver in the Python code
+  at all (db.py is psycopg/PostgreSQL, init_db.sql is PostgreSQL). So there is
+  nothing to remove locally: `docker-compose.yml` gives you PostgreSQL, and
+  these Aurora MySQL resources are deliberately left intact because two live
+  AWS accounts still deploy from this template. Comment them out only when
+  you migrate the console cluster to Aurora PostgreSQL in AWS as well.
+
 Parameters:
   StackPrefix:
     Type: String
