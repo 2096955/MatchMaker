@@ -5,59 +5,49 @@ your porting agent was right to catch. Both are corrected below and the code
 now adapts rather than assuming — see *Corrections*.
 
 A pure-Python UI for SCUDO matching. **No Node, no Vite, no esbuild, no
-bundler, no Flask, no database, no container.** Built because Citrix group
-policy blocks `node_modules/@esbuild/win32-x64/esbuild.exe`, so Vite cannot
-start at all.
+bundler, no Flask, no external database service, no container.** It uses a
+local SQLite matching database. Built because Citrix group policy blocks
+`node_modules/@esbuild/win32-x64/esbuild.exe`, so Vite cannot start at all.
 
 ---
 
 ## Corrections to the previous handover
 
-**1. `backend/requirements-local.txt` is NOT a 4-line append.** It is an
-existing 55-line local-run manifest; only 4 lines (a comment block plus
-`streamlit>=1.36`) are mine. Your agent spotted this and preserved the file
-rather than overwriting it. That was the right call — the other 51 lines are a
-separate local-dependency policy.
+**1. `backend/requirements-local.txt` is NOT a replacement file.** It is an
+existing local-run manifest; the original Streamlit work added only a small
+comment block plus `streamlit>=1.36`. Preserve the rest of the file because it
+belongs to a separate local-dependency policy.
 
-**2. The app hard-coded a store backend that does not exist in your
-checkout.** It set `STORE_BACKEND=local_file` and
-`SCUDO_PERSIST_TARGET=local_file`. On this build machine `local_file` exists,
-but it arrived with a **separate, uncommitted** work stream:
-`store/local_file_store.py` is untracked and the `config.py` allow-list entry
-is an uncommitted modification. Your checkout has neither, so
-`Settings.from_env()` raised `ValueError` and the page died before rendering.
-
-To be precise about a related point: **nothing instructed the agent to run
-FalkorDB, and it did not try to.** The failure was a hard `ValueError` on an
-unrecognised config value, not a database connection. Falling back to `memory`
-was correct.
-
-**Now fixed in code.** `streamlit_app.py` reads
-`config._ALLOWED_PERSIST_TARGETS` at startup and picks the best store the
-checkout actually supports — `local_file` if present, otherwise `memory`. No
-edit needed on either tree. Verified against a simulated Citrix baseline with
-`local_file` stripped: module executes, `STORE_BACKEND=memory`, and a full
-match returns confidence 0.913 / band pass / Equity Prices.
+**2. The app now selects a supported local store before importing package
+configuration.** It prefers `scipy_sqlite`, then `local_file`, then `memory`,
+and preserves an explicitly supplied `STORE_BACKEND`. The durable default uses
+`backend/.local/scudo_matching.sqlite3`, separate from the console SQLite file.
 
 The sidebar now states which store is live and what it means:
 
 ```
+Store   scipy_sqlite    complete matching state persists across restarts
 Store   local_file      decisions persist across restarts
 Store   memory          in-memory — forgets on restart
 ```
+
+`scipy_sqlite` is a single-host option. Keep the database on local disk; it is
+not a shared-filesystem or multi-container deployment backend.
 
 ---
 
 ## Files
 
-| Path | Action | Size |
-|---|---|---|
-| `streamlit_app.py` | **NEW** — repo root | 872 lines |
-| `.streamlit/config.toml` | **NEW** — repo root | 15 lines |
-| `backend/requirements-local.txt` | **APPEND 4 lines** to the existing 55-line file — do not overwrite | — |
-| `STREAMLIT_RUN.md` | **NEW** — reference doc | — |
+| Path | Action |
+|---|---|
+| `streamlit_app.py` | **NEW** — repo root |
+| `.streamlit/config.toml` | **NEW** — repo root |
+| `backend/requirements-local.txt` | **APPEND** the Streamlit dependency block — do not overwrite |
+| `STREAMLIT_RUN.md` | **NEW** — reference doc |
 
-Nothing under `backend/`, `frontend/`, `infra/` or `jpmc-port/` changes.
+The current SciPy/SQLite matching-store integration also changes narrow files
+under `backend/`. The original Streamlit work did not change `frontend/`,
+`infra/`, or `jpmc-port/`; that statement does not describe later backend work.
 
 ## Run it
 

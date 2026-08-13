@@ -16,11 +16,11 @@ python start_local.py
 
 Then open **http://localhost:3000**.
 
-That is the whole thing. **No database, no Docker, no AWS account, no FalkorDB
-and no Neptune are required** to see matching work end to end.
-
-If you want the Providers / Datasets / Admin pages too, see
-[Adding the database](#adding-the-database-optional).
+That is the whole thing. **No external database service, Docker, AWS account,
+FalkorDB, Neptune or PostgreSQL is required** to see matching work end to end.
+The launcher creates two separate local files: matching state in
+`backend/.local/scudo_matching.sqlite3`, and console CRUD data in
+`backend/.local/console.sqlite3`.
 
 ---
 
@@ -41,7 +41,8 @@ It is not MySQL, and not FalkorDB.
 | `SCUDO_AUTH_ALLOW_DEV=1` | turns on local dev identity |
 | `SCUDO_AUTH_DEV_PRINCIPAL=demo@local` | who you are, locally |
 | `SCUDO_AUTH_ALLOW_DEV_WRITES=1` | lets you record review decisions |
-| `STORE_BACKEND=local_file` | run without FalkorDB/Neptune, and remember decisions |
+| `STORE_BACKEND=scipy_sqlite` | run without FalkorDB/Neptune and persist complete matching state |
+| `SCUDO_SCIPY_SQLITE_PATH=backend/.local/scudo_matching.sqlite3` | matching DB, separate from `backend/.local/console.sqlite3` |
 | `FRAME_SOURCE=mock` | read the bundled sample data, not S3 |
 
 Measured, on this codebase:
@@ -176,42 +177,34 @@ It did not re-score. It returned **your** answer, `Pricing`, and said why:
 **4. Stop the server, start it again, and match a third time.** Still
 `Pricing` / `precedent`.
 
-Step 4 is the one that only works because of `STORE_BACKEND=local_file`, and it
-is the whole reason that store exists. Open the file:
+Step 4 works because `STORE_BACKEND=scipy_sqlite` persists the complete
+matching store. The database is:
 
 ```
-backend/local_memory/precedents.jsonl
+backend/.local/scudo_matching.sqlite3
 ```
 
-One line per decision, plain readable JSON:
-
-```json
-{"ref": {"vendor": "LSEG", "product_id": "LSEG-CARBON-029", "name": "Carbon Data", ...},
- "node": {"iri": "jpmorgan:data:cdao:subdomain:pricing", "label": "Pricing"},
- "decision": "approve", "decided_by": "demo@local", "confidence": 0.5294,
- "provisional": false, "decided_at_ms": 1785856933598,
- "decided_at": "2026-08-04T15:22:13Z"}
-```
-
-**That file is the memory.** Delete it and the system forgets — *after the next
-restart*. The running process still holds what it already replayed into memory,
-so deleting the file mid-run does not make it forget immediately. In AWS the same
-records live in Aurora (`backend/scudo/aurora_memory.py`); the file is the
-laptop stand-in, and it is deliberately readable so you can see exactly what
-was learned and by whom.
+Delete it while the application is stopped to reset local matching state. It is
+not the console CRUD database (`backend/.local/console.sqlite3`).
 
 > Why this was needed: with `STORE_BACKEND=memory` the loop works but the
 > decisions live in a Python dictionary that dies with the process, so you can
 > never restart and observe that it remembered. The learning was real but
 > invisible.
 
+> Deployment boundary: `scipy_sqlite` is for one application host. Do not place
+> the file on shared storage or use it for multi-container AWS serving.
+
 ---
 
-## Adding the database (optional)
+## Using PostgreSQL instead (optional)
 
-Four route groups need PostgreSQL: **Providers, Datasets, Admin and the
-Ingestion console** (`backend/routes/{providers,datasets,admin,ingest}.py`).
-Matching, Catalogue and Matching Test do not.
+Under `start_local.py`, **Providers, Datasets, Admin and the Ingestion console**
+use `backend/.local/console.sqlite3`; they do not require PostgreSQL. Matching
+uses the separate `backend/.local/scudo_matching.sqlite3`.
+
+PostgreSQL remains an optional console CRUD target. To use it instead, unset
+`CONSOLE_DB_BACKEND` and start the local PostgreSQL service:
 
 ```bash
 docker compose up -d
@@ -228,8 +221,8 @@ Two things that will otherwise waste an hour:
   data directory. If you change the schema, run `docker compose down -v`
   (which erases the data) to make it run again.
 
-If Docker is blocked on your machine: skip it. The app runs without it, and
-the DB-backed pages will return an error while everything else works.
+If Docker is blocked, keep the default SQLite configuration; all route groups
+remain available under `start_local.py`.
 
 ---
 
@@ -286,7 +279,7 @@ would break if the branches were deleted.
 |---|---|
 | Every page fails, browser console shows 401 | started with `app.py` instead of `start_local.py` |
 | `127.0.0.1:5000` shows JSON, not the UI | correct — the UI is on **port 3000**. :5000 is the API |
-| "Failed to load providers" | Providers needs PostgreSQL. Start Docker, or use another page |
+| "Failed to load providers" | Check that `CONSOLE_DB_BACKEND=sqlite` and `backend/.local/console.sqlite3` are writable |
 | `/readyz` returns 503 right after start | expected — the taxonomy seeds lazily on the first mapping request, then it returns ready |
 | `ModuleNotFoundError: falkordb` | you installed `requirements.txt`; use `requirements-local.txt` |
 | Match returns `status: out_of_scope` | vendor is case-sensitive: `LSEG`, not `lseg` |

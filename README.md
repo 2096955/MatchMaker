@@ -337,7 +337,8 @@ Defaults chosen for you by `start_local.py`:
 
 | Variable | Value | Effect |
 |---|---|---|
-| `STORE_BACKEND` | `local_file` | full matching ladder, file-backed; HITL decisions survive a restart |
+| `STORE_BACKEND` | `scipy_sqlite` | full matching ladder and HITL state in `backend/.local/scudo_matching.sqlite3` |
+| `SCUDO_SCIPY_SQLITE_PATH` | `backend/.local/scudo_matching.sqlite3` | matching database; separate from the console database |
 | `CONSOLE_DB_BACKEND` | `sqlite` | console pages run with no PostgreSQL — [`backend/db_sqlite_fallback.py`](backend/db_sqlite_fallback.py), standard library only |
 | `FRAME_SOURCE` | `mock` | bundled sample vendor data instead of S3 |
 | `SCUDO_AUTH_ALLOW_DEV` | `1` | local dev principal, so `/api/*` does not 401 |
@@ -345,6 +346,19 @@ Defaults chosen for you by `start_local.py`:
 Unset `CONSOLE_DB_BACKEND` and the console reverts to real PostgreSQL/Aurora
 via `CONSOLE_DB_*`; `docker compose up postgres` provides that locally. The
 SQLite path is read at call time, so deployed behaviour is unchanged.
+
+`scipy_sqlite` is a single-host backend. Do not put its database on a shared
+network filesystem or use it as a multi-container replacement for the deployed
+FalkorDB/Neptune topology. It is not activated in Lambda merely by setting
+`STORE_BACKEND`; Lambda use requires the explicit `SCUDO_USE_RETRIEVAL_STORE`
+flag and a healthy, pre-seeded taxonomy.
+
+The matching-store factory accepts five backends: `scipy_sqlite`, `local_file`,
+`memory`, `falkordb`, and `neptune`. For local startup, `scipy_sqlite` is the
+default complete matching store: taxonomy, retrieval indexes, HITL decisions,
+precedents, and audit state persist in one SQLite database. `local_file`
+remains the simpler precedent-only fallback; it journals reviewer precedents
+but does not provide the complete SQLite matching-store contract.
 
 ### Health endpoints
 
