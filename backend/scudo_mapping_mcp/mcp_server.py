@@ -34,7 +34,7 @@ from .ingest import seed_taxonomy
 from .matching import map_vendor_product
 from .models import VendorProductRef
 from .specialist import specialist_from_env
-from .store import get_store
+from .store import close_store, get_store, storage_ready
 from .taxonomy_graph import analyse_taxonomy
 
 _RO = {
@@ -51,7 +51,16 @@ async def _lifespan(server: "FastMCP"):
     # Idempotent (MERGE), best-effort: the server still starts if the store is
     # not yet reachable; a get_taxonomy_node call will simply return empty.
     try:
+        store = get_store()
+        if not storage_ready(store):
+            raise RuntimeError(
+                "matching store storage/schema is unhealthy before taxonomy seed"
+            )
         n = seed_taxonomy()
+        if n <= 0 or not store.health():
+            raise RuntimeError(
+                "matching store is unhealthy or empty after taxonomy seed"
+            )
         print(f"[scudo_mapping_mcp] seeded {n} CDAO taxonomy nodes")
     except Exception as e:  # noqa: BLE001
         print(f"[scudo_mapping_mcp] taxonomy seed skipped: {type(e).__name__}: {e}")
@@ -73,7 +82,10 @@ async def _lifespan(server: "FastMCP"):
             print(
                 f"[scudo_mapping_mcp] hydration failed (proceeding empty): {type(e).__name__}: {e}"
             )
-    yield {}
+    try:
+        yield {}
+    finally:
+        close_store()
 
 
 mcp = FastMCP("scudo_mapping_mcp", lifespan=_lifespan)

@@ -219,16 +219,14 @@ def _resolve_fixture_path(argv: list[str]) -> Optional[str]:
 
 
 def seed(nodes: list[dict[str, Any]], store) -> int:
-    """Upsert each node into ``store`` idempotently. Returns the count upserted.
+    """Replace the taxonomy in one store operation. Returns the node count.
 
     ``store`` is any ``RetrievalStore`` (the FalkorDB store in deployment).
     Kept dependency-light so a caller/test can pass an in-memory store.
     """
-    count = 0
-    for raw in nodes:
-        store.upsert_taxonomy_node(_to_taxonomy_node(raw))
-        count += 1
-    return count
+    taxonomy = [_to_taxonomy_node(raw) for raw in nodes]
+    store.replace_taxonomy(taxonomy)
+    return len(taxonomy)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -270,26 +268,31 @@ def main(argv: Optional[list[str]] = None) -> int:
     # LAZY import of config + store factory so offline import stays clean and
     # the falkordb client is only required at run time.
     from scudo_mapping_mcp.config import settings
-    from scudo_mapping_mcp.store import get_store, reset_store_cache
+    from scudo_mapping_mcp.store import close_store, get_store
 
-    if settings.store_backend != "falkordb":
+    if settings.store_backend not in {"falkordb", "scipy_sqlite"}:
         print(
             f"[seed_falkordb] ERROR: STORE_BACKEND={settings.store_backend!r}, "
-            f"expected 'falkordb'. Set STORE_BACKEND=falkordb so the seed lands "
-            f"in the graph the deployed matcher reads.",
+            f"expected 'falkordb' or 'scipy_sqlite'. Set a supported matching "
+            f"backend so the seed lands in the store the matcher reads.",
             file=sys.stderr,
         )
         return 2
 
-    redacted_url = _redact_url(settings.falkordb_url)
+    if settings.store_backend == "falkordb":
+        destination = (
+            f"url={_redact_url(settings.falkordb_url)} graph={settings.graph_name!r}"
+        )
+    else:
+        destination = f"path={settings.scipy_sqlite_path!r}"
     print(
-        f"[seed_falkordb] backend=falkordb url={redacted_url} "
-        f"graph={settings.graph_name!r} source={source} nodes={len(nodes)}"
+        f"[seed_falkordb] backend={settings.store_backend} {destination} "
+        f"source={source} nodes={len(nodes)}"
     )
 
     # Construct the store via the factory. The factory caches; reset first so a
     # stale handle from an earlier import in the same process is not reused.
-    reset_store_cache()
+    close_store()
     try:
         store = get_store()
     except ImportError as exc:
@@ -301,8 +304,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 3
     except Exception as exc:  # connection/parse errors from the client
         print(
-            f"[seed_falkordb] ERROR: could not construct the FalkorDB store at "
-            f"{redacted_url}: {exc}",
+            f"[seed_falkordb] ERROR: could not construct the matching store "
+            f"({destination}): {exc}",
             file=sys.stderr,
         )
         return 3
@@ -314,29 +317,31 @@ def main(argv: Optional[list[str]] = None) -> int:
     except Exception as exc:
         healthy = False
         print(f"[seed_falkordb] WARN: health check raised: {exc}", file=sys.stderr)
-    if not healthy:
+    if not healthy and not (
+        settings.store_backend == "scipy_sqlite" and store.taxonomy_size() == 0
+    ):
         print(
-            f"[seed_falkordb] ERROR: FalkorDB at {redacted_url} is unreachable "
-            f"(health check failed). Is the instance up and the URL correct?",
+            f"[seed_falkordb] ERROR: matching store ({destination}) is "
+            f"unreachable or unhealthy (health check failed).",
             file=sys.stderr,
         )
-        store.close()
+        close_store()
         return 3
 
     try:
         upserted = seed(nodes, store)
     except Exception as exc:
         print(f"[seed_falkordb] ERROR: upsert failed: {exc}", file=sys.stderr)
-        store.close()
+        close_store()
         return 4
     finally:
         # close() swallows its own errors; safe to call even after success.
         pass
 
-    store.close()
+    close_store()
     print(
         f"[seed_falkordb] DONE: {upserted} taxonomy node(s) upserted into "
-        f"graph {settings.graph_name!r} at {redacted_url}."
+        f"{settings.store_backend} ({destination})."
     )
     return 0
 

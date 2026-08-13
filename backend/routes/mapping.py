@@ -28,6 +28,7 @@ routes do not move.
 """
 
 import os
+import threading
 
 from flask import Blueprint, Response, g, jsonify, request, stream_with_context
 from pydantic import ValidationError
@@ -59,7 +60,7 @@ from scudo_mapping_mcp.models import (
     VendorProductRef,
 )
 from scudo_mapping_mcp.specialist import resolve_specialist
-from scudo_mapping_mcp.store import get_store
+from scudo_mapping_mcp.store import get_store, storage_ready
 
 mapping_bp = Blueprint("mapping", __name__)
 
@@ -74,6 +75,7 @@ _ENRICHABLE_STATUSES = {
 # read just returns empty). The flag prevents repeat seeding under the Flask
 # debug reloader.
 _seeded = False
+_seed_lock = threading.RLock()
 # Readiness state for /readyz (Codex A8). _ensure_seeded sets seed_ok True only
 # on actual success; a failed seed leaves it False AND does not flip _seeded, so
 # the next request retries instead of silently giving up.
@@ -81,65 +83,77 @@ _readiness = {"seed_ok": False, "last_error": None}
 
 
 def readiness() -> dict:
-    """Current seed/hydrate readiness — consumed by the /readyz probe."""
-    return dict(_readiness)
+    """Current seed state plus a live, bounded store readiness probe."""
+    state = dict(_readiness)
+    if not state["seed_ok"]:
+        return state
+    try:
+        store = get_store()
+        if not store.health():
+            raise RuntimeError("matching store is unhealthy")
+        if store.taxonomy_size() <= 0:
+            raise RuntimeError("matching taxonomy is empty")
+    except Exception as exc:  # noqa: BLE001 — readiness must fail closed
+        state["seed_ok"] = False
+        state["last_error"] = f"store: {type(exc).__name__}: {exc}"
+    return state
 
 
 def _ensure_seeded():
     global _seeded
     if _seeded:
         return
-    try:
-        n = seed_taxonomy()
-        ui_logger.info("CDAO taxonomy seeded", nodes=n)
-    except Exception as e:  # noqa: BLE001 — store may not be up yet; RETRY later
-        ui_logger.warning(
-            "CDAO taxonomy seed failed (will retry)", error=f"{type(e).__name__}: {e}"
-        )
-        _readiness["seed_ok"] = False
-        _readiness["last_error"] = f"seed: {type(e).__name__}: {e}"
-        # Do NOT set _seeded=True — leave it so the next request retries.
-        return
-    # M10 — best-effort seed of the illustrative conceptual-enrichment layer.
-    # Additive metadata only (Section 10c): a failure here never blocks
-    # taxonomy readiness and never retries on its own — the layer is not
-    # required for the cost ladder, so a one-shot failed attempt just means
-    # GET /api/mapping/conceptual/<iri> serves an empty graph.
-    try:
-        n_concept = seed_conceptual_layer()
-        ui_logger.info("conceptual layer seeded", nodes_and_edges=n_concept)
-    except Exception as e:  # noqa: BLE001 — additive only, never gates readiness
-        ui_logger.warning(
-            "conceptual layer seed failed (non-fatal)",
-            error=f"{type(e).__name__}: {e}",
-        )
-    # Replay the M6 canonical bundle into FalkorDB so confirmed precedents are
-    # available on boot — the resilience pin from the matching strategy:
-    # stale or empty FalkorDB serves confident-but-wrong matches. Best-effort
-    # here (we never block Flask startup); the deploy stack can layer a strict
-    # /health probe on top for the production posture.
-    try:
-        result = hydrate(strict=False)
-        if result.skipped_no_bundle:
-            ui_logger.warning("hydration skipped (no canonical bundle)")
-        else:
-            ui_logger.info(
-                "hydration applied",
-                applied=result.applied,
-                skipped_unknown_node=result.skipped_unknown_node,
-                skipped_out_of_scope=result.skipped_out_of_scope,
-                bundle_version=result.bundle_version,
-                taxonomy_version=result.bundle_taxonomy_version,
+    with _seed_lock:
+        if _seeded:
+            return
+        try:
+            store = get_store()
+            if not storage_ready(store):
+                raise RuntimeError(
+                    "matching store storage/schema is unhealthy before taxonomy seed"
+                )
+            n = seed_taxonomy()
+            ui_logger.info("CDAO taxonomy seeded", nodes=n)
+            if not store.health():
+                raise RuntimeError("matching store is unhealthy after taxonomy seed")
+        except Exception as e:  # noqa: BLE001 — store may not be up yet; RETRY later
+            if not _seeded:
+                _readiness["seed_ok"] = False
+                _readiness["last_error"] = f"seed: {type(e).__name__}: {e}"
+            ui_logger.warning(
+                "CDAO taxonomy seed failed (will retry)",
+                error=f"{type(e).__name__}: {e}",
             )
-    except HydrationError as e:
-        ui_logger.error(
-            "hydration failed (proceeding empty)", error=f"{type(e).__name__}: {e}"
-        )
-    # Seed succeeded (hydration is best-effort and does not gate readiness — an
-    # empty-but-seeded taxonomy is a valid serving state).
-    _readiness["seed_ok"] = True
-    _readiness["last_error"] = None
-    _seeded = True
+            return
+        try:
+            n_concept = seed_conceptual_layer()
+            ui_logger.info("conceptual layer seeded", nodes_and_edges=n_concept)
+        except Exception as e:  # noqa: BLE001 — additive only
+            ui_logger.warning(
+                "conceptual layer seed failed (non-fatal)",
+                error=f"{type(e).__name__}: {e}",
+            )
+        try:
+            result = hydrate(strict=False)
+            if result.skipped_no_bundle:
+                ui_logger.warning("hydration skipped (no canonical bundle)")
+            else:
+                ui_logger.info(
+                    "hydration applied",
+                    applied=result.applied,
+                    skipped_unknown_node=result.skipped_unknown_node,
+                    skipped_out_of_scope=result.skipped_out_of_scope,
+                    bundle_version=result.bundle_version,
+                    taxonomy_version=result.bundle_taxonomy_version,
+                )
+        except HydrationError as e:
+            ui_logger.error(
+                "hydration failed (proceeding empty)",
+                error=f"{type(e).__name__}: {e}",
+            )
+        _readiness["seed_ok"] = True
+        _readiness["last_error"] = None
+        _seeded = True
 
 
 @mapping_bp.before_request

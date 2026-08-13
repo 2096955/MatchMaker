@@ -159,13 +159,14 @@ def _serialise_record(rec: dict) -> dict:
 
 
 def _candidate_dicts(payload: dict, vendor_product: dict, term: str) -> list[dict]:
-    """Candidate source for the bundle. With SCUDO_USE_FALKORDB enabled, draw
-    REAL candidates from the FalkorDB-backed cost-ladder store; otherwise (or on
-    ANY FalkorDB failure) fall back to the in-memory sidecar mock. Fail-soft: a
-    FalkorDB outage degrades to mock with a logged warning, never a hard /run
-    failure."""
+    """Draw candidates from a configured durable retrieval store when enabled."""
     truthy = ("1", "true", "yes", "on")
-    flag = (os.environ.get("SCUDO_USE_FALKORDB") or "").strip().lower()
+    backend = (os.environ.get("STORE_BACKEND") or "").strip().lower()
+    neutral_flag = (
+        os.environ.get("SCUDO_USE_RETRIEVAL_STORE") or ""
+    ).strip().lower() in truthy
+    legacy_flag = (os.environ.get("SCUDO_USE_FALKORDB") or "").strip().lower() in truthy
+    use_store = neutral_flag or (backend == "falkordb" and legacy_flag)
     # Mock fallback must be EXPLICIT (Codex B7): a deployed stack must not
     # silently serve mock candidates when FalkorDB is enabled but failing —
     # that makes a broken store look like a successful real match. Only degrade
@@ -173,9 +174,16 @@ def _candidate_dicts(payload: dict, vendor_product: dict, term: str) -> list[dic
     allow_mock = (
         os.environ.get("SCUDO_ALLOW_MOCK_FALLBACK") or ""
     ).strip().lower() in truthy
-    if flag in truthy:
+    if use_store:
         try:
-            from .matcher_bridge import retrieve_candidates
+            from .matcher_bridge import retrieval_store_ready, retrieve_candidates
+
+            ready, reason = retrieval_store_ready()
+            if not ready:
+                raise RuntimeError(
+                    f"{backend or 'retrieval store'} is not ready for Lambda "
+                    f"candidate retrieval: {reason or 'unknown readiness failure'}"
+                )
 
             vp = {
                 "vendor": payload.get("vendor", ""),
@@ -184,19 +192,21 @@ def _candidate_dicts(payload: dict, vendor_product: dict, term: str) -> list[dic
             }
             cands = retrieve_candidates(vp, term=term, limit=10)
             if cands:
-                log.info("candidates: %d from FalkorDB", len(cands))
+                log.info("candidates: %d from %s", len(cands), backend)
                 return cands
             if not allow_mock:
                 raise RuntimeError(
-                    "FalkorDB returned 0 candidates and mock fallback is "
-                    "disabled (set SCUDO_ALLOW_MOCK_FALLBACK=1 for a demo)."
+                    f"{backend} returned 0 candidates and mock fallback is disabled "
+                    "(set SCUDO_ALLOW_MOCK_FALLBACK=1 for a demo)."
                 )
-            log.warning("FalkorDB returned 0 candidates; falling back to mock")
+            log.warning("%s returned 0 candidates; falling back to mock", backend)
         except Exception as exc:
             if not allow_mock:
-                log.error("FalkorDB retrieval failed (%s); NOT masking with mock", exc)
+                log.error(
+                    "%s retrieval failed (%s); NOT masking with mock", backend, exc
+                )
                 raise
-            log.warning("FalkorDB retrieval failed (%s); falling back to mock", exc)
+            log.warning("%s retrieval failed (%s); falling back to mock", backend, exc)
     return sidecar_mock.candidate_nodes(term=term, limit=10)
 
 

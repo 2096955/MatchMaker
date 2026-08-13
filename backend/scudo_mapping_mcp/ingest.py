@@ -25,7 +25,11 @@ import os
 from pathlib import Path
 from typing import Callable, Optional
 
+from scudo.seed_falkordb import _load_fixture, _to_taxonomy_node
+
+from .config import settings
 from .frames import put_frame
+from .loaders.taxonomy_loader import load_taxonomy_nodes
 from .models import (
     ConceptualEdge,
     ConceptualEdgeKind,
@@ -64,22 +68,19 @@ _COL_ALIASES = {
 
 def seed_taxonomy() -> int:
     """Seed taxonomy from the configured loader (cdao fixture or DCAT RDF)."""
-    from .config import settings
-    from .loaders.taxonomy_loader import load_taxonomy_nodes
-
     store = get_store()
     override = os.getenv("SCUDO_TAXONOMY_SEED", "").strip()
     if override:
-        from scudo.seed_falkordb import _load_fixture, _to_taxonomy_node
-
-        nodes = _load_fixture(override)
-        for raw in nodes:
-            store.upsert_taxonomy_node(_to_taxonomy_node(raw))
-        return len(nodes)
-
-    nodes = load_taxonomy_nodes(settings)
-    for node in nodes:
-        store.upsert_taxonomy_node(node)
+        nodes = [_to_taxonomy_node(raw) for raw in _load_fixture(override)]
+    else:
+        nodes = load_taxonomy_nodes(settings)
+    if not nodes:
+        source = override or settings.taxonomy_loader
+        raise RuntimeError(
+            f"taxonomy seed {source!r} produced an empty taxonomy; "
+            "existing taxonomy was preserved"
+        )
+    store.replace_taxonomy(nodes)
     return len(nodes)
 
 

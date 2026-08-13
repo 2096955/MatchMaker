@@ -24,9 +24,9 @@ USAGE
         set VITE_API_PROXY=http://localhost:5050
         python start_local.py
 
-NO DATABASE IS REQUIRED to see the matching demo. The Catalogue and
-Matching Test pages work with nothing installed. Providers / Datasets /
-Admin need PostgreSQL -- see docker-compose.yml.
+NO EXTERNAL DATABASE IS REQUIRED. Matching uses a local SciPy/SQLite store,
+and Providers / Datasets / Admin / Ingestion use the separate console SQLite
+fallback. PostgreSQL remains available when explicitly configured.
 """
 
 from __future__ import annotations
@@ -43,12 +43,10 @@ FRONTEND = BASE / "frontend"
 
 # The environment that makes a local run work. Set BEFORE app.py is imported.
 LOCAL_ENV = {
-    # 'local_file' = full matching ladder, no containers, and HITL decisions
-    # are journalled to backend/local_memory/precedents.jsonl so the system
-    # still remembers them after a restart. Use 'memory' for a clean slate
-    # on every run.
-    "STORE_BACKEND": "local_file",
-    "SCUDO_PERSIST_TARGET": "local_file",
+    # Full matching state and SciPy taxonomy snapshots in a dedicated SQLite
+    # file. This is intentionally separate from the console CRUD database.
+    "STORE_BACKEND": "scipy_sqlite",
+    "SCUDO_SCIPY_SQLITE_PATH": str(BACKEND / ".local" / "scudo_matching.sqlite3"),
     # Local dev identity. Without these every /api/* call returns 401.
     "SCUDO_AUTH_ALLOW_DEV": "1",
     "SCUDO_AUTH_DEV_PRINCIPAL": "demo@local",
@@ -71,10 +69,19 @@ LOCAL_ENV = {
 }
 
 
+def _apply_local_defaults(env: dict[str, str]) -> None:
+    """Apply local defaults while keeping backend and persistence coherent."""
+    for key, value in LOCAL_ENV.items():
+        env.setdefault(key, value)
+    effective_backend = env.get("STORE_BACKEND") or "scipy_sqlite"
+    env["STORE_BACKEND"] = effective_backend
+    if not env.get("SCUDO_PERSIST_TARGET", "").strip():
+        env["SCUDO_PERSIST_TARGET"] = effective_backend
+
+
 def main() -> int:
     env = os.environ.copy()
-    for key, value in LOCAL_ENV.items():
-        env.setdefault(key, value)  # a real env var you set yourself still wins
+    _apply_local_defaults(env)
 
     backend_only = "--backend" in sys.argv
 

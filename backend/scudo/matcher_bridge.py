@@ -48,6 +48,8 @@ from __future__ import annotations
 
 from typing import Any
 
+_SUPPORTED_BACKENDS = frozenset({"falkordb", "scipy_sqlite"})
+
 
 class BridgeError(RuntimeError):
     """Raised when the real cost-ladder cannot be run over FalkorDB.
@@ -83,6 +85,67 @@ def _coerce_str(value: Any) -> str:
         return ""
     # MappingStatus is a str-Enum; ``.value`` gives the wire token.
     return getattr(value, "value", value) if not isinstance(value, str) else value
+
+
+def _backend_diagnostics(settings: Any) -> str:
+    backend = (settings.store_backend or "").strip().lower()
+    if backend == "falkordb":
+        return (
+            f"backend={backend!r}, FALKORDB_URL={settings.falkordb_url!r}, "
+            f"GRAPH_NAME={settings.graph_name!r}"
+        )
+    if backend == "scipy_sqlite":
+        return (
+            f"backend={backend!r}, "
+            f"SCUDO_SCIPY_SQLITE_PATH={settings.scipy_sqlite_path!r}"
+        )
+    return f"backend={backend!r}"
+
+
+def _require_supported_backend(settings: Any) -> str:
+    backend = (settings.store_backend or "").strip().lower()
+    if backend not in _SUPPORTED_BACKENDS:
+        raise BridgeError(
+            f"STORE_BACKEND={backend!r} is unsupported by the matching bridge. "
+            "Use 'falkordb' or 'scipy_sqlite'."
+        )
+    return backend
+
+
+def _require_healthy(store: Any, settings: Any) -> None:
+    health = getattr(store, "health", None)
+    if not callable(health):
+        raise BridgeError(
+            f"matching store has no health check ({_backend_diagnostics(settings)})"
+        )
+    try:
+        healthy = bool(health())
+    except Exception as exc:
+        raise BridgeError(
+            f"matching store health check raised ({_backend_diagnostics(settings)}): "
+            f"{exc!r}"
+        ) from exc
+    if not healthy:
+        raise BridgeError(
+            f"matching store is unreachable or unhealthy "
+            f"({_backend_diagnostics(settings)})"
+        )
+
+
+def retrieval_store_ready() -> tuple[bool, str | None]:
+    """Check health and a pre-seeded taxonomy for explicit Lambda activation."""
+    try:
+        from scudo_mapping_mcp.config import settings as _settings
+        from scudo_mapping_mcp.store import get_store as _get_store
+
+        _require_supported_backend(_settings)
+        store = _get_store()
+        _require_healthy(store, _settings)
+        if store.taxonomy_size() <= 0:
+            return False, f"taxonomy is empty ({_backend_diagnostics(_settings)})"
+    except Exception as exc:
+        return False, str(exc)
+    return True, None
 
 
 def run_match(vendor_product: dict, *, max_candidates: int = 8) -> dict:
@@ -150,13 +213,7 @@ def run_match(vendor_product: dict, *, max_candidates: int = 8) -> dict:
     # Settings.from_env(). We assert the *backend* only; if it isn't FalkorDB
     # the bridge is being asked to do something it cannot promise, so fail
     # loudly rather than silently matching against memory/neptune.
-    backend = (_settings.store_backend or "").strip().lower()
-    if backend != "falkordb":
-        raise BridgeError(
-            f"STORE_BACKEND={backend!r} but this bridge runs the cost ladder "
-            "over FalkorDB. Set STORE_BACKEND=falkordb and FALKORDB_URL "
-            "(e.g. falkordb://falkordb.scudo.local:6379) in the Lambda env."
-        )
+    backend = _require_supported_backend(_settings)
 
     # ── Build the FalkorDB-backed store from settings. ──
     # The matcher (map_vendor_product) calls get_store() internally too; we
@@ -168,10 +225,8 @@ def run_match(vendor_product: dict, *, max_candidates: int = 8) -> dict:
         store = _get_store()
     except Exception as exc:
         raise BridgeError(
-            "failed to construct the FalkorDB store from settings "
-            f"(FALKORDB_URL={_settings.falkordb_url!r}, "
-            f"GRAPH_NAME={_settings.graph_name!r}). Is the falkordb client "
-            f"installed and the instance reachable? Underlying error: {exc!r}"
+            "failed to construct the matching store from settings "
+            f"({_backend_diagnostics(_settings)}). Underlying error: {exc!r}"
         ) from exc
 
     # Best-effort reachability probe. health() swallows its own exceptions and
@@ -179,22 +234,7 @@ def run_match(vendor_product: dict, *, max_candidates: int = 8) -> dict:
     # surface it as BridgeError before the matcher hits the same wall mid-ladder
     # with a less specific traceback. Skipped if the store has no health() (the
     # seam guarantees it, but stay defensive against future backends).
-    health = getattr(store, "health", None)
-    if callable(health):
-        try:
-            healthy = bool(health())
-        except Exception as exc:
-            raise BridgeError(
-                "FalkorDB health check raised "
-                f"(FALKORDB_URL={_settings.falkordb_url!r}): {exc!r}"
-            ) from exc
-        if not healthy:
-            raise BridgeError(
-                "FalkorDB is unreachable or unhealthy "
-                f"(FALKORDB_URL={_settings.falkordb_url!r}, "
-                f"GRAPH_NAME={_settings.graph_name!r}). Bring the FalkorDB "
-                "OSS instance up before running the real matcher."
-            )
+    _require_healthy(store, _settings)
 
     # ── Build a VendorProductRef from the loosely-shaped input dict. ──
     vp = vendor_product or {}
@@ -244,8 +284,8 @@ def run_match(vendor_product: dict, *, max_candidates: int = 8) -> dict:
     except Exception as exc:
         raise BridgeError(
             "the cost-ladder matcher raised while mapping "
-            f"{vendor!r}/{product_id!r} over FalkorDB "
-            f"(FALKORDB_URL={_settings.falkordb_url!r}): {exc!r}"
+            f"{vendor!r}/{product_id!r} over {backend} "
+            f"({_backend_diagnostics(_settings)}): {exc!r}"
         ) from exc
 
     return _adapt_result(result)
@@ -271,19 +311,16 @@ def retrieve_candidates(
             f"could not import scudo_mapping_mcp for retrieval: {exc!r}"
         ) from exc
 
-    backend = (_settings.store_backend or "").strip().lower()
-    if backend != "falkordb":
-        raise BridgeError(
-            f"STORE_BACKEND={backend!r} but candidate retrieval needs falkordb."
-        )
+    backend = _require_supported_backend(_settings)
 
     try:
         store = _get_store()
     except Exception as exc:
         raise BridgeError(
-            "failed to construct the FalkorDB store "
-            f"(FALKORDB_URL={_settings.falkordb_url!r}): {exc!r}"
+            "failed to construct the matching store "
+            f"({_backend_diagnostics(_settings)}): {exc!r}"
         ) from exc
+    _require_healthy(store, _settings)
 
     vp = vendor_product or {}
     vendor = str(vp.get("vendor") or "").strip()
@@ -311,7 +348,8 @@ def retrieve_candidates(
         cands = store.find_similar_products(ref, max_results=limit)
     except Exception as exc:
         raise BridgeError(
-            f"FalkorDB candidate retrieval failed for {vendor!r}/{product_id!r}: {exc!r}"
+            f"{backend} candidate retrieval failed for "
+            f"{vendor!r}/{product_id!r}: {exc!r}"
         ) from exc
 
     out: list[dict] = []

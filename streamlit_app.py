@@ -49,31 +49,27 @@ if str(_BACKEND) not in sys.path:
 def _best_local_store() -> str:
     """Pick the best store this checkout actually supports.
 
-    'local_file' is a durable file-backed store (HITL decisions survive a
-    restart) but it does NOT exist in every checkout — it arrived with a
-    separate local-run work stream, so `store/local_file_store.py` and its
-    entry in `config._ALLOWED_PERSIST_TARGETS` may be absent. Hard-coding it
-    made `config.Settings.from_env()` raise ValueError at import on a
-    checkout without it: the page died before rendering anything, which is a
-    worse failure than the connection error it was meant to avoid.
-
-    'memory' is in every checkout — same full matching ladder, but forgets on
-    restart. So: prefer local_file, fall back to memory, and read the
-    allow-list rather than guessing.
-
-    Read WITHOUT triggering Settings.from_env(), because that is the call
-    that would raise. Importing the module is safe; only from_env() validates.
+    Prefer the complete durable SciPy + SQLite store, then the legacy
+    local-file journal, then memory. Detect support from files rather than
+    importing config because Settings is created at module import time.
     """
-    try:
-        from scudo_mapping_mcp.config import _ALLOWED_PERSIST_TARGETS as allowed
-    except Exception:  # noqa: BLE001 — a checkout we cannot introspect
-        return "memory"
-    return "local_file" if "local_file" in allowed else "memory"
+    store_dir = _BACKEND / "scudo_mapping_mcp" / "store"
+    if (store_dir / "scipy_sqlite_store.py").is_file():
+        return "scipy_sqlite"
+    if (store_dir / "local_file_store.py").is_file():
+        return "local_file"
+    return "memory"
 
 
 _STORE = _best_local_store()
-os.environ.setdefault("STORE_BACKEND", _STORE)
-os.environ.setdefault("SCUDO_PERSIST_TARGET", _STORE)
+_EFFECTIVE_STORE = os.environ.get("STORE_BACKEND") or _STORE
+os.environ["STORE_BACKEND"] = _EFFECTIVE_STORE
+if not os.environ.get("SCUDO_PERSIST_TARGET", "").strip():
+    os.environ["SCUDO_PERSIST_TARGET"] = _EFFECTIVE_STORE
+os.environ.setdefault(
+    "SCUDO_SCIPY_SQLITE_PATH",
+    str(_BACKEND / ".local" / "scudo_matching.sqlite3"),
+)
 os.environ.setdefault("FRAME_SOURCE", "mock")
 os.environ.setdefault("SCUDO_AUTH_ALLOW_DEV", "1")
 os.environ.setdefault("SCUDO_AUTH_DEV_PRINCIPAL", "streamlit@local")
@@ -94,6 +90,7 @@ from scudo_mapping_mcp.feedback import apply_decision  # noqa: E402
 from scudo_mapping_mcp.frames import _read_vendor_frame  # noqa: E402
 from scudo_mapping_mcp.ingest import ingest_bytes, seed_taxonomy  # noqa: E402
 from scudo_mapping_mcp.models import VendorProductRef  # noqa: E402
+from scudo_mapping_mcp.store import get_store, storage_ready  # noqa: E402
 
 st.set_page_config(
     page_title="SCUDO — vendor → CDAO matching",
@@ -279,14 +276,22 @@ st.markdown(
 
 
 @st.cache_resource(show_spinner="Seeding CDAO taxonomy…")
-def _bootstrap() -> int:
-    """Seed the taxonomy once per process.
+def _bootstrap() -> tuple[object, int]:
+    """Own and validate the process store, then seed the taxonomy once.
 
     cache_resource (not cache_data): this mutates a store rather than
     returning a value, and must run exactly once even though Streamlit
     re-executes this whole file on every interaction.
     """
-    return seed_taxonomy()
+    store = get_store()
+    if not storage_ready(store):
+        raise RuntimeError(
+            "matching store storage/schema is unhealthy before taxonomy seed"
+        )
+    nodes = seed_taxonomy()
+    if nodes <= 0 or not store.health():
+        raise RuntimeError("matching store is unhealthy or empty after taxonomy seed")
+    return store, nodes
 
 
 # Band edges — ALWAYS via these two helpers, never the bare config calls.
@@ -520,7 +525,7 @@ def _render_event(event: dict) -> None:
 
 # ── page ───────────────────────────────────────────────────────────────────
 
-nodes = _bootstrap()
+_store_resource, nodes = _bootstrap()
 
 st.markdown(
     f"""
@@ -631,8 +636,8 @@ with st.sidebar:
             <span>Store</span><b>{os.environ["STORE_BACKEND"]}</b></div>
           <div class="scudo-side-fact" style="border-bottom:none; font-size:.68rem;">
             <span>{
-            "decisions persist across restarts"
-            if os.environ["STORE_BACKEND"] == "local_file"
+            "matching state persists across restarts"
+            if os.environ["STORE_BACKEND"] in {"scipy_sqlite", "local_file"}
             else "in-memory — forgets on restart"
         }</span><b></b></div>
         </div>
@@ -1012,9 +1017,9 @@ def _unused_ref_helper() -> VendorProductRef:  # pragma: no cover - typing ancho
 # every rerun redraws them.
 #
 # apply_decision writes a precedent edge to whichever store is live. Under
-# STORE_BACKEND=local_file it is journalled to precedents.jsonl and replayed at
-# startup, so the correction survives a restart and the next match of the same
-# product short-circuits to the human's answer. No Aurora, no Bedrock.
+# STORE_BACKEND=scipy_sqlite it is committed to the dedicated matching database,
+# so the correction survives a restart and the next match of the same product
+# short-circuits to the human's answer. No Aurora, no Bedrock.
 _d = st.session_state.get("last_decision")
 # Staleness guard. last_decision survives reruns, so after a match the user can
 # switch vendor or product WITHOUT re-running and the buttons would still be

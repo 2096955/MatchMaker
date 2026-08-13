@@ -99,7 +99,7 @@ from .ingest import seed_taxonomy
 from .matching import map_vendor_product
 from .models import VendorProductRef
 from .specialist import specialist_from_env
-from .store import get_store
+from .store import close_store, get_store, storage_ready
 from .taxonomy_graph import analyse_taxonomy
 
 _RO = {
@@ -113,14 +113,23 @@ _RO = {
 @asynccontextmanager
 async def _lifespan(server: "FastMCP"):
     try:
+        store = get_store()
+        if not storage_ready(store):
+            raise RuntimeError(
+                "matching store storage/schema is unhealthy before taxonomy seed"
+            )
         n = seed_taxonomy()
+        if n <= 0 or not store.health():
+            raise RuntimeError(
+                "matching store is unhealthy or empty after taxonomy seed"
+            )
         print(f"[scudo_match_verify_mcp] seeded {n} CDAO taxonomy nodes")
     except Exception as e:  # noqa: BLE001
         print(
             f"[scudo_match_verify_mcp] taxonomy seed skipped: {type(e).__name__}: {e}"
         )
     else:
-        # Replay the M6 canonical bundle so Falkor's working graph is hydrated
+        # Replay the M6 canonical bundle so the working store is hydrated
         # before this MCP serves match-and-check requests. Strategy resilience
         # pin: stale or empty Falkor serves confident-but-wrong matches.
         try:
@@ -141,7 +150,10 @@ async def _lifespan(server: "FastMCP"):
                 f"[scudo_match_verify_mcp] hydration failed (proceeding empty): "
                 f"{type(e).__name__}: {e}"
             )
-    yield {}
+    try:
+        yield {}
+    finally:
+        close_store()
 
 
 mcp = FastMCP("scudo_match_verify_mcp", lifespan=_lifespan)

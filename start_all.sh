@@ -7,8 +7,8 @@
 #   1. app.py's auth gate returned 401 on EVERY /api/* call, so the UI shell
 #      rendered and every data call failed -- the "only one page opens"
 #      symptom.
-#   2. STORE_BACKEND was unset, so the matcher tried to open a FalkorDB
-#      connection on :6379 -- "FalkorDB keeps being asked for".
+#   2. STORE_BACKEND was unset, so the configured default could diverge from
+#      the supported single-host local matching store.
 #
 # start_local.py sets the environment BEFORE importing app.py (the ordering is
 # the whole point) and works on Windows too. This script now delegates to it

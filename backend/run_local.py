@@ -10,17 +10,27 @@ Windows). Run:
 Then open the Vite dev server (npm run dev in ../frontend) on
 http://localhost:3000 — it proxies /api here.
 
-DEV ONLY. Memory store, dev-auth principal, mock frames, env-var verdict
-key. Nothing here is deployable posture.
+DEV ONLY. Single-host SQLite store, dev-auth principal, mock frames, env-var
+verdict key. Nothing here is deployable posture.
 """
 
 import os
+from pathlib import Path
 
 # Must land BEFORE scudo_mapping_mcp.config is imported — Settings reads
 # the environment exactly once at module import. Force-assign (not
-# setdefault): an inherited empty-string value would silently disable
+# setdefault for operator-selectable store settings; explicit environment wins.
+_BACKEND = Path(__file__).resolve().parent
+_EFFECTIVE_STORE = os.environ.get("STORE_BACKEND") or "scipy_sqlite"
+os.environ["STORE_BACKEND"] = _EFFECTIVE_STORE
+if not os.environ.get("SCUDO_PERSIST_TARGET", "").strip():
+    os.environ["SCUDO_PERSIST_TARGET"] = _EFFECTIVE_STORE
+os.environ.setdefault(
+    "SCUDO_SCIPY_SQLITE_PATH",
+    str(_BACKEND / ".local" / "scudo_matching.sqlite3"),
+)
+# Force-assign auth values: an inherited empty string would silently disable
 # dev auth, which is exactly the failure this launcher exists to stop.
-os.environ["STORE_BACKEND"] = "memory"
 os.environ["SCUDO_AUTH_ALLOW_DEV"] = "1"
 os.environ["SCUDO_AUTH_DEV_PRINCIPAL"] = "demo@local"
 # Local only: let the dev-env principal write HITL decisions so the feedback
