@@ -136,6 +136,7 @@ class _FakeSettings:
 
     store_backend = "falkordb"
     falkordb_url = "falkordb://falkordb.scudo.local:6379"
+    scipy_sqlite_path = "backend/.local/scudo_matching.sqlite3"
     graph_name = "scudo_mapping"
 
 
@@ -364,6 +365,58 @@ def test_run_match_fails_closed_on_wrong_backend(monkeypatch):
 
     with pytest.raises(bridge.BridgeError):
         bridge.run_match(_sample_vendor_product())
+
+
+def test_run_match_accepts_scipy_sqlite_backend(monkeypatch):
+    bridge = _load_bridge()
+
+    class _SQLiteSettings(_FakeSettings):
+        store_backend = "scipy_sqlite"
+
+    import scudo_mapping_mcp.config as config_mod
+    import scudo_mapping_mcp.matching as matching_mod
+    import scudo_mapping_mcp.store as store_mod
+
+    monkeypatch.setattr(config_mod, "settings", _SQLiteSettings(), raising=False)
+    monkeypatch.setattr(store_mod, "get_store", lambda: _FakeStore(), raising=False)
+    monkeypatch.setattr(
+        matching_mod,
+        "map_vendor_product",
+        lambda ref, max_candidates=8, *, specialist=None: _auto_mapped_result(),
+        raising=False,
+    )
+
+    assert bridge.run_match(_sample_vendor_product())["status"] == "auto_mapped"
+
+
+def test_retrieve_candidates_rejects_unknown_backend(monkeypatch):
+    bridge = _load_bridge()
+    import scudo_mapping_mcp.config as config_mod
+
+    class _UnknownSettings(_FakeSettings):
+        store_backend = "unknown"
+
+    monkeypatch.setattr(config_mod, "settings", _UnknownSettings(), raising=False)
+
+    with pytest.raises(bridge.BridgeError, match="unknown"):
+        bridge.retrieve_candidates(_sample_vendor_product())
+
+
+def test_retrieve_candidates_fails_closed_when_store_unhealthy(monkeypatch):
+    bridge = _load_bridge()
+    import scudo_mapping_mcp.config as config_mod
+    import scudo_mapping_mcp.store as store_mod
+
+    class _SQLiteSettings(_FakeSettings):
+        store_backend = "scipy_sqlite"
+
+    monkeypatch.setattr(config_mod, "settings", _SQLiteSettings(), raising=False)
+    monkeypatch.setattr(
+        store_mod, "get_store", lambda: _FakeStore(healthy=False), raising=False
+    )
+
+    with pytest.raises(bridge.BridgeError, match="unhealthy"):
+        bridge.retrieve_candidates(_sample_vendor_product())
 
 
 def test_run_match_fails_closed_when_store_unhealthy(monkeypatch):
