@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 
 # Vendors in scope this year. Anything outside this list is rejected by the
@@ -89,6 +90,7 @@ _ALLOWED_PERSIST_TARGETS: tuple[str, ...] = (
     "none",
     "memory",
     "local_file",
+    "scipy_sqlite",
 )
 _ALLOWED_ENRICHMENT_BACKENDS: tuple[str, ...] = ("opus", "off")
 _ALLOWED_DENSE_BACKENDS: tuple[str, ...] = ("opus", "jaro_winkler")
@@ -169,6 +171,7 @@ class Settings:
     vendor_adapters: tuple[str, ...]  # SCUDO_VENDOR_ADAPTERS
     taxonomy_loader: str  # SCUDO_TAXONOMY_LOADER — "cdao" | "dcat"
     persist_target: str  # SCUDO_PERSIST_TARGET — "falkordb" | "neptune" | "none"
+    scipy_sqlite_path: str  # SCUDO_SCIPY_SQLITE_PATH — single-host matching DB
     dense_backend: str  # SCUDO_DENSE_BACKEND — "opus" | "jaro_winkler"
     taxonomy_text_enabled: bool  # SCUDO_TAXONOMY_TEXT — inject SKOS text into matching
     taxonomy_text_shadow: bool  # SCUDO_TAXONOMY_TEXT_SHADOW — log text-on BM25 diff
@@ -268,6 +271,8 @@ class Settings:
             .strip()
             .lower()
         )
+        if not persist_target:
+            persist_target = store_backend
         if persist_target not in _ALLOWED_PERSIST_TARGETS:
             raise ValueError(
                 f"SCUDO_PERSIST_TARGET={persist_target!r} not in "
@@ -327,6 +332,13 @@ class Settings:
         )
 
         taxonomy_source = os.getenv("SCUDO_TAXONOMY_SOURCE", "").strip()
+        default_scipy_sqlite_path = str(
+            Path(__file__).resolve().parents[1] / ".local" / "scudo_matching.sqlite3"
+        )
+        scipy_sqlite_path = (
+            os.getenv("SCUDO_SCIPY_SQLITE_PATH", "").strip()
+            or default_scipy_sqlite_path
+        )
 
         return Settings(
             store_backend=store_backend,
@@ -345,6 +357,7 @@ class Settings:
             vendor_adapters=vendor_adapters,
             taxonomy_loader=taxonomy_loader,
             persist_target=persist_target,
+            scipy_sqlite_path=scipy_sqlite_path,
             dense_backend=dense_backend,
             taxonomy_text_enabled=taxonomy_text_enabled,
             taxonomy_text_shadow=taxonomy_text_shadow,

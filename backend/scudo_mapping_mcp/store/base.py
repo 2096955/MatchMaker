@@ -25,6 +25,8 @@ DIAGRAM 2 — what the seam owns:
 
 from __future__ import annotations
 
+import math
+import re
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
@@ -69,6 +71,17 @@ class RetrievalStore(ABC):
     # --- write side (index build / seed only; never used by the agent) ---
     @abstractmethod
     def upsert_taxonomy_node(self, node: TaxonomyNode) -> None: ...
+
+    def replace_taxonomy(self, nodes: list[TaxonomyNode]) -> None:
+        """Replace a complete taxonomy when a backend has atomic support.
+
+        Legacy backends retain their existing node-at-a-time behavior. Durable
+        backends override this method to publish the seed in one transaction.
+        """
+        if not nodes:
+            raise ValueError("empty taxonomy replacement is not allowed")
+        for node in nodes:
+            self.upsert_taxonomy_node(node)
 
     @abstractmethod
     def upsert_vendor_product(self, ref: VendorProductRef) -> None: ...
@@ -212,6 +225,10 @@ class RetrievalStore(ABC):
         of the seed at export time. An importer can detect divergence before
         re-seeding.
         """
+
+    def taxonomy_size(self) -> int:
+        """Return current taxonomy cardinality for readiness checks."""
+        return len(self.list_taxonomy_nodes())
 
     # --- M10 — conceptual enrichment layer (ADDITIVE, Section 10c) -------
     # Governance/lineage metadata that hangs off an already-mapped CDAO
@@ -362,8 +379,6 @@ class RetrievalStore(ABC):
         periods are stripped per-token so a trailing sentence period
         doesn't sneak into the indexed token.
         """
-        import re
-
         raw = re.split(r"[^a-z0-9.]+", (text or "").lower())
         return [t.strip(".") for t in raw if t.strip(".")]
 
@@ -392,8 +407,6 @@ class RetrievalStore(ABC):
             for term in set(toks):
                 df[term] = df.get(term, 0) + 1
         N = len(tokenised)
-        import math
-
         idf = {term: math.log(1 + (N - n + 0.5) / (n + 0.5)) for term, n in df.items()}
         q_terms = cls._tokenise(query)
         scores: dict[str, float] = {}

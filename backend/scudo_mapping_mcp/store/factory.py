@@ -1,7 +1,10 @@
 """
-The swap point.
+The process-lifetime store construction point.
 
-One function decides the backend, from config, once. This mirrors the AWS
+Configuration is read once when ``config.settings`` is imported. The cached
+store is not an environment hot-swap mechanism.
+
+One function decides the backend, from config. This mirrors the AWS
 GraphRAG Toolkit's GraphStoreFactory.register / for_graph_store pattern: the
 caller asks for "a store" and gets whichever one config names. Flip
 STORE_BACKEND from falkordb to neptune and nothing above this line changes.
@@ -17,6 +20,10 @@ from .base import RetrievalStore
 
 @lru_cache(maxsize=1)
 def get_store() -> RetrievalStore:
+    return _build_store()
+
+
+def _build_store() -> RetrievalStore:
     backend = settings.store_backend
     # JPMC-LOCAL: the two branches below are the ONLY places FalkorDB and
     # Neptune are ever constructed. They are lazy imports, so on a local run
@@ -52,13 +59,28 @@ def get_store() -> RetrievalStore:
         from .local_file_store import LocalFileStore
 
         return LocalFileStore()
+    if backend == "scipy_sqlite":
+        from .scipy_sqlite_store import ScipySQLiteStore
+
+        return ScipySQLiteStore(settings.scipy_sqlite_path)
     raise ValueError(
         f"Unknown STORE_BACKEND '{backend}'. Use 'falkordb' (local), "
         f"'neptune' (prod), 'memory' (laptop demo), or "
-        f"'local_file' (laptop demo with durable memory)."
+        f"'local_file' (laptop demo with durable memory), or "
+        f"'scipy_sqlite' (single-host durable matching)."
     )
 
 
 def reset_store_cache() -> None:
-    """For tests / backend hot-swap."""
-    get_store.cache_clear()
+    """Close and clear the process store; intended for tests and shutdown."""
+    close_store()
+
+
+def close_store() -> None:
+    """Close the cached store, clearing the cache even when close raises."""
+    store = get_store() if get_store.cache_info().currsize else None
+    try:
+        if store is not None:
+            store.close()
+    finally:
+        get_store.cache_clear()
