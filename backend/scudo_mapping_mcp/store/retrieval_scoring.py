@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from collections.abc import Callable, Mapping, Sequence
 
 from ..config import env_dense_backend
@@ -59,15 +61,28 @@ def score_candidates(
             )[:_MAX_OPUS_NOMINEES]
         }
         eligible = [node for node in eligible if node.iri in nominated_iris]
-        dense_scores = {
-            node.iri: dense_scorer(
-                query_label=ref.name or ref.product_id,
-                query_desc=ref.description or "",
+        # Score the nominees CONCURRENTLY. Each opus call is a ~5-7s network
+        # round trip and there are up to _MAX_OPUS_NOMINEES of them, so doing
+        # this sequentially cost 54.6s per match (measured, live Opus 4.8) —
+        # unusable in a demo. The calls are independent and the scorer is
+        # stateless, so a small thread pool collapses that to roughly one call.
+        # Order is preserved by keying on the IRI, not by completion order.
+        _q_label = ref.name or ref.product_id
+        _q_desc = ref.description or ""
+
+        def _score_one(node):
+            return node.iri, dense_scorer(
+                query_label=_q_label,
+                query_desc=_q_desc,
                 candidate_label=node.label or "",
                 candidate_desc=candidate_description(node),
             )
-            for node in eligible
-        }
+
+        if len(eligible) > 1:
+            with ThreadPoolExecutor(max_workers=min(8, len(eligible))) as _ex:
+                dense_scores = dict(_ex.map(_score_one, eligible))
+        else:
+            dense_scores = dict(_score_one(node) for node in eligible)
     else:
         dense_scores = {
             node.iri: _jaro_winkler(query_text, taxonomy_dense_text(node))
