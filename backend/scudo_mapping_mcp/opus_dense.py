@@ -106,9 +106,22 @@ def opus_dense_score(
             f"SCUDO_DENSE_BACKEND={backend!r} not in {{'opus', 'jaro_winkler'}}"
         )
 
+    # Circuit breaker. This scorer is called PER CANDIDATE, so a dead key or a
+    # region outage costs ~2.5s x 8 candidates = ~20s of certain failure on
+    # EVERY match (measured). After a few consecutive auth/config failures,
+    # stop calling Bedrock and serve the Jaro-Winkler fallback immediately;
+    # any success resets it. Only trips when fallback is enabled — with
+    # fallback off the caller wants the loud error.
+    if _fallback_enabled() and _breaker_open():
+        return _clamp01(
+            _jaro_winkler_score(
+                query_label, query_desc, candidate_label, candidate_desc
+            )
+        )
+
     # Opus path — guarded by the explicit fallback env var.
     try:
-        return _clamp01(
+        _score = _clamp01(
             _opus_invoke_score(
                 query_label,
                 query_desc,
@@ -116,7 +129,10 @@ def opus_dense_score(
                 candidate_desc,
             )
         )
+        _breaker_record_success()
+        return _score
     except Exception as e:  # noqa: BLE001
+        _breaker_record_failure()
         if _fallback_enabled():
             return _clamp01(
                 _jaro_winkler_score(
@@ -129,6 +145,30 @@ def opus_dense_score(
         raise RuntimeError(
             f"opus_dense_score failed and SCUDO_DENSE_FALLBACK is off: {e}"
         ) from e
+
+
+
+
+# ── Bedrock circuit breaker ────────────────────────────────────────────────
+# Process-local and deliberately tiny. Threshold is generous enough that a
+# single flaky call does not disable the LLM arm, small enough that a dead key
+# costs one match, not every match.
+_BREAKER_THRESHOLD = int(os.getenv("SCUDO_BEDROCK_BREAKER_THRESHOLD", "3"))
+_breaker_failures = 0
+
+
+def _breaker_open() -> bool:
+    return _breaker_failures >= _BREAKER_THRESHOLD
+
+
+def _breaker_record_failure() -> None:
+    global _breaker_failures
+    _breaker_failures += 1
+
+
+def _breaker_record_success() -> None:
+    global _breaker_failures
+    _breaker_failures = 0
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -210,7 +250,23 @@ def _opus_invoke_score(
     model_id = os.getenv("SCUDO_BEDROCK_MODEL_ID") or DEFAULT_BEDROCK_MODEL_ID
     region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "eu-west-2"
 
-    client = boto3.client("bedrock-runtime", region_name=region)
+    # Bounded timeouts and ONE retry. This scorer runs PER CANDIDATE (8 per
+    # match), so botocore's defaults (60s + 3 adaptive retries) turn a bad key
+    # or a slow region into a minutes-long stall: measured 33s for a single
+    # match with a malformed key before this was capped. Failing fast matters
+    # more than squeezing out a retry, because SCUDO_DENSE_FALLBACK already
+    # degrades each candidate to Jaro-Winkler.
+    from botocore.config import Config as _BotoConfig  # type: ignore
+
+    client = boto3.client(
+        "bedrock-runtime",
+        region_name=region,
+        config=_BotoConfig(
+            connect_timeout=int(os.getenv("SCUDO_BEDROCK_CONNECT_TIMEOUT", "5")),
+            read_timeout=int(os.getenv("SCUDO_BEDROCK_READ_TIMEOUT", "20")),
+            retries={"max_attempts": 1, "mode": "standard"},
+        ),
+    )
 
     user_message = (
         f"QUERY (vendor product):\n"

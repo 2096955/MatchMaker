@@ -76,6 +76,18 @@ os.environ.setdefault("SCUDO_AUTH_DEV_PRINCIPAL", "streamlit@local")
 os.environ.setdefault("SCUDO_VERDICT_ALLOW_DEV", "1")
 os.environ.setdefault("SCUDO_PERSIST_ALLOW_DEV_WRITES", "1")
 os.environ.setdefault("CONSOLE_DB_BACKEND", "sqlite")
+# Real agent by default (2026-08-14). All three levers fail SOFT, so a missing
+# or expired key degrades to the deterministic path rather than erroring —
+# judge a run by the reasoning trace, not by a number appearing.
+#   local (NOT strands) is the working specialist: strands_specialist.py was
+#   never built, so that backend abstains on every call.
+os.environ.setdefault("SCUDO_AGENT_BACKEND", "bedrock")
+os.environ.setdefault("SCUDO_SPECIALIST_BACKEND", "local")
+os.environ.setdefault("SCUDO_DENSE_BACKEND", "opus")
+# MUST accompany the opus dense arm: without it a Bedrock error RAISES and the
+# whole match aborts (measured with a malformed key). With it, the dense arm
+# degrades to Jaro-Winkler per candidate.
+os.environ.setdefault("SCUDO_DENSE_FALLBACK", "1")
 
 import streamlit as st  # noqa: E402
 
@@ -547,14 +559,17 @@ st.markdown(
 with st.sidebar:
     st.markdown('<div class="scudo-step">Run settings</div>', unsafe_allow_html=True)
     vendor = st.selectbox("Vendor", PRIORITY_VENDORS, index=0)
+    _agent_opts = ["scripted", "bedrock", "azure"]
+    _agent_default = (os.environ.get("SCUDO_AGENT_BACKEND") or "scripted").lower()
     provider = st.selectbox(
         "Agent",
-        ["scripted", "bedrock", "azure"],
-        index=0,
+        _agent_opts,
+        index=_agent_opts.index(_agent_default) if _agent_default in _agent_opts else 0,
         help=(
-            "'scripted' is the offline narrator — no AWS credentials needed. "
-            "The score is deterministic Jaro-Winkler either way; the model "
-            "narrates, it does not score."
+            "'bedrock' is the real agent — reasoning loop, tool use, and LLM "
+            "adjudication of borderline matches. 'scripted' is the offline "
+            "narrator needing no AWS. The PASS/FAIL score stays deterministic "
+            "either way; the model narrates and, on borderline cases, advises."
         ),
     )
 
@@ -632,6 +647,10 @@ with st.sidebar:
             <b style="color:{GREEN}">≥ {_pass_cut():.2f}</b></div>
           <div class="scudo-side-fact"><span>Borderline at</span>
             <b style="color:{AMBER}">≥ {_borderline_cut():.2f}</b></div>
+          <div class="scudo-side-fact">
+            <span>Specialist</span><b>{os.environ.get("SCUDO_SPECIALIST_BACKEND", "off")}</b></div>
+          <div class="scudo-side-fact">
+            <span>Dense arm</span><b>{os.environ.get("SCUDO_DENSE_BACKEND", "jaro_winkler")}</b></div>
           <div class="scudo-side-fact" style="border-bottom:none;">
             <span>Store</span><b>{os.environ["STORE_BACKEND"]}</b></div>
           <div class="scudo-side-fact" style="border-bottom:none; font-size:.68rem;">

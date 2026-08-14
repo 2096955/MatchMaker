@@ -120,8 +120,33 @@ _ENV: dict[str, str] = {
     # missing build, it is an unset flag.
     "SCUDO_SERVE_FRONTEND_DIST": "1",
     "SCUDO_SERVE_DASHBOARD_DIST": "1",
-    # Offline narrator by default: no AWS account needed to demo.
-    "SCUDO_AGENT_BACKEND": "scripted",
+    # ── Real agent everywhere (2026-08-14) ────────────────────────────────
+    # Bedrock is now the DEFAULT, not an opt-in. Three separate levers, all of
+    # which have to be on before "the agent is wired" is a true statement:
+    #
+    #   SCUDO_AGENT_BACKEND=bedrock      the narrating/reasoning agent
+    #   SCUDO_SPECIALIST_BACKEND=local   LLM adjudication of BORDERLINE cases
+    #                                    (0.70-0.80). 'local' is the real one:
+    #                                    make_rest_specialist -> opus_dense_score
+    #                                    -> Bedrock. Do NOT use 'strands' — that
+    #                                    bridge module was never built, so it
+    #                                    silently abstains on every call.
+    #   SCUDO_DENSE_BACKEND=opus         LLM dense arm in candidate ranking,
+    #                                    instead of Jaro-Winkler alone.
+    #
+    # Every one of these fails SOFT: on a missing key, an expired token or a
+    # Bedrock outage the deterministic path takes over and the demo keeps
+    # moving. That is deliberate (chosen 2026-08-14) — but it means a silent
+    # downgrade is possible, so judge a run by the reasoning trace, not by the
+    # fact that a number appeared.
+    "SCUDO_AGENT_BACKEND": "bedrock",
+    "SCUDO_SPECIALIST_BACKEND": "local",
+    "SCUDO_DENSE_BACKEND": "opus",
+    # MUST accompany SCUDO_DENSE_BACKEND=opus. Without it opus_dense_score
+    # RAISES on any Bedrock error — measured: a malformed key aborted the whole
+    # match with RuntimeError instead of scoring. With it, the dense arm falls
+    # back to Jaro-Winkler per candidate and the demo keeps moving.
+    "SCUDO_DENSE_FALLBACK": "1",
 }
 
 for _k, _v in _ENV.items():
