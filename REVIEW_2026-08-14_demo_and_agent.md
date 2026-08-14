@@ -18,6 +18,7 @@
 > | §7 "Codex not installed" | **False — corrected** |
 > | §7 test baseline | **WRONG — corrected**; export gives 4 failures, not 1 |
 > | §5 defect #2, #4, #7 | **Listed as fixed but were still live**; #7 fixed `fb61a00`, #2/#4 open |
+> | §7 test leak | **RESOLVED `247905e`** — pinned to an incomplete env restore; suite now 569/0 |
 >
 > Everything else was hand-verified by the reviewers and holds: the §2
 > diffstats, §6.2 (`strands_specialist.py` genuinely absent), §6.3 (single-host
@@ -259,8 +260,18 @@ local path; `STORE_BACKEND=aurora` correctly raising.
   holds** — a reviewer built a clean worktree at `f569787` and got the same
   single failure — but the export is a *different* condition, not a
   reproduction. The same wrong line is in the `fb61a00` commit message; this
-  is the correction of record. Full-suite baseline is **1047 passed, 2 known
-  pre-existing `test_provenance.py` failures**.
+  is the correction of record.
+
+  **RESOLVED 2026-08-15 (`247905e`).** The leak is pinned and fixed. Four
+  tests in `test_scipy_sqlite_integration.py` `exec()` the prefix of
+  `streamlit_app.py`, which writes ~13 env vars; their `finally` blocks
+  restored only three, so `SCUDO_DENSE_BACKEND=opus` leaked for the rest of
+  the session. Minimal reproduction is **two tests**, not the 31-file prefix
+  delta-debugging assumed — and reversing their order passes, which is what
+  proves leakage rather than a bad assertion. Fixed by snapshotting and
+  restoring the whole environment. `scudo_mapping_mcp` is now **569 passed,
+  0 failed**; full backend suite **1047 passed** with the 2 known
+  `test_provenance.py` failures.
 - **`override` is still not exposed** in Streamlit (Approve/Reject only).
 
 ---
