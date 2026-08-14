@@ -10,6 +10,33 @@ from pathlib import Path
 import pytest
 
 
+
+@pytest.fixture
+def restore_environ():
+    """Snapshot and restore the WHOLE environment.
+
+    Several tests below `exec()` the top-of-file prefix of the repo-root
+    `streamlit_app.py` to assert its store-selection logic. That prefix writes
+    ~13 variables into the REAL os.environ, but the bespoke `finally` blocks
+    restored only three of them — so `SCUDO_DENSE_BACKEND=opus` (and the three
+    dev-write gates) leaked into every later test in the session.
+
+    The visible casualty was
+    `test_scipy_sqlite_store.py::test_candidate_filter_clamps_and_preserves_raw_similarity`:
+    under `opus` the candidate list is truncated to _MAX_OPUS_NOMINEES=25
+    BEFORE the filter drops one, so it asserted 25 and got 24. It passed alone
+    and failed in the suite, which is the signature of exactly this bug.
+
+    Restoring everything is the fix; a longer hand-written key list is not,
+    because the next variable added to that prefix would leak again.
+    """
+    saved = dict(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BACKEND = REPO_ROOT / "backend"
 
@@ -285,7 +312,7 @@ assert os.environ["SCUDO_PERSIST_TARGET"] == "memory"
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
-def test_streamlit_store_selection_prefers_scipy_sqlite_without_importing_config():
+def test_streamlit_store_selection_prefers_scipy_sqlite_without_importing_config(restore_environ):
     source = (REPO_ROOT / "streamlit_app.py").read_text(encoding="utf-8")
     prefix = source.split("import streamlit as st", 1)[0]
     namespace = {"__file__": str(REPO_ROOT / "streamlit_app.py")}
@@ -315,7 +342,7 @@ def test_streamlit_store_selection_prefers_scipy_sqlite_without_importing_config
 
 
 @pytest.mark.parametrize("backend", ["memory", "local_file", "unknown"])
-def test_streamlit_preserves_explicit_backend(backend):
+def test_streamlit_preserves_explicit_backend(restore_environ, backend):
     source = (REPO_ROOT / "streamlit_app.py").read_text(encoding="utf-8")
     prefix = source.split("import streamlit as st", 1)[0]
     namespace = {"__file__": str(REPO_ROOT / "streamlit_app.py")}
@@ -339,7 +366,7 @@ def test_streamlit_preserves_explicit_backend(backend):
 
 
 @pytest.mark.parametrize("backend", ["memory", "falkordb"])
-def test_streamlit_derives_missing_target_from_backend(backend):
+def test_streamlit_derives_missing_target_from_backend(restore_environ, backend):
     source = (REPO_ROOT / "streamlit_app.py").read_text(encoding="utf-8")
     prefix = source.split("import streamlit as st", 1)[0]
     namespace = {"__file__": str(REPO_ROOT / "streamlit_app.py")}
@@ -360,7 +387,7 @@ def test_streamlit_derives_missing_target_from_backend(backend):
             os.environ["SCUDO_PERSIST_TARGET"] = old_target
 
 
-def test_streamlit_treats_blank_target_as_unset():
+def test_streamlit_treats_blank_target_as_unset(restore_environ):
     source = (REPO_ROOT / "streamlit_app.py").read_text(encoding="utf-8")
     prefix = source.split("import streamlit as st", 1)[0]
     namespace = {"__file__": str(REPO_ROOT / "streamlit_app.py")}
