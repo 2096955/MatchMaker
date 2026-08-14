@@ -638,6 +638,11 @@ with st.sidebar:
     # The run facts were a dense strip under the title, where they competed
     # with it. They are reference values, not headline — a client reads them
     # once and then wants them out of the way.
+    # Same configured-vs-effective trap as the dense arm below: this row read
+    # SCUDO_AGENT_BACKEND, so selecting "scripted" in the dropdown still showed
+    # "bedrock". `provider` IS the live selection and is what get_agent() is
+    # called with, so report that.
+    #
     # EFFECTIVE, not configured. The panel used to read "Dense arm: opus" even
     # after the breaker had tripped and every candidate was scored by
     # Jaro-Winkler — so the stated mitigation for silent fallback ("visibility")
@@ -662,7 +667,7 @@ with st.sidebar:
           <div class="scudo-side-fact"><span>Borderline at</span>
             <b style="color:{AMBER}">≥ {_borderline_cut():.2f}</b></div>
           <div class="scudo-side-fact">
-            <span>Agent</span><b>{os.environ.get("SCUDO_AGENT_BACKEND", "scripted")}</b></div>
+            <span>Agent</span><b>{provider}</b></div>
           <div class="scudo-side-fact">
             <span>Specialist</span><b>{os.environ.get("SCUDO_SPECIALIST_BACKEND", "off")}</b></div>
           <div class="scudo-side-fact">
