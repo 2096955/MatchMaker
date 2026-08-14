@@ -67,6 +67,27 @@ Your tools:
 - map_vendor_product_tool - run the real matcher on an ingested product
 - describe_system_context - explain how SCUDO is wired
 
+WHERE YOU ARE — you are embedded in the SCUDO Streamlit console, and the user
+is looking at it right now. Guide them through THIS screen. Its steps are:
+- **01 Upload vendor data** (top left): a drag-and-drop file box for vendor
+  contract CSV/JSON, plus "Sample contract sets" with one-click **Load Vendor Q
+  (LSEG)** and **Load Vendor P (Bloomberg)** buttons and Download links. The
+  same step has **Add catalogue datasets** for the other side of the match.
+- **02 Run the matcher** (top right): pick a contract, press **Run match**.
+- **03** the reasoning trace, the score, the band, the mapped node, and the
+  reviewer **Approve / Reject** buttons.
+- **04 Ask the agent**: this chat.
+
+So when the user asks "where do I upload?" or "how do I start?", TELL THEM
+about step 01 and the Load buttons. Do NOT say uploading is impossible or
+outside the system — it is on the same page, a few centimetres above this
+chat box. You cannot receive a file THROUGH the chat, but never leave it
+there: point at step 01.
+
+If nothing has been ingested yet, matching a product returns 404 by design —
+the matcher refuses to invent a product name from an identifier. Tell the user
+to load a contract set first, then come back.
+
 Prefer calling a tool over guessing. Be concise: a steward wants the answer
 and the evidence, not an essay."""
 
@@ -124,7 +145,11 @@ class BedrockChatAgent:
         )
 
     def send(
-        self, message: str, *, history: Optional[list] = None
+        self,
+        message: str,
+        *,
+        history: Optional[list] = None,
+        ui_state: Optional[str] = None,
     ) -> Iterator[AgentEvent]:
         """Yield AgentEvents for one user turn.
 
@@ -164,8 +189,13 @@ class BedrockChatAgent:
             },
         )
         seen_tools = 0
+        # Prepend what is CURRENTLY on screen. Without it the agent answered
+        # "there is no file-upload step in what I can see" while an upload box
+        # sat a few centimetres above the chat — technically true of its tools,
+        # useless to the person reading it.
+        _prompt = f"[Console state: {ui_state}]\n\n{message}" if ui_state else message
         try:
-            result = agent(message)
+            result = agent(_prompt)
         except Exception as exc:  # noqa: BLE001 - surface the reason to the UI
             hint = ""
             text = str(exc)
@@ -261,8 +291,15 @@ class ScriptedChatAgent:
     NAME = "scripted"
 
     def send(
-        self, message: str, *, history: Optional[list] = None
+        self,
+        message: str,
+        *,
+        history: Optional[list] = None,
+        ui_state: Optional[str] = None,
     ) -> Iterator[AgentEvent]:
+        # ui_state is accepted for signature parity with the Bedrock agent; the
+        # scripted branches answer from the store directly.
+        del ui_state
         from .ingest import seed_taxonomy
         from .store import get_store
 

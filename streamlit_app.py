@@ -1449,7 +1449,36 @@ if _q := (
                 {"role": t["role"], "content": t["content"]}
                 for t in st.session_state.chat[:-1]
             ]
-            for _ev in _agent.send(_q, history=_hist):
+            # Tell the agent what is actually on screen right now. Without
+            # this it answered "there is no file-upload step in what I can
+            # see" while the upload box sat directly above the chat.
+            _prods = st.session_state.products
+            if _prods:
+                _vs = sorted({p.get("vendor") for p in _prods if p.get("vendor")})
+                _names = ", ".join(
+                    f"{p.get('vendor')}/{p['product_id']} ({p['name']})"
+                    for p in _prods[:8]
+                )
+                _ui = (
+                    f"{len(_prods)} contract(s) ingested from {', '.join(_vs)}: "
+                    f"{_names}. Catalogue has {nodes} nodes. The user can run a "
+                    "match on any of these in step 02."
+                )
+            else:
+                _ui = (
+                    "No contracts ingested yet. The user should use step 01 "
+                    "above this chat — the drag-and-drop box, or the "
+                    "'Load Vendor Q (LSEG)' / 'Load Vendor P (Bloomberg)' "
+                    f"sample buttons. Catalogue has {nodes} nodes."
+                )
+            _ld = st.session_state.get("last_decision")
+            if _ld:
+                _ui += (
+                    f" Last match: {_ld['ref'].vendor}/{_ld['ref'].product_id} "
+                    f"scored {_ld['confidence']:.4f} onto {_ld['iri']}, "
+                    "awaiting Approve/Reject."
+                )
+            for _ev in _agent.send(_q, history=_hist, ui_state=_ui):
                 _kind = getattr(_ev, "type", None)
                 _pay = getattr(_ev, "payload", {}) or {}
                 if _kind == "agent_message":
