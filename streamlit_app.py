@@ -638,6 +638,20 @@ with st.sidebar:
     # The run facts were a dense strip under the title, where they competed
     # with it. They are reference values, not headline — a client reads them
     # once and then wants them out of the way.
+    # EFFECTIVE, not configured. The panel used to read "Dense arm: opus" even
+    # after the breaker had tripped and every candidate was scored by
+    # Jaro-Winkler — so the stated mitigation for silent fallback ("visibility")
+    # did not actually hold. Also shows the Agent lever: it reported two of the
+    # three.
+    try:
+        from scudo_mapping_mcp.opus_dense import dense_arm_status
+
+        _dense_status = dense_arm_status()
+    except Exception:  # noqa: BLE001 - the panel must never break the page
+        _dense_status = {
+            "effective": os.environ.get("SCUDO_DENSE_BACKEND", "jaro_winkler"),
+            "degraded": False,
+        }
     st.markdown(
         f"""
         <div style="margin-top:1.4rem;">
@@ -648,9 +662,11 @@ with st.sidebar:
           <div class="scudo-side-fact"><span>Borderline at</span>
             <b style="color:{AMBER}">≥ {_borderline_cut():.2f}</b></div>
           <div class="scudo-side-fact">
+            <span>Agent</span><b>{os.environ.get("SCUDO_AGENT_BACKEND", "scripted")}</b></div>
+          <div class="scudo-side-fact">
             <span>Specialist</span><b>{os.environ.get("SCUDO_SPECIALIST_BACKEND", "off")}</b></div>
           <div class="scudo-side-fact">
-            <span>Dense arm</span><b>{os.environ.get("SCUDO_DENSE_BACKEND", "jaro_winkler")}</b></div>
+            <span>Dense arm</span><b style="color:{AMBER if _dense_status["degraded"] else INK}">{_dense_status["effective"]}{" (degraded)" if _dense_status["degraded"] else ""}</b></div>
           <div class="scudo-side-fact" style="border-bottom:none;">
             <span>Store</span><b>{os.environ["STORE_BACKEND"]}</b></div>
           <div class="scudo-side-fact" style="border-bottom:none; font-size:.68rem;">
@@ -1077,12 +1093,32 @@ if run_clicked and choice is not None:
         with result_col:
             st.markdown('<div class="scudo-step">Result</div>', unsafe_allow_html=True)
             if errored:
-                st.warning(
-                    f"The **{provider}** agent did not complete: {errored}\n\n"
-                    "The score below is still valid — it is computed "
-                    "deterministically by the matcher, not by the model — but "
-                    "no model narration was produced."
+                # Do NOT claim the score is model-free. Under the shipped
+                # default SCUDO_DENSE_BACKEND=opus the LLM's float per
+                # candidate IS the published confidence (verified: a stubbed
+                # 0.93/0.72 published as 0.93/0.72 and flipped auto_mapped ->
+                # needs_review). Saying otherwise is a client-facing integrity
+                # defect, so the wording now depends on which arm is live.
+                _dense_live = (
+                    os.environ.get("SCUDO_DENSE_BACKEND", "jaro_winkler").lower()
                 )
+                if _dense_live == "opus":
+                    st.warning(
+                        f"The **{provider}** agent did not complete: {errored}"
+                        "\n\nThe narration is missing, and the LLM dense arm "
+                        "(`SCUDO_DENSE_BACKEND=opus`) is enabled — so any "
+                        "candidate it could not score fell back to "
+                        "deterministic Jaro-Winkler. **Treat this score as "
+                        "provisional and re-run once the agent is healthy.**"
+                    )
+                else:
+                    st.warning(
+                        f"The **{provider}** agent did not complete: {errored}"
+                        "\n\nThe score below is still valid — with "
+                        "`SCUDO_DENSE_BACKEND=jaro_winkler` it is computed "
+                        "deterministically by the matcher, not by the model — "
+                        "but no model narration was produced."
+                    )
             if final is None:
                 st.warning("Agent produced no final result.")
             else:

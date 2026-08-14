@@ -62,16 +62,36 @@ def main() -> int:
     flask_proc = subprocess.Popen(
         [sys.executable, str(_ROOT / "run_cognizant.py")],
         cwd=str(_ROOT),
-        env={**os.environ, "PORT": str(PORT), "SCUDO_NO_BROWSER": "1"},
+        env={
+            **os.environ,
+            "PORT": str(PORT),
+            "SCUDO_NO_BROWSER": "1",
+            # Same store/path the Streamlit child gets, resolved once below.
+            "STORE_BACKEND": os.environ.get("STORE_BACKEND", "scipy_sqlite"),
+            "SCUDO_SCIPY_SQLITE_PATH": os.environ.get(
+                "SCUDO_SCIPY_SQLITE_PATH",
+                str(_ROOT / "backend" / ".local" / "scudo_matching.sqlite3"),
+            ),
+        },
     )
 
-    # Streamlit sets its own env at the top of streamlit_app.py, so it does not
-    # need run_cognizant's block -- but it MUST agree on the store and journal,
-    # or the two halves would learn into different places.
+    # Streamlit sets its own env at the top of streamlit_app.py, but the two
+    # halves MUST agree on the store or they split-brain: a precedent approved
+    # in the UI is then unreadable by the API, which looks exactly like the
+    # memory not working. This defaulted to local_file while run_cognizant.py
+    # gave Flask scipy_sqlite — verified in review as still live, so the two
+    # values are now derived from ONE constant instead of repeated literals.
+    _STORE = os.environ.get("STORE_BACKEND", "scipy_sqlite")
+    _DB = os.environ.get(
+        "SCUDO_SCIPY_SQLITE_PATH",
+        str(_ROOT / "backend" / ".local" / "scudo_matching.sqlite3"),
+    )
     st_env = {
         **os.environ,
-        "STORE_BACKEND": os.environ.get("STORE_BACKEND", "local_file"),
-        "SCUDO_PERSIST_TARGET": os.environ.get("SCUDO_PERSIST_TARGET", "local_file"),
+        "STORE_BACKEND": _STORE,
+        "SCUDO_PERSIST_TARGET": os.environ.get("SCUDO_PERSIST_TARGET", _STORE),
+        "SCUDO_SCIPY_SQLITE_PATH": _DB,
+        # Only used by STORE_BACKEND=local_file; harmless otherwise.
         "SCUDO_MEMORY_PATH": os.environ.get(
             "SCUDO_MEMORY_PATH",
             str(_ROOT / "backend" / "local_memory" / "precedents.jsonl"),

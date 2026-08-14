@@ -56,6 +56,9 @@ from __future__ import annotations
 
 import json
 import os
+import logging
+import threading
+import time
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -112,7 +115,13 @@ def opus_dense_score(
     # stop calling Bedrock and serve the Jaro-Winkler fallback immediately;
     # any success resets it. Only trips when fallback is enabled — with
     # fallback off the caller wants the loud error.
-    if _fallback_enabled() and _breaker_open():
+    # Half-open probe. The early return below made _breaker_record_success()
+    # unreachable once the breaker tripped, so under the ONLY configuration we
+    # ship (fallback on) it stayed open for the life of the process — verified:
+    # bedrock_calls frozen at 3 across 3 recovery attempts. A short cooldown
+    # lets exactly one call through to test recovery, so a transient outage or
+    # a refreshed key heals instead of silently disabling the LLM arm forever.
+    if _fallback_enabled() and _breaker_open() and not _breaker_should_probe():
         return _clamp01(
             _jaro_winkler_score(
                 query_label, query_desc, candidate_label, candidate_desc
@@ -134,6 +143,12 @@ def opus_dense_score(
     except Exception as e:  # noqa: BLE001
         _breaker_record_failure()
         if _fallback_enabled():
+            log.warning(
+                "bedrock dense scoring failed (%s); falling back to "
+                "jaro_winkler for this candidate. consecutive_failures=%d",
+                type(e).__name__,
+                _breaker_failures,
+            )
             return _clamp01(
                 _jaro_winkler_score(
                     query_label,
@@ -153,22 +168,69 @@ def opus_dense_score(
 # Process-local and deliberately tiny. Threshold is generous enough that a
 # single flaky call does not disable the LLM arm, small enough that a dead key
 # costs one match, not every match.
+log = logging.getLogger(__name__)
+
 _BREAKER_THRESHOLD = int(os.getenv("SCUDO_BEDROCK_BREAKER_THRESHOLD", "3"))
 _breaker_failures = 0
+
+
+_BREAKER_COOLDOWN_S = float(os.getenv("SCUDO_BEDROCK_BREAKER_COOLDOWN_S", "30"))
+_breaker_opened_at = 0.0
+_breaker_probe_lock = threading.Lock()
 
 
 def _breaker_open() -> bool:
     return _breaker_failures >= _BREAKER_THRESHOLD
 
 
+def _breaker_should_probe() -> bool:
+    """True for exactly ONE caller once the cooldown has elapsed.
+
+    Guarded by a lock because the dense arm scores candidates concurrently:
+    without it every worker in the pool would probe at once and a dead key
+    would cost the full serial penalty again.
+    """
+    global _breaker_opened_at
+    if time.monotonic() - _breaker_opened_at < _BREAKER_COOLDOWN_S:
+        return False
+    with _breaker_probe_lock:
+        if time.monotonic() - _breaker_opened_at < _BREAKER_COOLDOWN_S:
+            return False
+        _breaker_opened_at = time.monotonic()  # claim this probe slot
+        return True
+
+
 def _breaker_record_failure() -> None:
-    global _breaker_failures
+    global _breaker_failures, _breaker_opened_at
     _breaker_failures += 1
+    if _breaker_failures == _BREAKER_THRESHOLD:
+        _breaker_opened_at = time.monotonic()
 
 
 def _breaker_record_success() -> None:
     global _breaker_failures
+    if _breaker_failures:
+        log.warning("bedrock dense arm recovered; breaker reset")
     _breaker_failures = 0
+
+
+def dense_arm_status() -> dict:
+    """EFFECTIVE state of the dense arm, for the UI to report.
+
+    The sidebar previously showed the CONFIGURED env value, so it read
+    "Dense arm: opus" while every candidate had in fact been scored by
+    Jaro-Winkler after the breaker tripped. Reviewers were right that
+    "mitigation is visibility" does not hold if the indicator cannot see the
+    fallback. Configured vs degraded is now distinguishable.
+    """
+    configured = os.getenv("SCUDO_DENSE_BACKEND", "jaro_winkler").strip().lower()
+    degraded = configured == "opus" and _breaker_open()
+    return {
+        "configured": configured,
+        "effective": "jaro_winkler" if degraded else configured,
+        "degraded": degraded,
+        "consecutive_failures": _breaker_failures,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────
