@@ -89,7 +89,7 @@ from scudo_mapping_mcp.config import (  # noqa: E402
 from scudo_mapping_mcp.feedback import apply_decision  # noqa: E402
 from scudo_mapping_mcp.frames import _read_vendor_frame  # noqa: E402
 from scudo_mapping_mcp.ingest import ingest_bytes, seed_taxonomy  # noqa: E402
-from scudo_mapping_mcp.models import VendorProductRef  # noqa: E402
+from scudo_mapping_mcp.models import TaxonomyNode, VendorProductRef  # noqa: E402
 from scudo_mapping_mcp.store import get_store, storage_ready  # noqa: E402
 
 st.set_page_config(
@@ -665,6 +665,7 @@ left, right = st.columns(2, gap="large")
 # while the other half sat empty under the products table, which wasted the
 # widest part of the page on nothing and cramped the one thing worth reading.
 choice: str | None = None
+match_vendor: str = vendor  # vendor of the SELECTED contract; set by the picker
 run_clicked = False
 
 # ── 1. ingest ──────────────────────────────────────────────────────────────
@@ -673,9 +674,92 @@ with left:
         '<div class="scudo-step"><b>01</b> &nbsp;Upload vendor data</div>',
         unsafe_allow_html=True,
     )
+    st.caption(
+        f"Uploading as **{vendor}** (change the vendor in the sidebar). Upload "
+        "several vendors one after another — the list below accumulates."
+    )
     upload = st.file_uploader(
         "CSV, TSV or JSON", type=["csv", "json", "tsv"], label_visibility="collapsed"
     )
+
+    # Ready-made contract sets, so a demo does not depend on the presenter
+    # having a suitable file to hand. These load through the SAME ingest_bytes
+    # path as a real upload — no special-casing, so nothing here is a mock of
+    # the pipeline, only a convenient source of bytes.
+    _DEMO_SETS = {
+        "Vendor Q (LSEG) — 3 contracts": (
+            "LSEG",
+            Path(__file__).resolve().parent
+            / "sample_data"
+            / "demo"
+            / "vendorQ_LSEG_contracts.csv",
+        ),
+        "Vendor P (Bloomberg) — 2 contracts": (
+            "Bloomberg",
+            Path(__file__).resolve().parent
+            / "sample_data"
+            / "demo"
+            / "vendorP_Bloomberg_contracts.csv",
+        ),
+    }
+    _available = {k: v for k, v in _DEMO_SETS.items() if v[1].is_file()}
+    if _available:
+        # Expanded by default when nothing is loaded. A first-time user staring
+        # at an empty uploader has no idea what a valid file looks like; hiding
+        # the samples behind a closed expander is the single biggest reason a
+        # demo stalls in the first thirty seconds.
+        with st.expander(
+            "Sample contract sets — load or download",
+            expanded=not st.session_state.products,
+        ):
+            st.caption(
+                "**Load** puts contracts straight into the matcher. "
+                "**Download** gives you the CSV so you can see the expected "
+                "shape and edit it — `product_id`, `name`, `description`."
+            )
+            for _label, (_v, _p) in _available.items():
+                _lc, _dc = st.columns([2, 1])
+                if _lc.button(
+                    f"Load {_label}", key=f"demo_{_v}", use_container_width=True
+                ):
+                    st.session_state["_pending_demo"] = (_v, str(_p))
+                    st.rerun()
+                _dc.download_button(
+                    "Download",
+                    data=_p.read_bytes(),
+                    file_name=_p.name,
+                    mime="text/csv",
+                    key=f"dl_{_v}",
+                    use_container_width=True,
+                )
+            st.caption(
+                "Load **both** to see two vendors' contracts matched against "
+                "the same catalogue dataset — each keeping its own score and "
+                "its own review decision."
+            )
+
+    # A sample-set button sets _pending_demo then reruns; ingest it here so it
+    # goes through exactly the same code path as a browser upload.
+    _pending = st.session_state.pop("_pending_demo", None)
+    if _pending:
+        _pv, _pp = _pending
+        try:
+            _frames = ingest_bytes(_pv, Path(_pp).name, Path(_pp).read_bytes())
+        except (ValueError, OSError) as _exc:
+            st.error(f"Could not load the sample set: {_exc}")
+        else:
+            _existing = {
+                (p.get("vendor"), p["product_id"]): p for p in st.session_state.products
+            }
+            for _f in _frames:
+                _existing[(_pv, _f.product_id)] = {
+                    "vendor": _pv,
+                    "product_id": _f.product_id,
+                    "name": _f.name,
+                }
+            st.session_state.products = list(_existing.values())
+            st.session_state.pop("last_decision", None)
+            st.success(f"Loaded {len(_frames)} contract(s) for {_pv}")
 
     if upload is not None and st.button("Ingest", type="primary"):
         # Drop any pending decision. Re-ingesting can change a product's data
@@ -700,10 +784,27 @@ with left:
             # fix; show the message rather than a traceback.
             st.error(str(exc))
         else:
-            st.session_state.products = [
-                {"product_id": f.product_id, "name": f.name} for f in frames
-            ]
-            st.success(f"Ingested {len(frames)} product(s)")
+            # ACCUMULATE across vendors rather than replace. The demo's whole
+            # point is many-to-one: Vendor Q's Contract X and Vendor P's
+            # Contract Y both matched against the same catalogue dataset. If
+            # this list is replaced on each upload, the second vendor's upload
+            # erases the first from the picker and that story cannot be told —
+            # even though the BACKEND kept both frames (a mismatch the old
+            # handover doc listed as known issue #3).
+            existing = {
+                (p.get("vendor"), p["product_id"]): p for p in st.session_state.products
+            }
+            for f in frames:
+                existing[(vendor, f.product_id)] = {
+                    "vendor": vendor,
+                    "product_id": f.product_id,
+                    "name": f.name,
+                }
+            st.session_state.products = list(existing.values())
+            st.success(
+                f"Ingested {len(frames)} product(s) for {vendor} — "
+                f"{len(st.session_state.products)} in total"
+            )
             # One tight block: as five separate st.caption calls these got the
             # full inter-element gap each and sprawled down the page.
             st.markdown(
@@ -714,14 +815,131 @@ with left:
     if st.session_state.products:
         st.dataframe(
             # Renamed for display only — session_state keeps the snake_case
-            # keys the selectbox below indexes by.
+            # keys the selectbox below indexes by. Vendor is shown because the
+            # table now holds contracts from MORE THAN ONE vendor at a time.
             [
-                {"Product ID": p["product_id"], "Name": p["name"]}
+                {
+                    "Vendor": p.get("vendor", "—"),
+                    "Contract": p["product_id"],
+                    "Name": p["name"],
+                }
                 for p in st.session_state.products
             ],
             use_container_width=True,
             hide_index=True,
         )
+        _vendors_loaded = sorted(
+            {p.get("vendor") for p in st.session_state.products if p.get("vendor")}
+        )
+        if len(_vendors_loaded) > 1:
+            st.caption(
+                f"{len(_vendors_loaded)} vendors loaded: {', '.join(_vendors_loaded)}. "
+                "Contracts from different vendors can match the SAME catalogue "
+                "dataset — that is expected, and each keeps its own score and "
+                "its own review decision."
+            )
+        if st.button("Clear all", help="Empty the contract list and start again"):
+            st.session_state.products = []
+            st.session_state.pop("last_decision", None)
+            st.rerun()
+
+    # ── 1b. the THIRD upload point: catalogue datasets ─────────────────────
+    #
+    # Contracts are one side of the match; the CDAO catalogue is the other. It
+    # ships as a fixture, so without this a demo can only match against the 14
+    # nodes we chose — and the obvious client question ("can it match OUR
+    # catalogue?") has no answer on screen.
+    #
+    # This adds nodes through the store's own upsert_taxonomy_node, i.e. the
+    # same call the seeder uses, so an uploaded dataset is indistinguishable
+    # from a seeded one and is immediately matchable.
+    with st.expander("Add catalogue datasets (the other side of the match)"):
+        st.caption(
+            "CSV with columns `iri`, `label`, and optionally `parent_iri`. "
+            "Uploaded datasets join the catalogue immediately and contracts "
+            "can match against them."
+        )
+        # `parent_iri` MUST already exist — the store rebuilds a validated
+        # snapshot on every write and raises on a dangling reference. Showing
+        # the valid parents here turns an opaque ValueError into a choice.
+        with st.popover("Valid parent IRIs"):
+            for _n in sorted(
+                _store_resource.list_taxonomy_nodes(), key=lambda n: n.iri
+            ):
+                st.markdown(f"`{_n.iri}` — {_n.label}")
+        _ds_sample = (
+            Path(__file__).resolve().parent
+            / "sample_data"
+            / "demo"
+            / "catalogue_datasets.csv"
+        )
+        if _ds_sample.is_file():
+            st.download_button(
+                "Download dataset sample",
+                data=_ds_sample.read_bytes(),
+                file_name=_ds_sample.name,
+                mime="text/csv",
+                key="dl_datasets",
+            )
+        _ds_up = st.file_uploader(
+            "Catalogue datasets CSV",
+            type=["csv"],
+            key="ds_upload",
+            label_visibility="collapsed",
+        )
+        if _ds_up is not None and st.button("Add to catalogue", key="add_ds"):
+            import csv as _csv
+            import io as _io
+
+            try:
+                _rows = list(
+                    _csv.DictReader(_io.StringIO(_ds_up.getvalue().decode("utf-8-sig")))
+                )
+            except (UnicodeDecodeError, _csv.Error) as _exc:
+                st.error(f"Could not read that CSV: {_exc}")
+                _rows = []
+            _added, _skipped = 0, []
+            for _i, _row in enumerate(_rows, start=2):  # row 1 is the header
+                _iri = (_row.get("iri") or "").strip()
+                _lbl = (_row.get("label") or "").strip()
+                if not _iri or not _lbl:
+                    # Report rather than silently drop — a half-loaded
+                    # catalogue that says "3 added" is worse than an error.
+                    _skipped.append(f"row {_i}: needs both iri and label")
+                    continue
+                try:
+                    _store_resource.upsert_taxonomy_node(
+                        TaxonomyNode(
+                            iri=_iri,
+                            label=_lbl,
+                            parent_iri=(_row.get("parent_iri") or "").strip() or None,
+                        )
+                    )
+                    _added += 1
+                except ValueError as _exc:
+                    # The commonest cause by far: parent_iri names a node that
+                    # does not exist, so the snapshot rebuild refuses. Say that
+                    # rather than echoing "taxonomy missing reference".
+                    _txt = str(_exc)
+                    if "missing reference" in _txt:
+                        _skipped.append(
+                            f"row {_i}: parent_iri does not exist yet — add the "
+                            f"parent first, or leave parent_iri blank. ({_txt})"
+                        )
+                    else:
+                        _skipped.append(f"row {_i}: {_txt}")
+                except Exception as _exc:  # noqa: BLE001 — per-row, keep going
+                    _skipped.append(f"row {_i}: {type(_exc).__name__}: {_exc}")
+            if _added:
+                # The sidebar node count is cached; it would keep the old
+                # number while matching used the new catalogue.
+                _bootstrap.clear()
+                st.success(
+                    f"Added {_added} dataset(s) to the catalogue. "
+                    "Rerun a match to score against them."
+                )
+            for _msg in _skipped[:5]:
+                st.warning(_msg)
 
 # ── 2. match ───────────────────────────────────────────────────────────────
 with right:
@@ -741,25 +959,35 @@ with right:
                         padding:.85rem 1rem; color:{MUTED}; font-size:.83rem;
                         line-height:1.5; background:#fff;">
               Waiting on step 01. The matcher scores the ingested frame, so a
-              file has to land before a product can be selected.
+              file has to land before a contract can be selected.
             </div>
             """,
             unsafe_allow_html=True,
         )
     else:
-        choice = st.selectbox(
-            "Product",
-            [p["product_id"] for p in st.session_state.products],
-            format_func=lambda pid: next(
-                (
-                    f"{p['product_id']} — {p['name']}"
-                    for p in st.session_state.products
-                    if p["product_id"] == pid
-                ),
-                pid,
-            ),
+        # Index by (vendor, product_id), NOT product_id alone. Two vendors can
+        # ship the same identifier, and matching uses the frame keyed by BOTH —
+        # so a product_id-only picker would send the sidebar's vendor with
+        # another vendor's contract and get a frame_not_found 404 that looks
+        # like a broken matcher.
+        _opts = [
+            (p.get("vendor") or vendor, p["product_id"])
+            for p in st.session_state.products
+        ]
+        _labels = {
+            (p.get("vendor") or vendor, p["product_id"]): (
+                f"{p.get('vendor') or vendor} · {p['product_id']} — {p['name']}"
+            )
+            for p in st.session_state.products
+        }
+        _picked = st.selectbox(
+            "Contract",
+            _opts,
+            format_func=lambda k: _labels.get(k, k[1]),
             label_visibility="collapsed",
         )
+        # match_vendor drives the run; the sidebar vendor only seeds NEW uploads.
+        match_vendor, choice = _picked
         run_clicked = st.button("Run match", type="primary")
 
 # ── 3. the run — full width ────────────────────────────────────────────────
@@ -777,7 +1005,7 @@ if run_clicked and choice is not None:
     # traceback on screen, which is the worst thing to show a client. Latent
     # at the default FRAME_SOURCE=mock (always returns None), cheap to guard.
     try:
-        ref = _read_vendor_frame(vendor, choice)
+        ref = _read_vendor_frame(match_vendor, choice)
     except Exception as exc:  # FrameDataError / ConnectionError / NotImplementedError
         st.error(f"Could not read the vendor frame: {exc}")
         ref = None
@@ -788,7 +1016,7 @@ if run_clicked and choice is not None:
         # Mirrors the API's frame_not_found refusal: the system will not score
         # a product whose real details it does not have.
         st.error(
-            f"No ingested frame for {vendor}/{choice}. Ingest it first — "
+            f"No ingested frame for {match_vendor}/{choice}. Ingest it first — "
             "the matcher will not invent a name from the identifier."
         )
     else:
@@ -1027,7 +1255,7 @@ _d = st.session_state.get("last_decision")
 # against a product nobody is looking at, silently and with a green success
 # message. Only offer the buttons while the stash still matches what is
 # selected on screen.
-if _d and (_d["ref"].vendor != vendor or _d["ref"].product_id != choice):
+if _d and (_d["ref"].vendor != match_vendor or _d["ref"].product_id != choice):
     _d = None
 if _d:
     st.markdown(
@@ -1104,3 +1332,152 @@ if _d:
             # rejects) and FalkorDB deletes and recreates the edge with a fresh
             # decided_at. Re-run the match to decide again.
             st.session_state.pop("last_decision", None)
+
+
+# ── 4. Ask the agent — free-text chat over the same tools ──────────────────
+#
+# WHY THIS IS DOWN HERE, not in a column: the reasoning trace and the chat
+# transcript are both tall, and side-by-side they each get half the width and
+# neither reads well. This is also OUTSIDE the `if run_clicked` block for the
+# same reason the review buttons are (see the note above them): Streamlit
+# reruns the script on every interaction, so anything inside that block is gone
+# by the time its own widget is processed.
+#
+# The chat calls the SAME six tools the mapping agent uses. It cannot see data
+# the pipeline cannot, and it does NOT score -- if a mapping comes out of a
+# conversation, the number still comes from map_vendor_product via the tool.
+st.markdown(
+    f'<hr style="border:none; border-top:1px solid {LINE}; margin:2rem 0 1.3rem;">',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<div class="scudo-step"><b>04</b> &nbsp;Ask the agent</div>',
+    unsafe_allow_html=True,
+)
+
+if "chat" not in st.session_state:
+    st.session_state.chat = []
+
+# Honest labelling. With no Bedrock credentials the responder is a keyword
+# router, and claiming otherwise is the kind of thing that gets noticed live.
+# 'azure' is deliberately NOT forwarded: chat.py has no azure backend, and
+# passing it through captioned a keyword responder as a "real tool-calling
+# loop" (and, with SCUDO_AGENT_BACKEND=bedrock, ran Bedrock while claiming
+# azure). The mapping agent still honours azure — only chat does not.
+_chat_backend = "bedrock" if provider == "bedrock" else "scripted"
+if provider == "azure":
+    st.caption(
+        "The Azure runtime has no chat backend — this chat uses the offline "
+        "**scripted** responder. Select **bedrock** for real agent reasoning."
+    )
+if _chat_backend == "scripted":
+    st.caption(
+        "Scripted responder — answers a narrow set of questions using real "
+        "catalogue data. Select the **bedrock** agent in the sidebar for "
+        "open-ended reasoning with tool use."
+    )
+else:
+    st.caption(
+        f"**{_chat_backend}** — real tool-calling loop. The agent may call the "
+        "matcher, read taxonomy nodes and inspect the hierarchy to answer."
+    )
+
+# Tell the user what the agent can currently SEE. Borrowed from the JPMC-side
+# build, which gates its chat on "load both files first" — the useful half of
+# that idea is stating the context, not disabling the box. A chat that silently
+# knows nothing is worse than one that says so, and unlike a hard gate this
+# still lets someone ask "how does scoring work?" before uploading anything.
+if st.session_state.products:
+    _v_loaded = sorted(
+        {p.get("vendor") for p in st.session_state.products if p.get("vendor")}
+    )
+    st.caption(
+        f"Context: **{len(st.session_state.products)} contract(s)** loaded from "
+        f"**{', '.join(_v_loaded) or 'unknown vendor'}**, against a "
+        f"**{nodes}-node** catalogue."
+    )
+else:
+    st.caption(
+        f"Context: no contracts loaded yet — the agent can explain the process "
+        f"and the {nodes}-node catalogue, but cannot discuss a specific match "
+        "until you load one in step 01."
+    )
+
+# Starter questions. A blank chat box gets blank stares in a demo; three
+# concrete prompts get the first question asked. They set _chat_prefill, which
+# the input below falls back to, so a click behaves exactly like typing.
+_STARTERS = [
+    "How do I start?",
+    "How does the scoring work?",
+    "Can two vendors match the same dataset?",
+]
+if not st.session_state.chat:
+    _s1, _s2, _s3 = st.columns(3)
+    for _col, _q in zip((_s1, _s2, _s3), _STARTERS):
+        if _col.button(_q, key=f"starter_{_q[:12]}", use_container_width=True):
+            st.session_state["_chat_prefill"] = _q
+            st.rerun()
+
+for _turn in st.session_state.chat:
+    with st.chat_message(_turn["role"]):
+        st.markdown(_turn["content"])
+        for _t in _turn.get("tools") or []:
+            st.markdown(
+                f'<div class="scudo-trace"><span class="scudo-tag">calls</span>'
+                f'<span class="scudo-tool"><b>{_t}</b></span></div>',
+                unsafe_allow_html=True,
+            )
+
+if _q := (
+    st.chat_input("e.g. why did that contract score 0.83?")
+    or st.session_state.pop("_chat_prefill", None)
+):
+    st.session_state.chat.append({"role": "user", "content": _q})
+    with st.chat_message("user"):
+        st.markdown(_q)
+
+    with st.chat_message("assistant"):
+        _reply_parts: list[str] = []
+        _tools_used: list[str] = []
+        _box = st.container()
+        try:
+            from scudo_mapping_mcp.chat import get_chat_agent
+
+            _agent = get_chat_agent(_chat_backend)
+            # Replay prior turns so the agent has the thread, not just this line.
+            _hist = [
+                {"role": t["role"], "content": t["content"]}
+                for t in st.session_state.chat[:-1]
+            ]
+            for _ev in _agent.send(_q, history=_hist):
+                _kind = getattr(_ev, "type", None)
+                _pay = getattr(_ev, "payload", {}) or {}
+                if _kind == "agent_message":
+                    _reply_parts.append(str(_pay.get("content") or ""))
+                elif _kind == "tool_call":
+                    _name = str(_pay.get("tool") or "")
+                    if _name:
+                        _tools_used.append(_name)
+                        with _box:
+                            st.markdown(
+                                f'<div class="scudo-trace">'
+                                f'<span class="scudo-tag">calls</span>'
+                                f'<span class="scudo-tool"><b>{_name}</b></span></div>',
+                                unsafe_allow_html=True,
+                            )
+                elif _kind == "error":
+                    _detail = str(_pay.get("error") or "agent error")
+                    _hint = str(_pay.get("hint") or "").strip()
+                    _reply_parts.append(
+                        f"**The agent could not complete.** {_detail}"
+                        + (f"\n\n{_hint}" if _hint else "")
+                    )
+        except Exception as _exc:  # noqa: BLE001 — UI boundary: report, never crash
+            _reply_parts.append(f"**Chat failed.** ({type(_exc).__name__}: {_exc})")
+
+        _reply = "\n\n".join(p for p in _reply_parts if p).strip() or "(no reply)"
+        st.markdown(_reply)
+
+    st.session_state.chat.append(
+        {"role": "assistant", "content": _reply, "tools": _tools_used}
+    )

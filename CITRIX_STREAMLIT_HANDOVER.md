@@ -77,10 +77,15 @@ hot-reload.
 ## What it does
 
 1. **Upload** a vendor CSV/JSON — real stages, real counts:
-   `received → parse → validate → sink`.
-2. **Run match** on an ingested product.
-3. **Agent reasoning** as a readable trace (`thinking` / `calls` / `returns`),
+   `received → parse → validate → sink`. Uploads **accumulate across vendors**,
+   and ready-made sample contract sets can be loaded or downloaded.
+2. **Upload catalogue datasets** (`iri`, `label`, `parent_iri`) — the other side
+   of the match, so you are not limited to the shipped fixture.
+3. **Run match** on an ingested contract (the picker is vendor-aware).
+4. **Agent reasoning** as a readable trace (`thinking` / `calls` / `returns`),
    then confidence, band, and the mapped CDAO node.
+5. **Review it** — Approve / Reject writes a precedent the next match reuses.
+6. **Ask the agent** — free-text chat over the same six tools (step 04).
 
 It calls the SCUDO package **directly** — not over HTTP. `agent.run()` is a
 generator yielding exactly the events the SSE endpoint wraps, so there is no
@@ -158,8 +163,13 @@ rebuilds the store cache the header keeps its old number while matches return
 0 candidates. **If matches suddenly return 0.000, restart the app** rather than
 debugging the data.
 
-**3. Two-file ingest: the UI replaces, the backend accumulates.** After
-ingesting A then B the table shows only B, but A's frames still resolve.
+**3. ~~Two-file ingest: the UI replaces, the backend accumulates.~~
+FIXED 2026-08-14.** The UI now accumulates too, keyed on
+`(vendor, product_id)`, and the table shows a Vendor column — so contracts from
+several vendors sit side by side, which is what the many-to-one demo needs. The
+contract picker is vendor-aware for the same reason: it previously sent the
+sidebar's vendor with another vendor's contract and got a `frame_not_found`
+404 that looked like a broken matcher.
 
 **4. Paste the key into the running app, not the launch environment.** A
 server started before the token was set kept failing with

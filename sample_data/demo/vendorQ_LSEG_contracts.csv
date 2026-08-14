@@ -1,0 +1,4 @@
+product_id,name,description
+Q-CONTRACT-X,Equity Prices Historical Series,Daily close and volume history for listed equities
+Q-CONTRACT-X2,Corporate Actions Feed,Dividends splits and mergers notifications
+Q-CONTRACT-X3,Reference Data Entity Master,Legal entity identifiers and hierarchies

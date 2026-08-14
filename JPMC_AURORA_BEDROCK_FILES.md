@@ -44,7 +44,7 @@ This is the single biggest source of confusion. Do not skip it.
 | | Purpose | How it talks to Aurora | Env vars | Reachable from Streamlit? |
 |---|---|---|---|---|
 | **A. Console DB** | Providers, datasets, admin, ingest CRUD | `psycopg` direct connection | `CONSOLE_DB_*` | Yes (Flask only) |
-| **B. Matching store** | Taxonomy nodes, candidates, precedents | *no Aurora implementation exists* | `STORE_BACKEND` | Yes |
+| **B. Matching store** | Taxonomy nodes, candidates, precedents | `scipy_sqlite` (SQLite, single-host); **no Aurora backend** | `STORE_BACKEND` | Yes |
 | **C. Agent memory** | Learned precedents, trajectories, skills | **RDS Data API** (`boto3` `rds-data`) | `SCUDO_AURORA_*` | **No** |
 
 They use **different credentials and different AWS APIs**. A working
@@ -135,12 +135,15 @@ That prints the plan and **changes nothing**. Add `--apply` to execute
 (`:325-329`, `:341-345`). Do the dry run first — it tells you how many
 statements it would apply, and the DDL is destructive (see 1B).
 
-### 1C — Matching store: no Aurora implementation exists
+### 1C — Matching store: durable locally, still not Aurora
 
-Be clear with your architects about this, because it is the one real gap.
+**Updated 2026-08-14.** An earlier version of this section said no durable
+SQL-backed matching store existed. That is now out of date: `scipy_sqlite`
+shipped and is the recommended local store. Aurora is still not a matching
+backend.
 
-[`backend/scudo_mapping_mcp/store/factory.py:19-59`](backend/scudo_mapping_mcp/store/factory.py) is the **only** place a
-store is constructed. It accepts exactly four values and raises `ValueError`
+[`backend/scudo_mapping_mcp/store/factory.py`](backend/scudo_mapping_mcp/store/factory.py) is the **only** place a
+store is constructed. It accepts exactly five values and raises `ValueError`
 on anything else:
 
 | `STORE_BACKEND` | Implementation | Survives restart? |
@@ -149,18 +152,30 @@ on anything else:
 | `local_file` | [`backend/scudo_mapping_mcp/store/local_file_store.py`](backend/scudo_mapping_mcp/store/local_file_store.py) (393 lines) | **Yes — JSONL on disk** |
 | `falkordb` | [`backend/scudo_mapping_mcp/store/falkordb_store.py`](backend/scudo_mapping_mcp/store/falkordb_store.py) | (not used at JPMC) |
 | `neptune` | [`backend/scudo_mapping_mcp/store/neptune_store.py`](backend/scudo_mapping_mcp/store/neptune_store.py) | (not used at JPMC) |
+| **`scipy_sqlite`** | [`backend/scudo_mapping_mcp/store/scipy_sqlite_store.py`](backend/scudo_mapping_mcp/store/scipy_sqlite_store.py) | **Yes — SQLite. Recommended** |
 
-**There is no `aurora_store` in that list.** To put matching precedents in
-Aurora you would write a new file implementing the `RetrievalStore` abstract
-base in [`backend/scudo_mapping_mcp/store/base.py:59-437`](backend/scudo_mapping_mcp/store/base.py) — **16** abstract methods. That is a real
-piece of work and it is **not needed for a demo**.
+**There is still no `aurora_store` in that list**, and that matters for a
+different reason than before. `scipy_sqlite` implements the full **16-method**
+`RetrievalStore` contract ([`backend/scudo_mapping_mcp/store/base.py`](backend/scudo_mapping_mcp/store/base.py))
+over SQLite, with revision-stamped SciPy sparse indexes — so durability is
+solved. What it does **not** solve is *sharing*: it is **single-host only**.
+Several ECS tasks or Lambdas cannot write to one SQLite file, which is exactly
+what an Aurora-backed store would give you. That remains real work, and the
+AWS templates deliberately stay on FalkorDB.
 
-**Use `local_file` instead** — but be precise about what it replaces.
-`local_file` is the durable store for **matching precedents**: the same
-scoring, the same invariants, plus an append-only journal at
-`$SCUDO_MEMORY_PATH` (default `backend/local_memory/precedents.jsonl`).
-It is human-readable — you can open it in VS Code and *see what the system
-learned*, which is a better demo than a database you cannot inspect.
+**Use `scipy_sqlite` for the demo** — it is the default in `start_local.py`,
+`run_cognizant.py` and `streamlit_app.py`:
+
+| Store | Durable? | Inspectable | Use it when |
+|---|---|---|---|
+| `scipy_sqlite` | **Yes** (SQLite) | `sqlite3` queries | **Default. Any real demo** |
+| `local_file` | Yes (JSONL) | open it in an editor | You want to *show* the journal on screen |
+| `memory` | No | — | Throwaway checks |
+
+**Whichever you choose, all three launchers must agree.** Streamlit and Flask
+are separate processes; if one is on `scipy_sqlite` and the other on
+`local_file`, a decision approved in the UI is invisible to the API — a silent
+split-brain that looks exactly like the memory not working.
 
 It is **not** a drop-in for everything [`backend/scudo/aurora_memory.py`](backend/scudo/aurora_memory.py) does. That module
 also holds priors, trajectories and promoted skills (`consult_priors`,
@@ -174,8 +189,9 @@ thing, but not a Streamlit thing either. It is a separate nightly job:
 `SCUDO_AURORA_*` variables set (see 1C(ii)).
 
 ```bash
-export STORE_BACKEND=local_file
-export SCUDO_PERSIST_TARGET=local_file
+export STORE_BACKEND=scipy_sqlite
+export SCUDO_PERSIST_TARGET=scipy_sqlite
+export SCUDO_SCIPY_SQLITE_PATH=backend/.local/scudo_matching.sqlite3
 ```
 
 ### 1C(ii) — Agent memory (`SCUDO_AURORA_*`) — the honest status
@@ -227,22 +243,91 @@ That is the whole activation path.** No file edit.
 
 ### 2.2 What Bedrock actually needs
 
-A Bedrock API key is **one bearer token** that carries its own region and
-credentials. There is no access key, no secret, no session token.
+**Read this first if you are at JPMC.** Your `cdao_poc.py` proves your account
+uses **`sts.assume_role` → temporary credentials**, and an
+**application-inference-profile ARN** as the model id. That is a *different*
+mechanism from the bearer token this document originally described, and it
+changes which parts apply to you.
+
+| | Cognizant sandbox (original) | **JPMC (your `cdao_poc.py`)** |
+|---|---|---|
+| Auth | `AWS_BEARER_TOKEN_BEDROCK`, ~12 h | **`sts.assume_role`** on a role ARN |
+| Model id | `us.anthropic.claude-opus-4-8` | **application-inference-profile ARN** |
+| Region | carried inside the token | explicit `us-east-1` |
+
+**Good news: neither needs a code change.** Both were verified here.
+
+**1. The ARN works as a model id, verbatim.** Measured: constructing
+`BedrockModel(model_id="arn:aws:bedrock:us-east-1:...:application-inference-profile/...")`
+stores that exact string. So the `us.`/`eu.` prefix logic in §2.3 is simply
+**irrelevant to you** — you bypass it by setting the ARN explicitly:
+
+```bash
+export SCUDO_BEDROCK_MODEL_ID="arn:aws:bedrock:us-east-1:<acct>:application-inference-profile/<id>"
+export AWS_REGION=us-east-1
+```
+
+**2. Assume-role needs no code either.** The agent builds
+`BedrockModel(model_id=..., region_name=...)`
+([`backend/scudo_mapping_mcp/agent.py:509-512`](backend/scudo_mapping_mcp/agent.py))
+with **no explicit credentials**, so botocore resolves them through its normal
+chain. Measured: that chain contains **`assume-role` as its second provider**,
+ahead of SSO and shared credentials. Meaning a profile in `~/.aws/config` is
+enough — no `sts.assume_role` call in Python:
+
+```ini
+[profile bedrock-poc]
+role_arn       = arn:aws:iam::<acct>:role/app-bedrock-access-...
+source_profile = default
+region         = us-east-1
+```
+
+then `export AWS_PROFILE=bedrock-poc` before launching Streamlit. botocore
+refreshes the temporary credentials for you, which your PoC script has to do
+by hand.
+
+**If `~/.aws/config` is not writable, or a stale `AWS_PROFILE` is in the way,
+use this instead.** It needs no profile at all — export the three values your
+`cdao_poc.py` already obtains from `assume_role`:
+
+```bash
+export AWS_ACCESS_KEY_ID=<AccessKeyId>
+export AWS_SECRET_ACCESS_KEY=<SecretAccessKey>
+export AWS_SESSION_TOKEN=<SessionToken>
+export AWS_REGION=us-east-1
+```
+
+Measured: botocore resolves these as method `env`, carrying the session token,
+with no profile present. The trade-off is that they **expire** (typically
+1 hour) and nothing refreshes them — re-export and restart Streamlit when
+calls start failing with an expiry error.
+
+> **Watch out for a stale `AWS_PROFILE`.** If it names a profile that does not
+> exist (e.g. `adfs` on a Citrix desktop that never provisioned it), botocore
+> raises `ProfileNotFound` **and does not fall back** — measured: it fails even
+> when valid `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are set. It surfaces
+> at the first AWS call, not at start-up, so it looks like a Bedrock fault.
+> Check with `echo $AWS_PROFILE` and `aws configure list-profiles`, then
+> `unset AWS_PROFILE` if it names something absent.
 
 | Env var | Set by | Notes |
 |---|---|---|
-| `AWS_BEARER_TOKEN_BEDROCK` | the sidebar box ([`streamlit_app.py:603`](streamlit_app.py)) | expires ~12 h |
-| `SCUDO_BEDROCK_MODEL_ID` | the sidebar dropdown (`streamlit_app.py:605,612`) | overrides the default |
-| `AWS_REGION` | your shell | drives **both** the model IDs and the preflight (`:158-184`, `:383`) **and** the agent ([`backend/scudo_mapping_mcp/agent.py:467-472`](backend/scudo_mapping_mcp/agent.py)) — see §2.3 |
+| `AWS_PROFILE` **or** `AWS_BEARER_TOKEN_BEDROCK` | your shell / the sidebar box ([`streamlit_app.py:603`](streamlit_app.py)) | **profile for JPMC**; bearer token expires ~12 h |
+| `SCUDO_BEDROCK_MODEL_ID` | your shell (JPMC: the ARN) or the sidebar dropdown | overrides the default |
+| `AWS_REGION` | your shell | drives the model IDs, the preflight (`:158-184`, `:383`) **and** the agent ([`backend/scudo_mapping_mcp/agent.py:467-472`](backend/scudo_mapping_mcp/agent.py)) — see §2.3 |
 
-**On IAM roles:** the *agent* does not require a bearer token — it builds
-`BedrockModel(...)` ([`backend/scudo_mapping_mcp/agent.py:508-511`](backend/scudo_mapping_mcp/agent.py)) and botocore will use a task role or
-`~/.aws` credentials if one is present. But the **sidebar preflight refuses
-to test that path**: [`streamlit_app.py:369-370`](streamlit_app.py) returns "No API key set"
-whenever `AWS_BEARER_TOKEN_BEDROCK` is empty. So on a role-based desktop the
-sidebar will look unhappy while a run may still succeed. Judge it by the run,
-not by the sidebar — and see §4 for what to ask your cloud team.
+**The one thing that will mislead you:** the sidebar preflight refuses to test
+the role path. [`streamlit_app.py:374-375`](streamlit_app.py) returns
+*"No API key set"* whenever `AWS_BEARER_TOKEN_BEDROCK` is empty — even when
+your role credentials are working perfectly. **On a role-based desktop the
+sidebar will look unhappy while the run succeeds.** Judge it by pressing
+"Run match", not by the sidebar.
+
+**A second trap, worth knowing before you demo:** your `cdao_poc.py` calls
+**`invoke_model`**; the agent calls **`ConverseStream`** (via Strands). Those
+are *separately authorised* IAM actions. A role that passes your PoC can still
+be denied for the agent. Ask for `bedrock:InvokeModelWithResponseStream`
+explicitly — see §4.
 
 Dependencies are already in [`backend/requirements.txt`](backend/requirements.txt)
 — `boto3` and `strands-agents`, at **`:13-14`** as of 2026-08-12. (An earlier
@@ -253,6 +338,11 @@ stream.) Both are **lazy-imported**, which is why the SQLite/scripted build
 works without AWS at all.
 
 ### 2.3 Region and model prefix — already handled, one env var to set
+
+> **JPMC: you can skim this section.** It governs how the *sidebar dropdown*
+> builds `us.`/`eu.` model ids. You are setting `SCUDO_BEDROCK_MODEL_ID` to a
+> full inference-profile ARN (§2.2), which overrides all of it. Only
+> `AWS_REGION` still matters to you.
 
 There *was* a defect here (preflight pinned to `us-east-1` while the agent
 defaulted to `eu-west-2`, so the sidebar could go green and the run then fail
@@ -346,8 +436,8 @@ complete — nothing implied.
 ### Config A — what you have now (no AWS, no DB)
 
 ```bash
-export STORE_BACKEND=local_file          # was memory: now survives restart
-export SCUDO_PERSIST_TARGET=local_file
+export STORE_BACKEND=scipy_sqlite        # durable SQLite matching store
+export SCUDO_PERSIST_TARGET=scipy_sqlite
 export CONSOLE_DB_BACKEND=sqlite
 export FRAME_SOURCE=mock
 export SCUDO_AUTH_ALLOW_DEV=1
@@ -363,7 +453,25 @@ checkout supports it (`_best_local_store`, [`streamlit_app.py:49-71`](streamlit_
 
 ### Config B — add Bedrock (agents become real, still no DB)
 
-Everything in A, plus:
+**B(i) — JPMC: assume-role + inference-profile ARN.** Everything in A, plus:
+
+```bash
+export AWS_PROFILE=bedrock-poc           # the ~/.aws/config profile from §2.2
+export AWS_REGION=us-east-1
+export SCUDO_BEDROCK_MODEL_ID="arn:aws:bedrock:us-east-1:<acct>:application-inference-profile/<id>"
+streamlit run streamlit_app.py
+# in the sidebar: Agent = "bedrock", then press "Run match".
+# IGNORE the red "No API key set" — it only tests the bearer-token path (§2.2).
+```
+
+Sanity-check the credentials outside the app first — if this fails, the app
+will too, and the error is clearer here:
+
+```bash
+aws sts get-caller-identity --profile bedrock-poc
+```
+
+**B(ii) — bearer-token accounts.** Everything in A, plus:
 
 ```bash
 export AWS_REGION=us-east-1              # must match the model prefix
@@ -418,12 +526,43 @@ requests to your cloud team, neither of which is a code change:
 
 **For Bedrock** — you need, in the target account and region:
 1. Model access granted for the Claude models (a console request per model)
-2. An API key (`bedrock-api-key-...`) OR an IAM role with
-   `bedrock:InvokeModelWithResponseStream`
-3. **`ConverseStream` permission specifically.** The agent streams. A key
-   that can call `Converse` and not `ConverseStream` will pass a naive test
-   and fail live — this exact bug already bit once, which is why the
-   preflight streams ([`streamlit_app.py:389`](streamlit_app.py)).
+2. An IAM role you can assume (JPMC's path) **or** an API key
+   (`bedrock-api-key-...`)
+3. **`bedrock:InvokeModelWithResponseStream` on that role — ask for it by
+   name.** This is the one most likely to bite you. Your `cdao_poc.py` proves
+   `bedrock:InvokeModel`, and people reasonably assume that covers everything.
+   It does not: the agent uses **`ConverseStream`**, which is authorised
+   separately. A role that passes your PoC can still be denied for the agent,
+   and the failure appears only at demo time. (The same bug already bit once
+   here, which is why the preflight streams —
+   [`streamlit_app.py:394`](streamlit_app.py).)
+4. If you use an **application-inference-profile ARN**, permission on the
+   profile ARN itself — not just on the underlying foundation model.
+
+**Diagnose credentials before blaming the app.** Run these in the same shell
+you launch Streamlit from, in this order — the first one that fails is your
+answer:
+
+```bash
+echo $AWS_PROFILE                 # names a profile that does not exist? unset it
+aws configure list-profiles       # what this desktop actually has
+aws sts get-caller-identity       # do you have ANY working base credential?
+aws sts assume-role --role-arn <ROLE_ARN> --role-session-name probe   # can you assume it?
+```
+
+A note on `ProfileNotFound`: it proves the *selector* is broken, not that
+assume-role is unavailable. Clearing `AWS_PROFILE` only unblocks resolution —
+it cannot tell you whether assume-role would work, because **`role_arn` and
+`source_profile` live inside a profile**. Measured: with no profile selected
+botocore never attempts assume-role at all. So use `get-caller-identity` to
+find the base credential, and the explicit `assume-role` call to test the
+role.
+
+A precise ask for your platform team:
+
+> Please grant role `app-bedrock-access-…` the actions `bedrock:InvokeModel`
+> **and `bedrock:InvokeModelWithResponseStream`**, on both the foundation
+> model and the application-inference-profile ARN, in `us-east-1`.
 
 **For Aurora** — you need one of:
 - Network reachability to port 5432 plus a Secrets Manager password
@@ -489,14 +628,17 @@ a match scoring 0.5294 `needs_review`, approved by a human, then re-matched
 
 ### What genuinely does NOT exist — set expectations here
 
-**The agent is not conversational.** The entry point is
-`get_agent(provider).run(ref)` — a generator over **one product reference**.
-There is no free-text chat box and no way to ask an arbitrary question.
+**RESOLVED 2026-08-14 — free-text chat now exists.**
+`backend/scudo_mapping_mcp/chat.py` adds a chat layer over the SAME six tools,
+surfaced as Streamlit step 04. The MAPPING entry point is unchanged
+(`get_agent(provider).run(ref)`, a generator over one product reference).
 
-So "users query the agents intelligently" today means:
+So "users query the agents intelligently" now means:
 - watch a **structured reasoning trace** (thinking / calls / returns) ✅
 - **correct** the outcome with Approve / Reject, and have it remembered ✅
-- **ask the agent an open question in your own words** ❌ — not built
+- **ask the agent an open question in your own words** ✅ — `bedrock` backend
+  gives a real tool-calling loop; `scripted` is a keyword-routed no-AWS
+  stand-in that says so in its own replies
 
 **`override` is not exposed in Streamlit.** The store supports it
 ([`backend/scudo_mapping_mcp/store/base.py:78-117`](backend/scudo_mapping_mcp/store/base.py)) and the Flask API accepts it, but the Streamlit UI
@@ -504,8 +646,9 @@ offers only Approve and Reject. Correcting a match *to a different node* from
 that screen would be new UI — ask before building it.
 
 **The demo story that IS true end to end:**
-match → correct → re-match → it remembered — with the evidence visible in
-`backend/local_memory/precedents.jsonl`, which you can open on screen. That
+match → correct → re-match → it remembered — the evidence is in
+`backend/.local/scudo_matching.sqlite3` (`positive_precedents`), or as a
+readable `precedents.jsonl` if you run `STORE_BACKEND=local_file`. That
 is a stronger demo than a database nobody can inspect, and it needs neither
 Aurora nor Bedrock.
 
@@ -548,6 +691,36 @@ telling you to re-fix working code).
 
 ### Executed on this machine — you can re-run these
 
+**JPMC's auth path needs no code change (2026-08-14).** Two measurements,
+prompted by the `cdao_poc.py` script:
+
+- `BedrockModel(model_id="arn:aws:bedrock:…:application-inference-profile/…")`
+  stores that ARN verbatim — an inference-profile ARN is accepted as a model
+  id, so the `us.`/`eu.` prefix logic is bypassed entirely.
+- botocore's credential resolver lists **`assume-role` as its second
+  provider** (after `env`, ahead of SSO and shared credentials). So an
+  `~/.aws/config` profile with `role_arn` + `source_profile` is sufficient;
+  the agent's credential-free `BedrockModel(...)` construction picks it up.
+- Exporting `assume_role`'s three outputs as `AWS_ACCESS_KEY_ID` /
+  `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` resolves as method `env` with
+  the token carried, **with no profile present** — the fallback when
+  `~/.aws/config` cannot be written.
+
+**Two `AWS_PROFILE` facts (2026-08-14), both measured:**
+
+- A stale `AWS_PROFILE` naming a non-existent profile raises `ProfileNotFound`
+  **and does not fall back to the rest of the chain** — it fails even with
+  valid `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` exported. It is raised at
+  credential *resolution*, not at `Session()` construction, so it appears at
+  the first AWS call and reads as a Bedrock failure.
+- With **no** profile selected, botocore never attempts assume-role, because
+  `role_arn`/`source_profile` are profile-scoped. Clearing `AWS_PROFILE`
+  therefore cannot prove or disprove that assume-role works.
+
+Not verified: an actual invoke against JPMC's account. Whether that role holds
+`InvokeModelWithResponseStream` (not just `InvokeModel`) can only be confirmed
+there — see §4.
+
 **The memory loop survives a process restart.** Two separate Python
 processes, `STORE_BACKEND=local_file`:
 
@@ -573,7 +746,8 @@ local env loads **no** `aurora*` module and **does not import `boto3`**.
 reference. `opus_dense` does import it from `falkordb_store` — which is why
 that file must stay on disk (§2.5).
 
-**No Aurora matching store exists.** `get_store()` with
+**No Aurora matching store exists** (though `scipy_sqlite` now covers
+durability on a single host). `get_store()` with
 `STORE_BACKEND=aurora` raises `ValueError: Unknown STORE_BACKEND 'aurora'`.
 `RetrievalStore` has **16** abstract methods a new store must implement.
 
@@ -581,6 +755,18 @@ One nuance found while verifying: `Settings.from_env()` *accepts*
 `STORE_BACKEND=aurora` — only `SCUDO_PERSIST_TARGET` is validated against an
 allow-list. The refusal comes from `get_store()`, so a bad `STORE_BACKEND`
 fails at first store use, not at import.
+
+**`scipy_sqlite` durability, measured 2026-08-14.** Ingest → match →
+approve → **new process** → same contract:
+
+| | Result |
+|---|---|
+| Process 1 | `Q-CONTRACT-X` scored **0.8317 pass**, approve returned 200 |
+| SQLite tables | `positive_precedents` = 1, `negative_precedents` = 0 |
+| **Process 2 (fresh)** | status **`approved`**, rationale **`precedent`** |
+
+Note the table names: counting a `precedents` table would silently report zero
+for ever. Decisions live in `positive_precedents` *and* `negative_precedents`.
 
 ### Not verified — be honest about these
 

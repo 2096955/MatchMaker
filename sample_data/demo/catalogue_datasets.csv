@@ -1,0 +1,4 @@
+iri,label,parent_iri
+jpmorgan:data:cdao:concept:esg-scores,ESG Scores,jpmorgan:data:cdao:subdomain:pricing
+jpmorgan:data:cdao:concept:carbon-emissions,Carbon Emissions Data,jpmorgan:data:cdao:subdomain:pricing
+jpmorgan:data:cdao:concept:supply-chain-risk,Supply Chain Risk,jpmorgan:data:cdao:subdomain:entities

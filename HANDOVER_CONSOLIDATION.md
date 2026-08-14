@@ -196,12 +196,14 @@ and the user has not approved deletion. Propose, then act.
 
 ### The agent explainer should answer, in this order
 
-1. What is an agent here? (a tool-using loop over 4 MCP tools, not a chatbot)
+1. What is an agent here? (a tool-using loop over six tools; since `chat.py`
+   it also answers free-text questions — but it still does not score)
 2. Who computes the score? (**the matcher, deterministically** — not the LLM)
 3. What does the LLM add? (narration/reasoning trace; swap Opus→Haiku and the
    number does not move — say this out loud, it pre-empts the obvious question)
 4. What is "memory"? (a human decision becomes a precedent; the next match
-   reuses it; `precedents.jsonl` is readable on screen)
+   reuses it — stored in `backend/.local/scudo_matching.sqlite3`, or as a
+   readable `precedents.jsonl` under `STORE_BACKEND=local_file`)
 5. How do I correct it? (Approve/Reject in the sidebar; approve reuses, reject
    excludes and re-ranks)
 6. What happens if Bedrock fails? (you still get a valid score, and the UI
@@ -211,19 +213,26 @@ and the user has not approved deletion. Propose, then act.
 
 ## 5. Real gaps — do not paper over these
 
-**The agent is not conversational.** `get_agent(provider).run(ref)` is a
-generator over one product reference. There is no free-text entry point. The
-client asked for "users engage with the Agents to intelligently query" — today
-that means *watch a structured reasoning trace*, not *ask questions*. If they
-want genuine Q&A that is new work; scope it explicitly.
+**RESOLVED 2026-08-14 — the agent is now conversational.**
+`backend/scudo_mapping_mcp/chat.py` adds free-text chat over the SAME six tools
+the mapping agent uses, surfaced as Streamlit step 04. Two backends: `bedrock`
+(real Claude, genuine tool-calling loop) and `scripted` (keyword-routed, real
+catalogue data, no AWS — honest about not being a model). The mapping path
+itself is unchanged: `get_agent(provider).run(ref)` is still a generator over
+one product reference. **For a client demo of agent reasoning use `bedrock`;
+the scripted responder is a no-AWS stand-in, not evidence.**
 
 **`override` is not exposed in Streamlit.** Approve and Reject exist; mapping
 to a *different* node from that screen does not. The store and the Flask API
 both support it ([`backend/scudo_mapping_mcp/store/base.py:78-119`](backend/scudo_mapping_mcp/store/base.py)).
 
-**No Aurora-backed matching store.** ~16 methods of new code. Not needed for
-a demo — `local_file` is the better demo anyway because the journal is
-human-readable.
+**No Aurora-backed matching store** — but durability is solved.
+`STORE_BACKEND=scipy_sqlite` (default in all three launchers) implements the
+full 16-method `RetrievalStore` over SQLite. What is still missing is
+*sharing*: it is single-host only, so multiple ECS tasks/Lambdas cannot write
+to it. That is what an Aurora store would add, and the AWS templates
+deliberately stay on FalkorDB. Use `local_file` only when you want to *show*
+the JSONL journal on screen.
 
 **Agent memory (`SCUDO_AURORA_*`) is unreachable from Flask/Streamlit.** It
 is a deployed-Lambda concern. Do not let anyone spend a day wiring
