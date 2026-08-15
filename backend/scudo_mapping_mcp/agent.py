@@ -131,14 +131,28 @@ class ScriptedMappingAgent:
     """Deterministic walk over the four MCP tools.
 
     Emits the same event sequence a real LLM agent would, but with no
-    reasoning loop and no AWS dependency. Useful for:
-      - Local dev (no Bedrock access)
-      - CI smoke gates (replay-safe, no model variance)
+    reasoning loop of its own. Useful for:
+      - Local dev (no Bedrock access for the NARRATION)
+      - CI smoke gates
       - Demo days when Bedrock is throttled / down
 
-    Behaviour is intentionally a thin narration of the deterministic
-    matcher's own steps. The "final_result" is the matcher's MappingResult
-    verbatim — agent and matcher cannot disagree by construction.
+    Behaviour is intentionally a thin narration of the matcher's own steps.
+    The "final_result" is the matcher's MappingResult verbatim — agent and
+    matcher cannot disagree by construction.
+
+    CORRECTED 2026-08-16. This used to say "no AWS dependency" and "replay-safe,
+    no model variance" without qualification. Selecting THIS agent does not take
+    the LLM off the score: `run()` calls
+    ``map_vendor_product(ref, specialist=specialist_from_env(), ...)`` —
+    IDENTICAL to the Bedrock backend — so with ``SCUDO_DENSE_BACKEND=opus``
+    (what both launchers ship) every candidate is model-scored inside
+    ``find_similar_products``, and with ``SCUDO_SPECIALIST_BACKEND`` set the
+    borderline specialist calls Bedrock too. Measured: 14 LLM calls under this
+    agent, published conf=0.99 band=pass.
+
+    Replay-safe and AWS-free hold only with the dense arm on ``jaro_winkler``
+    (and ``SCUDO_USE_OPUS_DENSE`` unset) AND no specialist configured. Three
+    independent levers; this class is one of them.
     """
 
     NAME = "scripted"

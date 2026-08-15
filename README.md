@@ -375,9 +375,13 @@ above.
 
 To use Bedrock instead of the offline narrator, set `SCUDO_AGENT_BACKEND` and
 `SCUDO_AGENT_PROVIDER_DEFAULT` to `bedrock` with your `AWS_REGION` and
-`SCUDO_BEDROCK_MODEL_ID`. Note what this does and does not change: the language
-model **narrates** the match; the score itself is deterministic
-Jaro-Winkler either way.
+`SCUDO_BEDROCK_MODEL_ID`. Note what this does and does not change: it selects the
+**narrating agent** only. It does not decide how the score is computed — that
+is `SCUDO_DENSE_BACKEND`, an independent lever. Both shipped launchers
+(`streamlit_app.py`, `run_cognizant.py`) set it to `opus`, where an LLM
+supplies the candidate similarity that becomes the published confidence. For a
+deterministic Jaro-Winkler score, set `SCUDO_DENSE_BACKEND=jaro_winkler` and
+leave `SCUDO_USE_OPUS_DENSE` unset.
 
 ## API entry points
 
@@ -420,11 +424,26 @@ Everything below is in `backend/scudo_mapping_mcp/`.
 | **The matching engine** | `matching.py` | Produces the score, the band, and the mapped node |
 | **The memory** | `store/` and `feedback.py` | Reviewer decisions become precedents the next match reuses |
 
-**The agent does not decide the score.** The matching engine does, and it is
-deterministic — the same product scores the same every time. The agent
-explains the result in readable language and can be switched off entirely
-without changing a single number. That is deliberate: the score is auditable,
-the narration is helpful.
+**The narrating agent does not decide the score.** The matching engine does,
+and it is the system of record: the agent's recommendation never overrides it.
+The agent can be switched off entirely without changing a single number.
+
+That is a statement about the *agent selector*, not about whether a model is
+involved in scoring. Those are separate levers, and conflating them was a
+documented defect in this repo. Whether the number is deterministic depends on
+the **dense arm**:
+
+| Dense arm | Score |
+|---|---|
+| `SCUDO_DENSE_BACKEND=jaro_winkler`, `SCUDO_USE_OPUS_DENSE` unset | Deterministic string similarity — the same product scores the same every time |
+| `SCUDO_DENSE_BACKEND=opus` (**what both launchers ship**) | An LLM scores each nominated candidate and that float becomes the published confidence — it can vary between runs and between models |
+| `SCUDO_USE_OPUS_DENSE=1` | Also an LLM, via a different code path that ignores `SCUDO_DENSE_BACKEND` entirely |
+
+A third lever, `SCUDO_SPECIALIST_BACKEND`, adds LLM adjudication of borderline
+cases on either agent, and can cap confidence and force review.
+
+The score is auditable in every configuration; it is only *deterministic* in
+the first row.
 
 The agent also answers one question at a time about one product. It is not a
 chatbot you can ask anything.

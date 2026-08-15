@@ -572,27 +572,75 @@ with st.sidebar:
     # calls, published conf=0.99 band=pass. The wording therefore branches on
     # the live arm, as the `_dense_live` warning below and chat.py's `_dense`
     # scoring branch already do. (Symbol names, not line numbers: these move.)
+    #
+    # REVISED 2026-08-16 after adversarial verification found the first
+    # version still wrong in two ways, both of the same shape as the bug it
+    # fixed -- naming one lever while a second, unmentioned one decides the
+    # same thing:
+    #
+    #   (a) "LLM adjudication of borderline matches" is the SPECIALIST
+    #       (`SCUDO_SPECIALIST_BACKEND`), a THIRD lever this dropdown does not
+    #       write. Both agents call `specialist_from_env()` identically, and
+    #       this file setdefaults the specialist to "local" -- so picking
+    #       "scripted" still reaches Bedrock through the specialist as well as
+    #       the dense arm, and the specialist can force NEEDS_REVIEW.
+    #   (b) `SCUDO_DENSE_BACKEND=jaro_winkler` is NOT sufficient for a
+    #       deterministic score: `SCUDO_USE_OPUS_DENSE=1` makes the stores
+    #       return `multi_path_retrieve` with `make_opus_dense_scorer` BEFORE
+    #       `score_candidates()` -- the only function that reads
+    #       `env_dense_backend()` -- and the strict scorer it uses never
+    #       consults the backend at all. Measured: backend="jaro_winkler",
+    #       use_opus_dense=True -> similarity 0.97 from 1 LLM call, where
+    #       Jaro-Winkler gives 0.5123. The launchers do not set that flag, so
+    #       it is an operator override, not the shipped path -- but the help
+    #       text must not promise determinism it cannot deliver.
     _dense_cfg = (
         (os.environ.get("SCUDO_DENSE_BACKEND") or "jaro_winkler").strip().lower()
     )
+    _use_opus_dense = (
+        os.environ.get("SCUDO_USE_OPUS_DENSE") or ""
+    ).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    _specialist_cfg = (os.environ.get("SCUDO_SPECIALIST_BACKEND") or "").strip().lower()
     _agent_help = (
-        "'bedrock' is the real agent — reasoning loop, tool use, and LLM "
-        "adjudication of borderline matches. 'scripted' is the offline "
-        "narrator needing no AWS. This chooses the NARRATOR only: the dense "
-        "scorer is a separate lever. "
+        "'bedrock' is the real agent — reasoning loop and tool use. "
+        "'scripted' is the offline narrator. This chooses the NARRATOR only; "
+        "scoring and borderline adjudication are separate levers. "
     )
-    if _dense_cfg == "opus":
+    if _dense_cfg == "opus" or _use_opus_dense:
+        _which = (
+            "`SCUDO_USE_OPUS_DENSE=1`"
+            if _use_opus_dense
+            else "`SCUDO_DENSE_BACKEND=opus`"
+        )
         _agent_help += (
-            "On this run it is `SCUDO_DENSE_BACKEND=opus`, so an LLM supplies "
-            "the candidate similarity that becomes the PASS/FAIL confidence — "
-            "whichever agent you pick here, including 'scripted'. Set "
-            "`SCUDO_DENSE_BACKEND=jaro_winkler` for a deterministic score."
+            f"On this run {_which} is set, so an LLM supplies the candidate "
+            "similarity that becomes the PASS/FAIL confidence — whichever "
+            "agent you pick here, including 'scripted'. A deterministic score "
+            "needs `SCUDO_DENSE_BACKEND=jaro_winkler` **and** "
+            "`SCUDO_USE_OPUS_DENSE` unset. "
         )
     else:
         _agent_help += (
-            f"On this run it is `SCUDO_DENSE_BACKEND={_dense_cfg}`, so the "
-            "PASS/FAIL score is deterministic; the model narrates and, on "
-            "borderline cases, advises."
+            f"On this run the dense arm is `{_dense_cfg}` with "
+            "`SCUDO_USE_OPUS_DENSE` unset, so the PASS/FAIL score is "
+            "deterministic. "
+        )
+    if _specialist_cfg and _specialist_cfg != "off":
+        _agent_help += (
+            f"Borderline cases are adjudicated by an LLM specialist "
+            f"(`SCUDO_SPECIALIST_BACKEND={_specialist_cfg}`) on either agent — "
+            "it can cap confidence and force review."
+        )
+    else:
+        _agent_help += (
+            "No borderline specialist is configured "
+            "(`SCUDO_SPECIALIST_BACKEND` unset), so neither agent adjudicates "
+            "borderline cases."
         )
     provider = st.selectbox(
         "Agent",
@@ -1136,13 +1184,24 @@ if run_clicked and choice is not None:
             st.markdown('<div class="scudo-step">Result</div>', unsafe_allow_html=True)
             if errored:
                 # Do NOT claim the score is model-free. Under the shipped
-                # default SCUDO_DENSE_BACKEND=opus the LLM's float per
-                # candidate IS the published confidence (verified: a stubbed
+                # default SCUDO_DENSE_BACKEND=opus the LLM's candidate
+                # similarity drives published confidence (verified: a stubbed
                 # 0.93/0.72 published as 0.93/0.72 and flipped auto_mapped ->
                 # needs_review). Saying otherwise is a client-facing integrity
                 # defect, so the wording now depends on which arm is live.
+                #
+                # .strip() matters: every other consumer strips
+                # (config.env_dense_backend, Settings.from_env,
+                # opus_dense.dense_arm_status, opus_dense._dense_backend), so
+                # without it SCUDO_DENSE_BACKEND="opus " scores with the model
+                # while THIS branch reads "opus " != "opus" and tells the
+                # client the number was computed deterministically. Verified
+                # under AppTest: 14 LLM calls, confidence 0.99, and the sidebar
+                # (which strips) said "opus" on the same screen.
                 _dense_live = (
-                    os.environ.get("SCUDO_DENSE_BACKEND", "jaro_winkler").lower()
+                    os.environ.get("SCUDO_DENSE_BACKEND", "jaro_winkler")
+                    .strip()
+                    .lower()
                 )
                 if _dense_live == "opus":
                     st.warning(
@@ -1440,9 +1499,17 @@ if _d:
 # reruns the script on every interaction, so anything inside that block is gone
 # by the time its own widget is processed.
 #
-# The chat calls the SAME six tools the mapping agent uses. It cannot see data
-# the pipeline cannot, and it does NOT score -- if a mapping comes out of a
-# conversation, the number still comes from map_vendor_product via the tool.
+# The chat does NOT score: if a mapping comes out of a conversation, the number
+# still comes from map_vendor_product via the tool.
+#
+# CORRECTED 2026-08-16. This used to add "It cannot see data the pipeline
+# cannot", citing the six-tool surface -- the same claim corrected in chat.py's
+# docstring, missed here on the first pass. The containment holds for the
+# `bedrock` backend, which can only act through the tools. It does NOT hold for
+# `scripted`: those branches import get_store()/seed_taxonomy() and call them
+# directly, and seed_taxonomy() is a WRITE the read-only tool surface cannot
+# express. `_chat_backend` twenty lines below routes everything except
+# provider == "bedrock" to the scripted agent, so that is the default path.
 st.markdown(
     f'<hr style="border:none; border-top:1px solid {LINE}; margin:2rem 0 1.3rem;">',
     unsafe_allow_html=True,

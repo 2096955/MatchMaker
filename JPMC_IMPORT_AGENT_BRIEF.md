@@ -166,16 +166,30 @@ that document's table is itself now incomplete: it pre-dates
 [`MATCHING_AGENT_DEPLOYMENT_CONSOLIDATION.md`](MATCHING_AGENT_DEPLOYMENT_CONSOLIDATION.md)
 and does not list it.
 
-### 1.2 The matcher scores deterministically — the LLM only narrates
+### 1.2 The narrating agent does not produce the score — but on the shipped config, a model does
 
-Pre-empt this objection before it is raised. `SCUDO_DENSE_BACKEND` defaults to
-`jaro_winkler` ([`backend/scudo_mapping_mcp/config.py:301`](backend/scudo_mapping_mcp/config.py)), so the confidence number is a deterministic
-string-similarity computation. The agent explains the result; it does not
-produce the score.
+**CORRECTED 2026-08-16.** This heading used to read *"The matcher scores
+deterministically — the LLM only narrates"*, and told you to use it to pre-empt
+the objection. Do not: the unconditional half is false on the configuration we
+ship, and the body below has always said so. Stating the heading and then
+retracting it four paragraphs later is worse than never raising it.
 
-**One caveat you must state accurately.** I got this wrong twice — first
+What is true unconditionally: **the narrating agent does not produce the
+score.** The matcher is the system of record and the agent's recommendation
+never overrides it.
+
+What depends on configuration: whether a model computed the number.
+`SCUDO_DENSE_BACKEND` defaults to `jaro_winkler` in the library
+([`env_dense_backend()`](backend/scudo_mapping_mcp/config.py), `config.py:377`
+— the old `:301` citation has rotted onto the `SCUDO_ENRICHMENT_BACKEND`
+raise), **but both shipped launchers override it to `opus`**
+(`streamlit_app.py`, `run_cognizant.py`). Lead with the effective
+configuration, not the library default.
+
+**A caveat you must state accurately.** I got this wrong three times — first
 claiming the LLM could never inflate the score, then understating how open the
-path is. Both were caught in review, the second by execution.
+path is, then resting the safety on a default the launchers override. All were
+caught in review; the second by execution, the third by an adversarial pass.
 
 Under `SCUDO_DENSE_BACKEND=opus` the model score *becomes*
 `Candidate.similarity` ([`backend/scudo_mapping_mcp/store/memory_store.py:118`](backend/scudo_mapping_mcp/store/memory_store.py), under a comment reading

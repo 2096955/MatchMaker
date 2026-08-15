@@ -89,9 +89,15 @@ All use `setdefault`, so anything you export first wins.
 ### Using Bedrock
 
 Pick **bedrock** in the sidebar and export your credentials plus
-`SCUDO_BEDROCK_MODEL_ID` / `AWS_REGION`. Note what changes: the model
-**narrates** the match. The score is deterministic Jaro-Winkler either way, so
-Bedrock changes the commentary, not the numbers.
+`SCUDO_BEDROCK_MODEL_ID` / `AWS_REGION`. Note what this changes: the **narrating agent** only.
+
+It does not change how the score is computed. `streamlit_app.py` sets
+`SCUDO_DENSE_BACKEND=opus` at import, so an LLM supplies the candidate
+similarity that becomes the published confidence — on **either** agent,
+including `scripted`. It also sets `SCUDO_SPECIALIST_BACKEND=local`, so
+borderline cases get LLM adjudication on either agent too. For a deterministic
+score, export `SCUDO_DENSE_BACKEND=jaro_winkler` before launching and leave
+`SCUDO_USE_OPUS_DENSE` unset.
 
 ---
 

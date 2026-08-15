@@ -153,11 +153,23 @@ borderline match auto-maps on the raw dense score.
 `_gate_thresholds(0.75, 0.05)`; the `False` default confirmed via
 `inspect.signature(map_vendor_product)`.
 
-**Why this is not currently a live defect:** `SCUDO_DENSE_BACKEND` defaults to
-`jaro_winkler` ([`config.py:301`](backend/scudo_mapping_mcp/config.py)). The
-score is deterministic and the LLM only narrates. **State the default as the
-reason it is safe — never claim a cap protects you**, because on these two
-branches no cap is involved.
+**CORRECTED 2026-08-16 — this IS a live defect.** The paragraph below used to
+read: *"Why this is not currently a live defect: `SCUDO_DENSE_BACKEND` defaults
+to `jaro_winkler` (config.py:301). The score is deterministic and the LLM only
+narrates."*
+
+Both halves were wrong. The **library** default is `jaro_winkler`
+([`env_dense_backend()`](backend/scudo_mapping_mcp/config.py), now at
+`config.py:377` — the old `:301` citation has rotted onto the
+`SCUDO_ENRICHMENT_BACKEND` raise), but **both shipped launchers override it to
+`opus`** (`streamlit_app.py`, `run_cognizant.py`). So on every path a client
+actually runs, an LLM float reaches published confidence uncapped on these
+branches.
+
+This was the same error it warns about one level up — resting a safety argument
+on something that does not hold on the shipped path. **State the *effective*
+configuration as the reason, never the library default, and never a cap** —
+on these two branches no cap is involved.
 
 **Also corrected in shipped source (2026-08-12, with the user's approval):**
 [`streamlit_app.py:128-151`](streamlit_app.py) carried a comment asserting the

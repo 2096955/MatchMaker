@@ -148,16 +148,23 @@ remembered; the upload is not.
 Step 04 in Streamlit is a free-text chat over the **same six tools** the
 matching agent uses: `find_similar_products`, `get_taxonomy_node`,
 `get_ontology_neighbourhood`, `analyse_taxonomy_candidates`,
-`map_vendor_product_tool`, `describe_system_context`. It cannot reach data the
-pipeline cannot, and it **does not score** — if a conversation ends in a
-mapping, the number still comes from the matcher via the tool.
+`map_vendor_product_tool`, `describe_system_context`. It **does not score** —
+if a conversation ends in a mapping, the number still comes from the matcher
+via the tool.
+
+The tool surface is the containment boundary **for the `bedrock` backend
+only**, which can act no other way. The `scripted` responder in the table below
+imports `get_store()` and `seed_taxonomy()` and calls them directly — and
+`seed_taxonomy()` is a *write*, which the six read-only tools cannot even
+express. Do not describe the tool list as the containment boundary for the
+scripted path.
 
 **Two backends, and the UI says which one you have:**
 
 | Sidebar agent | Chat behaviour |
 |---|---|
-| `scripted` (default) | Keyword responder. Answers scoring, catalogue, vendors and how-to-match **using real data**, and states plainly it is not a model |
-| `bedrock` | Real Claude with a genuine tool-calling loop — open-ended questions, multi-step reasoning |
+| `bedrock` (shipped launcher default) | Real Claude with a genuine tool-calling loop — open-ended questions, multi-step reasoning |
+| `scripted` (explicit offline mode) | Keyword responder. Answers scoring, catalogue, vendors and how-to-match **using real data**, and states plainly it is not a model |
 
 The scripted fallback exists because a chat box that errors on a machine with
 no AWS account is a worse demo than one that answers honestly. **For a client
