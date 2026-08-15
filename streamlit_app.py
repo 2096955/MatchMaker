@@ -561,16 +561,44 @@ with st.sidebar:
     vendor = st.selectbox("Vendor", PRIORITY_VENDORS, index=0)
     _agent_opts = ["scripted", "bedrock", "azure"]
     _agent_default = (os.environ.get("SCUDO_AGENT_BACKEND") or "scripted").lower()
+    # CORRECTED 2026-08-15. This help text used to end "The PASS/FAIL score
+    # stays deterministic either way; the model narrates". "Either way" was the
+    # false part, and this is the one place a client reads before choosing.
+    # SCUDO_DENSE_BACKEND is an INDEPENDENT lever from this selectbox -- a
+    # module-level setdefault at the top of this file, not something the
+    # dropdown writes -- so picking "scripted" to avoid AWS still routes every
+    # candidate through Bedrock for scoring. Measured with
+    # SCUDO_AGENT_BACKEND=scripted and only _opus_invoke_score stubbed: 14 LLM
+    # calls, published conf=0.99 band=pass. The wording therefore branches on
+    # the live arm, as the `_dense_live` warning below and chat.py's `_dense`
+    # scoring branch already do. (Symbol names, not line numbers: these move.)
+    _dense_cfg = (
+        (os.environ.get("SCUDO_DENSE_BACKEND") or "jaro_winkler").strip().lower()
+    )
+    _agent_help = (
+        "'bedrock' is the real agent — reasoning loop, tool use, and LLM "
+        "adjudication of borderline matches. 'scripted' is the offline "
+        "narrator needing no AWS. This chooses the NARRATOR only: the dense "
+        "scorer is a separate lever. "
+    )
+    if _dense_cfg == "opus":
+        _agent_help += (
+            "On this run it is `SCUDO_DENSE_BACKEND=opus`, so an LLM supplies "
+            "the candidate similarity that becomes the PASS/FAIL confidence — "
+            "whichever agent you pick here, including 'scripted'. Set "
+            "`SCUDO_DENSE_BACKEND=jaro_winkler` for a deterministic score."
+        )
+    else:
+        _agent_help += (
+            f"On this run it is `SCUDO_DENSE_BACKEND={_dense_cfg}`, so the "
+            "PASS/FAIL score is deterministic; the model narrates and, on "
+            "borderline cases, advises."
+        )
     provider = st.selectbox(
         "Agent",
         _agent_opts,
         index=_agent_opts.index(_agent_default) if _agent_default in _agent_opts else 0,
-        help=(
-            "'bedrock' is the real agent — reasoning loop, tool use, and LLM "
-            "adjudication of borderline matches. 'scripted' is the offline "
-            "narrator needing no AWS. The PASS/FAIL score stays deterministic "
-            "either way; the model narrates and, on borderline cases, advises."
-        ),
+        help=_agent_help,
     )
 
     # ── Bedrock bearer key, entered at the podium ─────────────────────────
@@ -1069,14 +1097,23 @@ if run_clicked and choice is not None:
 
         final = None
         # The selected agent can FAIL and the run still produces a final
-        # result: the Bedrock backend yields its error, then runs the
-        # deterministic matcher anyway (agent.py — "matcher runs regardless of
-        # what the LLM recommended"). That is correct, because the score is
-        # Jaro-Winkler and the model only narrates. But rendering the outcome
-        # identically either way means a bedrock run with no credentials looks
-        # pixel-identical to a successful one — so the dropdown appears
-        # decorative, and someone could claim "Bedrock scored this 0.828" when
-        # Bedrock never ran. Capture the error and say so.
+        # result: the Bedrock backend yields its error, then runs the matcher
+        # anyway (agent.py — "matcher runs regardless of what the LLM
+        # recommended"). That is correct: the matcher, not the agent, is the
+        # system of record.
+        #
+        # CORRECTED 2026-08-15. This comment used to justify that with "the
+        # score is Jaro-Winkler and the model only narrates". False on the
+        # shipped path — this file's own setdefault puts SCUDO_DENSE_BACKEND at
+        # "opus", so the matcher's dense arm is itself an LLM and the agent
+        # failing tells you nothing about whether the SCORE came from a model.
+        # The two are separate levers. The `_dense_live` warning rendered just
+        # below branches on the live arm for exactly that reason.
+        #
+        # Rendering the outcome identically either way means a bedrock run with
+        # no credentials looks pixel-identical to a successful one — so the
+        # dropdown appears decorative, and someone could claim "Bedrock scored
+        # this 0.828" when Bedrock never ran. Capture the error and say so.
         errored = None
         with trace_col:
             st.markdown(

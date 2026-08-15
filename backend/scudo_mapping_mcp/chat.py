@@ -8,16 +8,34 @@ WHY THIS EXISTS
 
     This module adds that, and NOTHING else. It reuses:
       - the SAME six tools the mapping agent has
-        (``_strands_tools_for_mapping``), so the chat cannot reach data the
-        pipeline cannot, and
+        (``_strands_tools_for_mapping``), and
       - the SAME AgentEvent shape, so a UI already rendering the reasoning
         trace needs no new event handling.
 
+    CORRECTED 2026-08-15 — the first bullet used to conclude "so the chat
+    cannot reach data the pipeline cannot". That containment holds for the
+    ``bedrock`` backend, which can only act through the tool surface. It does
+    NOT hold for ``scripted``: those branches call ``get_store()`` and
+    ``seed_taxonomy()`` directly, and ``seed_taxonomy()`` is a WRITE the
+    six-tool read-only surface cannot even express. Do not cite the tool list
+    as the containment boundary for the scripted path.
+
 WHAT IT DOES NOT DO
     It does not score. If the conversation ends in a mapping, the score still
-    comes from ``map_vendor_product`` via the tool. The model chooses which
-    tool to call and narrates the answer; the number stays deterministic and
-    auditable. That is the whole architecture and chat must not weaken it.
+    comes from ``map_vendor_product`` via the tool: this module never computes
+    or overrides a confidence, and that is the architecture chat must not
+    weaken.
+
+    CORRECTED 2026-08-15 — this used to add "the number stays deterministic
+    and auditable". Auditable, yes. Deterministic, only when
+    ``SCUDO_DENSE_BACKEND=jaro_winkler``. Both shipped launchers
+    (``streamlit_app.py`` and ``run_cognizant.py``) set it to ``opus``, where
+    an LLM scores each nominated candidate and that float becomes the
+    published confidence — so it can vary between runs and between models.
+    ``chat.py`` not scoring is a statement about THIS module, not about the
+    matcher it calls. ``CHAT_SYSTEM_PROMPT`` below and the ``_dense`` scoring
+    branch further down already say which arm is live; keep this docstring
+    agreeing with them.
 
 TWO BACKENDS
     ``bedrock``  real Claude, real tool-calling loop (needs AWS).
