@@ -1,0 +1,49 @@
+{
+  "mode": "anthropic",
+  "model": "claude-fable-5",
+  "model_provenance": "cursor-shim-default",
+  "is_opus": false,
+  "base_url": "http://127.0.0.1:8787",
+  "case_id": "lseg-ibes-equity-research",
+  "prediction": {
+    "target_iri": "jpmorgan:data:cdao:EquityResearch",
+    "confidence": 0.86,
+    "band": "high",
+    "outcome": "published",
+    "verifier_total": 19,
+    "requires_human_review": false,
+    "abstained": false,
+    "auto_pass": true,
+    "rationale": "LSEG-IBES-EST-001 ('equity research estimates', described as 'sell-side equity research estimates') aligns near-verbatim with jpmorgan:data:cdao:EquityResearch, whose authoritative definition (ontology snapshot cdao-ab) is 'Sell-side and independent analyst research on listed equities' with synonyms including 'estimates' and 'sell-side research'. Confirmed via neptune_node_by_iri. A same-vendor precedent (LSEG I/B/E/S consensus estimates, mds.lseg:9e420bc7-2a1f-5c3d-8e4a-1b2c3d4e5f60) already maps to this node at 0.88. Alternatives rejected: Pricing covers market price observations, not analyst forecasts; NewsAndResearch (S&P's target for a similar product SPG-EQRES-77) covers newswires and qualitative research artifacts, whereas IBES estimates are structured quantitative forecasts. The cross-vendor divergence with S&P is noted for awareness but concerns a different vendor product and does not alter this judgement. No rights/licensing terms present in the assertion.",
+    "agent_loop_turns": {
+      "mapping": 1,
+      "verifier": 1
+    }
+  },
+  "mapping_loop_turns": 1,
+  "verifier_loop_turns": 1,
+  "outcome": "published",
+  "target_iri": "jpmorgan:data:cdao:EquityResearch",
+  "confidence": 0.86,
+  "verifier_total": 19,
+  "normalized": {
+    "target_iri": "jpmorgan:data:cdao:EquityResearch",
+    "confidence": 0.86,
+    "band": "high",
+    "outcome": "published",
+    "verifier_total": 19,
+    "requires_human_review": false,
+    "abstained": false,
+    "auto_pass": true,
+    "rationale": "LSEG-IBES-EST-001 ('equity research estimates', described as 'sell-side equity research estimates') aligns near-verbatim with jpmorgan:data:cdao:EquityResearch, whose authoritative definition (ontology snapshot cdao-ab) is 'Sell-side and independent analyst research on listed equities' with synonyms including 'estimates' and 'sell-side research'. Confirmed via neptune_node_by_iri. A same-vendor precedent (LSEG I/B/E/S consensus estimates, mds.lseg:9e420bc7-2a1f-5c3d-8e4a-1b2c3d4e5f60) already maps to this node at 0.88. Alternatives rejected: Pricing covers market price observations, not analyst forecasts; NewsAndResearch (S&P's target for a similar product SPG-EQRES-77) covers newswires and qualitative research artifacts, whereas IBES estimates are structured quantitative forecasts. The cross-vendor divergence with S&P is noted for awareness but concerns a different vendor product and does not alter this judgement. No rights/licensing terms present in the assertion.",
+    "agent_loop_turns": {
+      "mapping": 1,
+      "verifier": 1
+    }
+  },
+  "stub_forbidden": true,
+  "_correction_c1": {
+    "note": "Same harness served claude-fable-5 here — requested-id-alone is not Opus attestation. stub_forbidden was decorative.",
+    "is_opus": false
+  }
+}

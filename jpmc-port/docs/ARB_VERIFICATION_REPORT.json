@@ -1,0 +1,121 @@
+{
+  "summary": {
+    "n_claims": 22,
+    "passed": 22,
+    "failed": 0,
+    "failures": [],
+    "verdict": "PASS"
+  },
+  "claims": [
+    {
+      "claim": "Opus 4.8 default model",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "Agent max_tokens 128000",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "Verifier has tools",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "agentic loop module",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "Orchestrator uses agentic loop",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "Confidence floor 0.80",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "learn_from_teaching exists",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "decision calls learn_from_teaching",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "dashboard fa\u00e7ade SSE agent/ingest",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "dashboard-dist present",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "run_local serves /demo/",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "A/B harness present",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "Playwright screenshot present",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "teach\u2192learn decision",
+      "pass": true,
+      "detail": "True"
+    },
+    {
+      "claim": "precedent after teach",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "teaching notes CONSULT",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "A/B target agreement 1.0",
+      "pass": true,
+      "detail": "{'n_cases': 3, 'target_agreement': 1.0, 'outcome_agreement': 1.0, 'mean_abs_confidence_delta': 0.0, 'mean_verifier_total_delta': 0.0, 'disagreements': []}"
+    },
+    {
+      "claim": "A/B outcome agreement 1.0",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "port exact_match 1.0",
+      "pass": true,
+      "detail": "{'n_scored': 3, 'n_positive': 2, 'exact_match_rate': 1.0, 'abstention_recall': 1.0, 'false_auto_pass_rate': 0.0}"
+    },
+    {
+      "claim": "pytest 46 passed",
+      "pass": true,
+      "detail": "46 passed (corrected from stale 42; includes store-failure raise — Correction C2/C3)"
+    },
+    {
+      "claim": "e2e published",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "claim": "e2e project dispatched",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

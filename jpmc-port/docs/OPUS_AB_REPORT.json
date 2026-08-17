@@ -1,0 +1,38 @@
+{
+  "arm_a": "capone",
+  "arm_b": "jpmc-port",
+  "mode": "anthropic",
+  "n_cases": 3,
+  "pairwise": {
+    "n_cases": 3,
+    "target_agreement": 1.0,
+    "outcome_agreement": 1.0,
+    "mean_abs_confidence_delta": 0.003333333333333336,
+    "mean_verifier_total_delta": 3.0,
+    "disagreements": []
+  },
+  "capone_vs_golden": {
+    "n_scored": 3,
+    "n_positive": 2,
+    "exact_match_rate": 0.5,
+    "abstention_recall": 1.0,
+    "false_auto_pass_rate": 0.3333333333333333
+  },
+  "port_vs_golden": {
+    "n_scored": 3,
+    "n_positive": 2,
+    "exact_match_rate": 0.5,
+    "abstention_recall": 1.0,
+    "false_auto_pass_rate": 0.3333333333333333
+  },
+  "architecture_notes": {
+    "capone": "backend/scudo Orchestrator via python -P backend/scudo/scripts/ab_capone_arm.py (must not import jpmc-port); deterministic FakeAgent or live Bedrock/Anthropic",
+    "jpmc_port": "agentic multi-turn loop + Mapping tools + investigative Verifier tools; teach\u2192learn CONSULT; live Opus only when mode=anthropic|bedrock",
+    "shortlist": "multi-candidate with distractors; ontology_gap is an intake fact, not copied from expected_abstain"
+  },
+  "evidence_provenance": "anthropic-as-configured",
+  "_correction_c1": {
+    "note": "evidence_provenance formerly said anthropic-opus. model ids are requested/configured; shim echo not captured in this artifact. Unstubbed scores and Capone import are the load-bearing claims.",
+    "echoed_model_captured": false
+  }
+}

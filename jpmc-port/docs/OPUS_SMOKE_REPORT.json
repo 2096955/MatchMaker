@@ -1,0 +1,50 @@
+{
+  "mode": "anthropic",
+  "model": "claude-opus-4-8",
+  "model_field_is": "requested-not-echoed",
+  "echoed_model": null,
+  "base_url": "http://127.0.0.1:8787",
+  "case_id": "lseg-ibes-equity-research",
+  "prediction": {
+    "target_iri": "jpmorgan:data:cdao:EquityResearch",
+    "confidence": 0.86,
+    "band": "high",
+    "outcome": "hitl",
+    "verifier_total": 12,
+    "requires_human_review": true,
+    "abstained": true,
+    "auto_pass": false,
+    "rationale": "LSEG \"equity research estimates\" (I/B/E/S, sell-side equity research estimates) maps to CDAO EquityResearch. The authoritative node (cdao-ab) is defined as \"Sell-side and independent analyst research on listed equities\" with synonyms including \"sell-side research\" and \"estimates\" \u2014 a direct definitional match to the vendor assertion. Runner-up candidates were ruled out on the confirmed graph: Pricing = \"market price observations\" and ReferenceData = \"static reference data / symbology\", neither of which describe analyst estimates. An existing LSEG I/B/E/S-family mapping (mds.lseg:9e420bc7\u2026) targets EquityResearch at 0.88, corroborating placement. Note a cross-vendor conflict: S&P (SPG-EQRES-77) maps a similar product to NewsAndResearch, but that node is \"newswires and qualitative research artifacts\" (transcripts/news), whereas I/B/E/S estimates are structured quantitative consensus data \u2014 so EquityResearch remains the better-supported target for this product. The conflict reflects a genuine taxonomy-organisation disagreement, so I flag it for human awareness while auto-publishing above the 0.80 floor.",
+    "agent_loop_turns": {
+      "mapping": 1,
+      "verifier": 1
+    }
+  },
+  "mapping_loop_turns": 1,
+  "verifier_loop_turns": 1,
+  "outcome": "hitl",
+  "target_iri": "jpmorgan:data:cdao:EquityResearch",
+  "confidence": 0.86,
+  "verifier_total": 12,
+  "normalized": {
+    "target_iri": "jpmorgan:data:cdao:EquityResearch",
+    "confidence": 0.86,
+    "band": "high",
+    "outcome": "hitl",
+    "verifier_total": 12,
+    "requires_human_review": true,
+    "abstained": true,
+    "auto_pass": false,
+    "rationale": "LSEG \"equity research estimates\" (I/B/E/S, sell-side equity research estimates) maps to CDAO EquityResearch. The authoritative node (cdao-ab) is defined as \"Sell-side and independent analyst research on listed equities\" with synonyms including \"sell-side research\" and \"estimates\" \u2014 a direct definitional match to the vendor assertion. Runner-up candidates were ruled out on the confirmed graph: Pricing = \"market price observations\" and ReferenceData = \"static reference data / symbology\", neither of which describe analyst estimates. An existing LSEG I/B/E/S-family mapping (mds.lseg:9e420bc7\u2026) targets EquityResearch at 0.88, corroborating placement. Note a cross-vendor conflict: S&P (SPG-EQRES-77) maps a similar product to NewsAndResearch, but that node is \"newswires and qualitative research artifacts\" (transcripts/news), whereas I/B/E/S estimates are structured quantitative consensus data \u2014 so EquityResearch remains the better-supported target for this product. The conflict reflects a genuine taxonomy-organisation disagreement, so I flag it for human awareness while auto-publishing above the 0.80 floor.",
+    "agent_loop_turns": {
+      "mapping": 1,
+      "verifier": 1
+    }
+  },
+  "stub_forbidden_decorative": true,
+  "_correction_c1": {
+    "note": "stub_forbidden was decorative on this artifact. model is the requested id, not server-echoed. Honest reading: unstubbed tool-using agent (0.86/12 ≠ stub 0.92/20); Opus identity rests on shim trust. Prefer ARB_REVIEW Correction set + future runs with echoed_model.",
+    "unstubbed_scores": true,
+    "echoed_model_captured": false
+  }
+}

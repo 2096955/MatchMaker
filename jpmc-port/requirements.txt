@@ -1,0 +1,8 @@
+pydantic>=2.0,<3
+scipy>=1.16,<2
+rdflib>=7.0.0
+flask>=3.0
+# JPMC / Atlas Bedrock path (required when SCUDO_AGENT_MODE=bedrock):
+strands-agents>=1.0
+boto3>=1.34
+cryptography>=44

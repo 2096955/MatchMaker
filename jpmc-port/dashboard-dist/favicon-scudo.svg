@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#0a0a0a"/>
+  <!-- Pipeline glyph: source node → matcher node → target node, evoking the
+       SCUDO matching flow. Brand blue (#1a5ecf), matches the dashboard accent. -->
+  <line x1="9" y1="16" x2="23" y2="16" stroke="#1a5ecf" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="8" cy="16" r="3.2" fill="#1a5ecf"/>
+  <circle cx="16" cy="16" r="3.2" fill="#3a7bd5"/>
+  <circle cx="24" cy="16" r="3.2" fill="#ffffff"/>
+</svg>
