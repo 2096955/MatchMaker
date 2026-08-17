@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-14 · **Branch:** `main` · **Six commits, `a92b8d0` … `f569787`**
 
-> ## ⚠ Read this first — corrected 2026-08-15 after two independent reviews
+> ## ⚠ Read this first — corrected 2026-08-15 after three review passes
 >
 > This document shipped with a **false central claim**: that the LLM does not
 > produce the score. On the path both launchers actually use, **it does**.
@@ -10,20 +10,51 @@
 > 2026-08-15`) rather than by an appendix, so no reader can hit the wrong
 > sentence first — it was the one I told you to say to a client.
 >
+> The third pass re-measured every number against the working tree rather than
+> trusting the second pass's text, and found that the corrections themselves had
+> gone stale: the test counts, the smoke figure, and the §8a equivalence claim
+> were all wrong by the time they were written. **Corrections rot at the same
+> rate as the text they correct.**
+>
 > | Section | Status |
 > |---|---|
+> | §1 "the agent was decorative" | **WRONG — corrected**; same false claim, in the section read first |
 > | §3 architecture note | **WRONG — corrected**; user-facing copy fixed in `fb61a00` |
+> | §4.2 chat "same six tools" / "says it is not a model" | **Both wrong — corrected**; true of `bedrock` only, and 2 of 7 branches. Both were quoted from `chat.py`'s docstring, where they are **still live** |
 > | §5.1 "score unchanged" | **Overstated — corrected**; concurrency can flip the band |
+> | §6.1 sidebar as mitigation | **Was not one when written; now genuine** — `dense_arm_status()` reports effective state |
 > | §6.4 "identical score" | **WRONG — corrected** |
 > | §7 "Codex not installed" | **False — corrected** |
-> | §7 test baseline | **WRONG — corrected**; export gives 4 failures, not 1 |
-> | §5 defect #2, #4, #7 | **Listed as fixed but were still live**; #7 fixed `fb61a00`, #2/#4 open |
-> | §7 test leak | **RESOLVED `247905e`** — pinned to an incomplete env restore; suite now 569/0 |
+> | §7 test baseline | **WRONG twice — corrected**; export gave 4 failures, now **15** |
+> | §5 defect #2, #4, #5 | **Listed as fixed, still open**; #5 made conditional, not removed |
+> | §5 defect #7 | Fixed in `fb61a00`, verified |
+> | §7 test leak | **RESOLVED `247905e`** — pinned to an incomplete env restore |
+> | §8a concurrency | **Implemented but UNCOMMITTED**; its "byte-identical" claim is false and its counts are stale |
+>
+> **Every absolute test count in the original text is stale.** Measured on the
+> current tree: mapping **617 passed** (doc said 569 / 585), full backend
+> **1095 passed, 2 failed** (doc said 1047 / 1065), smoke **113/117** (doc said
+> 117/117). The suite grew ~48 tests during the review. Quote a count with the
+> invocation and tree that produced it, or do not quote it.
+>
+> **Still open and user-facing:** `streamlit_app.py:707` carries the false
+> "deterministic either way" claim verbatim (§9 item 1), and the suite does not
+> pass in the configuration both launchers ship (§9 item 2).
+>
+> **A fourth pass ran the §9 gate rather than only specifying it** (`rg
+> deterministic` over `streamlit_app.py`, `chat.py`, `agent.py`,
+> `run_cognizant.py` — 24 hits, each adjudicated in §9 item 1). It found **three
+> more false claims** the three prior passes missed, all in comments:
+> `chat.py:19`, `chat.py:10-12`, `streamlit_app.py:1237-1238`. Two of them are
+> the very sentences this document quoted as its own evidence in §4.2 — the
+> review read a module docstring as a specification. The gate as originally
+> worded exempted "a comment" and so would have passed all three; it now reads
+> **arm-conditional or accurate**. *Specifying a gate is not running it.*
 >
 > Everything else was hand-verified by the reviewers and holds: the §2
 > diffstats, §6.2 (`strands_specialist.py` genuinely absent), §6.3 (single-host
-> boundary), defects #3 and #5, the serve-flag `/app/` 404 finding, `chat.py`
-> has zero tests, and `override` is not exposed.
+> boundary), defects #1/#3/#6/#8/#9, the serve-flag `/app/` 404 finding,
+> `chat.py` has zero tests, and `override` is not exposed.
 
 Other work landed on `main` in parallel (the `scipy_sqlite` store, the
 self-improvement gate). **This pack covers only the six commits listed below.**
@@ -42,9 +73,31 @@ written. In order:
 3. *"Everything wired with a real agent."* → Bedrock on by default, verified live.
 
 The through-line: the system could always **match**, but nobody could **run
-it** without insider knowledge, and the agent was decorative — the score is
-deterministic, so an LLM that only narrates is easy to switch off and never
-notice.
+it** without insider knowledge.
+
+> **CORRECTED 2026-08-15.** This paragraph originally ended *"and the agent was
+> decorative — the score is deterministic, so an LLM that only narrates is easy
+> to switch off and never notice."* That is the same false claim as §3, in the
+> section a reader reaches first. The agent was never decorative on the shipped
+> path: it produces the number.
+>
+> The sharpest measurement — **the "off" switch does not switch it off.**
+> `SCUDO_DENSE_BACKEND` is a module-level `setdefault`, independent of the agent
+> selector. Choosing the offline `scripted` agent — the one a user picks
+> *precisely* to avoid AWS — still routes every candidate through Bedrock.
+> Stubbing only `_opus_invoke_score` and running the real `map_vendor_product`:
+>
+> ```
+> SCUDO_AGENT_BACKEND=scripted   (the offline narrator)
+> opus_dense LLM calls = 14
+> published: conf=0.99  band=pass  status=auto_mapped  target=FX Rates
+> ```
+>
+> There are **three independent levers** — `SCUDO_AGENT_BACKEND` (narrator),
+> `SCUDO_SPECIALIST_BACKEND` (borderline adjudication), `SCUDO_DENSE_BACKEND`
+> (scoring) — and nothing on screen said so. The sidebar now reports all three,
+> which is disclosure, not coupling: selecting `scripted` still leaves the LLM
+> on the score.
 
 ---
 
@@ -141,14 +194,48 @@ build.
 
 ### 4.2 Agent chat (`backend/scudo_mapping_mcp/chat.py`)
 
-Free-text chat over the **same six tools** as the mapping agent, so it cannot
-reach data the pipeline cannot, and it does not score. Two backends: `bedrock`
-(real tool loop) and `scripted` (keyword-routed, real catalogue data, states in
-its own replies that it is not a model).
+Free-text chat over the **same six tools** as the mapping agent, and it does not
+score. Two backends: `bedrock` (real tool loop) and `scripted` (keyword-routed,
+real catalogue data).
 
 The scripted fallback exists because a chat box that errors on a machine with
 no AWS is a worse first impression than an honest one. **It is not evidence of
 agent reasoning** and the UI says which one is live.
+
+> ### ⚠ CORRECTED 2026-08-15 — two claims in this section were wrong
+>
+> **"same six tools … so it cannot reach data the pipeline cannot"** holds for
+> the **`bedrock`** backend only. The scripted path does not go through the tool
+> surface at all — it calls `get_store()` and `seed_taxonomy()` directly, and
+> `seed_taxonomy()` is a **write** that the six-tool surface cannot even
+> express. See defect #5 below.
+>
+> **"states in its own replies that it is not a model"** — measured across all
+> seven scripted branches, **2 of 7** do:
+>
+> | Branch | Self-identifies |
+> |---|---|
+> | scoring, fallback | yes |
+> | many-to-one, catalogue, walkthrough, vendors, match | **no** |
+>
+> Two of the three starter buttons (*"How do I start?"*, *"Can two vendors match
+> the same dataset?"*) land on un-disclaimed branches and answer in fluent
+> first-person prose that reads like a model.
+>
+> **Severity is genuinely lowered by a mitigation the original text did not
+> credit:** `streamlit_app.py` renders a persistent "Scripted responder" caption
+> above the chat, so the UI *does* disclose it. This is therefore a defect in
+> **this document's** claim about the replies, not a user-facing lie. Adding the
+> disclaimer to the two starter branches is cheap and still worth doing.
+>
+> **Both wrong claims came from `chat.py`'s own module docstring, and both are
+> still there** (re-checked 2026-08-15): `:10-12` *"the SAME six tools … so the
+> chat cannot reach data the pipeline cannot"*, and `:19` *"the number stays
+> deterministic and auditable"* — the latter is the §1 defect again, untrue
+> under `SCUDO_DENSE_BACKEND=opus`, which both launchers set. This document
+> inherited them by reading the docstring as a specification. Note the gate in
+> §9 item 1 exempts hits that are "a comment"; these are comments **and** false,
+> so the gate must be "arm-conditional **or** accurate".
 
 ### 4.3 Three upload points
 
@@ -160,6 +247,18 @@ the new third point, so a client is not limited to the shipped 14-node fixture.
 ---
 
 ## 5. Defects found and fixed (all reproduced before fixing)
+
+> **⚠ CORRECTED 2026-08-15 — the heading over-claims.** Three rows below were
+> listed as fixed while still live at the time of writing. Per-row status:
+>
+> | # | Status as of 2026-08-15 |
+> |---|---|
+> | #2 | **Partially fixed.** Six of seven branches use the word-boundary `hit()` helper (`chat.py:325`); the **catalogue branch alone** still matches bare substrings — `k in low for k in ("catalogue", "catalog", "taxonomy", "nodes", "datasets")`. *"Do you support anodes and cathodes?"* routes to the catalogue (`nodes` ⊂ `anodes`). **Open.** |
+> | #4 | **Still live in the catalogue branch.** Reproduced: `AgentEvent(type='tool_call', payload={'tool': 'get_taxonomy_node', 'args': {'all': True}})` is emitted while the code calls `list_taxonomy_nodes()`. The named tool is never called and `{"all": True}` is not even its signature. **Open.** |
+> | #5 | **Made conditional, not eliminated.** `seed_taxonomy()` now runs only when the catalogue is empty — but a first chat question on a cold store still mutates the taxonomy. An AST scan (parsed, not read) puts that call **outside every `try` block** in the file, and `seed_taxonomy` raises `RuntimeError` on an empty seed — so a bad seed config turns a chat question into an unhandled traceback out of `send()`. |
+> | #7 | Fixed in `fb61a00` — both `run_demo.py` children derive the store from one constant. Verified. |
+>
+> Rows #1, #3, #6, #8 and #9 were re-checked and hold as written.
 
 | # | Defect | Why it mattered |
 |---|---|---|
@@ -196,7 +295,13 @@ published band: with a realistic 250 ms round trip and Bedrock failing its first
 three calls, **serial gave 0.84/pass and concurrent gave 0.77/borderline** on
 identical inputs. The `retrieval_scoring.py` comment claiming "the scorer is
 stateless" is false — the thread-pool workers share the circuit-breaker global.
-**Open, and the highest-priority remaining item.**
+
+**UPDATE 2026-08-15:** addressed by the §8a work (option (b), all-or-nothing per
+match); the false "stateless" comment is gone from the file. That work is
+**uncommitted** — see §8a. Also note the perf table above spans three commits,
+not one: it cannot be read as a before/after for `f569787` alone, and the
+figures are unreproducible without live Bedrock in `eu-west-2` and the expired
+key. **Treat them as measured-once, not as a benchmark.**
 
 ---
 
@@ -207,6 +312,17 @@ expires mid-demo, the deterministic path takes over and the demo keeps moving.
 **The risk is a run that looks agentic but is not.** Mitigation is visibility —
 the sidebar now reports all three levers. *Judge a run by the reasoning trace,
 not by a number appearing.* A reviewer may reasonably prefer fail-loud.
+
+> **Verified 2026-08-15 — the mitigation is now real, which it was not when this
+> was written.** As originally built the sidebar rendered the *configured* env
+> var, which is *always* `opus` because the launcher sets it: with the breaker
+> open it read "Dense arm: opus" while every candidate had been scored by
+> Jaro-Winkler. A status that cannot show degradation is not a mitigation. It
+> now sources from `dense_arm_status()` in `opus_dense.py`, which reports
+> `configured` / `effective` / `degraded` / `consecutive_failures`, and the
+> sidebar renders `(degraded)` in amber. `opus_dense.py` also logs the fallback
+> — it previously contained **zero** logging statements, so a dead key degraded
+> every candidate with nothing recorded anywhere.
 
 **6.2 The specialist is `local`, not `strands`.** `strands` sounds like the
 agentic one; `strands_specialist.py` **was never built**, so it abstains on
@@ -238,7 +354,11 @@ local path; `STORE_BACKEND=aurora` correctly raising.
   layout and CSS wrapping are unchecked. This sandbox reaps background
   processes, so I could not host a server for a human to click.
 - **`chat.py` has zero tests.** The routing table and factory contract are
-  unguarded. Highest-value follow-up.
+  unguarded. Highest-value follow-up. **Re-verified 2026-08-15: still true** —
+  no test file in `backend/scudo_mapping_mcp/tests/` references chat. It is the
+  newest client-facing surface and the one with three open defects (#2, #4, #5
+  above). *(The breaker did get tests in the uncommitted §8a work —
+  `test_opus_breaker.py`, 17 cases — so that adjacent gap is closed.)*
 - **No live Bedrock through the Streamlit UI** — only through the package.
 - **CORRECTED 2026-08-15 — "Codex CLI is not installed" was false.** It is at
   `/Users/anthonylui/bin/codex` (codex-cli 0.145.0), predating this document.
@@ -269,9 +389,34 @@ local path; `STORE_BACKEND=aurora` correctly raising.
   the session. Minimal reproduction is **two tests**, not the 31-file prefix
   delta-debugging assumed — and reversing their order passes, which is what
   proves leakage rather than a bad assertion. Fixed by snapshotting and
-  restoring the whole environment. `scudo_mapping_mcp` is now **569 passed,
-  0 failed**; full backend suite **1047 passed** with the 2 known
+  restoring the whole environment. `scudo_mapping_mcp` was **569 passed,
+  0 failed** at `247905e`; full backend suite **1047 passed** with the 2 known
   `test_provenance.py` failures.
+
+  **SUPERSEDED 2026-08-15 — these counts are stale, and the export condition
+  got worse, not better.** Re-measured on the current working tree (which
+  carries the uncommitted §8a concurrency work):
+
+  | Run | At `247905e` | Current tree |
+  |---|---|---|
+  | mapping, no export | 569 passed, 0 failed | **617 passed, 0 failed** |
+  | mapping, `SCUDO_DENSE_BACKEND=opus` | 4 failed, 565 passed | **15 failed, 602 passed** |
+  | full backend | 1047 passed, 2 failed | **1095 passed, 2 failed** |
+
+  The suite grew by 48 tests, so every absolute count in this document ages
+  fast — **quote a count with the invocation and the tree that produced it, or
+  do not quote it.** The two backend failures are the known pre-existing
+  `test_provenance.py` pair.
+
+  The export-condition regression is the load-bearing part: `247905e` fixed the
+  *leak* (tests no longer pollute each other) but not the *sensitivity* — 15
+  tests now fail when `SCUDO_DENSE_BACKEND=opus` is set in the environment, up
+  from 4. They span `test_scipy_sqlite_store.py` (6),
+  `test_scipy_sqlite_scoring_parity.py` (3), `test_phase_e_measurement.py` (3),
+  `test_input_completeness.py` (2) and `test_taxonomy_text_threading.py` (1).
+  This is the same class of defect the review keeps hitting: the suite is
+  written against the `config.py` default while both launchers ship the
+  override. **Open — the suite does not pass in the configuration we ship.**
 - **`override` is still not exposed** in Streamlit (Approve/Reject only).
 
 ---
@@ -297,7 +442,69 @@ than one session. Match on symbol names, not line numbers.
 
 ---
 
-## 8a. The concurrency decision (blocking two other items)
+## 8a. The concurrency decision — IMPLEMENTED, NOT COMMITTED (2026-08-15)
+
+> **Implemented: option (b), all-or-nothing per match.** BM25 still nominates
+> at most 25 candidates and Opus still scores them concurrently on up to eight
+> workers, so the latency win is kept. What changed is that the batch is now
+> committed **atomically**: a complete Jaro-Winkler baseline is computed before
+> any model call, and if *any* Opus call fails, every Opus result is discarded
+> and the whole match uses that baseline. A candidate list therefore carries
+> exactly one similarity scale.
+>
+> Two defects were found while implementing, both by testing rather than
+> reading, and both are fixed:
+>
+> - **The first cut did not actually close the hole.** The batch still called
+>   `opus_dense_score`, which makes its own per-candidate fallback decision, so
+>   failing at the *network* seam still produced a mix — measured
+>   `[1.0, 0.9333, 0.91, 0.91]` with `0.91` the model value. Scripting the
+>   injected scorer hid it. The batch now calls a strict seam that raises.
+> - **An abandoned probe pinned the breaker open.** A half-open probe that
+>   never reported back (the fallback-disabled re-raise path, or a crashed
+>   worker) blocked recovery for the life of the process. Now treated as
+>   abandoned after a timeout.
+>
+> Ranking also follows the arm that *actually* scored — previously the fallback
+> scores were sorted with the opus rule.
+>
+> **CORRECTED 2026-08-15 — "byte-identical to `SCUDO_DENSE_BACKEND=jaro_winkler`"
+> is false, and the implementation's own comment now says so.**
+> `retrieval_scoring.py` records: BM25 has already narrowed the pool to
+> `_MAX_OPUS_NOMINEES` (25) *before* the fallback decision, so a node with weak
+> lexical overlap but strong string similarity is present in the jaro arm and
+> absent here — measured on a 40-node fixture. The contract delivered is **one
+> scale per list**, not identity with a differently-nominated run. That is the
+> correct and defensible claim; the equivalence claim was not.
+>
+> **CORRECTED 2026-08-15 — the verification counts are stale and the smoke
+> figure was wrong.** Re-measured on the current tree:
+>
+> | Claimed | Measured |
+> |---|---|
+> | mapping 585 passed | **617 passed** |
+> | backend 1065 passed | **1095 passed**, 2 known failures |
+> | smoke **117/117** | **113/117** |
+>
+> The four smoke failures are `TRUST_ingestion_mcp_imports_no_writers`,
+> `TRUST_match_verify_mcp_imports_no_writers`,
+> `TRUST_persistence_mcp_imports_writers` and
+> `DEFENSE_IN_DEPTH_scope_gate_called_at_all_three_layers`. **They are
+> pre-existing, not caused by this work** — a clean worktree at `HEAD` gives the
+> identical 113/117. But "117/117" was never true of this tree, and the runner
+> is not at the repo root: it is
+> `PYTHONPATH=backend python3 -m scudo_mapping_mcp.tests.smoke`. (Invocation
+> matters: the `backend.`-prefixed module path gives 112/117, a *different*
+> number for the same code.)
+>
+> No live-Bedrock latency was re-measured, so no new timing claim is made here.
+>
+> **Status: uncommitted.** This work is in the working tree, not in a commit —
+> `opus_dense.py` (+304) and `retrieval_scoring.py` (+134) are dirty, alongside
+> new `test_opus_breaker.py` (17 tests) and two other new test files. §8a should
+> not be read as landed.
+
+### Original finding (kept for the record)
 
 **The finding.** Thread-pool workers share the circuit-breaker globals, so
 which candidates get an LLM score and which fall back to Jaro-Winkler depends
@@ -339,9 +546,42 @@ your approval before I touch it.
 
 ## 9. Suggested review focus
 
-1. §6.1 — is silent fallback the right call for a client demo?
-2. §5 defect 7 — the split-brain class of bug; are the three launchers now the
+**Revised 2026-08-15** — reordered by what is actually still open.
+
+1. **`streamlit_app.py:707` still carries the false claim.** The agent-selector
+   help text reads *"The PASS/FAIL score stays deterministic either way; the
+   model narrates…"* — verbatim, on a user-reachable surface. "Either way" is
+   precisely the false part: selecting `scripted` does not make the score
+   deterministic (§1, 14 LLM calls). This is the last user-facing instance and
+   the highest client risk. `chat.py` already branches on the live arm; do the
+   same here. **Gate it:** `rg deterministic` across `streamlit_app.py`,
+   `chat.py`, `agent.py` and assert every hit is **arm-conditional or accurate**
+   — *not* "or a comment". `chat.py:19` is a comment and false ("the number
+   stays deterministic and auditable"), as is `chat.py:10-12`'s six-tools
+   containment claim (§4.2); a comment exemption would pass both.
+
+   **I ran that gate. 24 hits across the four files; here is the adjudication,
+   so this does not have to be redone:**
+
+   | Verdict | Sites |
+   |---|---|
+   | **False — fix** | `streamlit_app.py:707` (user-facing help text); `chat.py:19`; `chat.py:10-12`; `streamlit_app.py:1237-1238` (*"the score is Jaro-Winkler and the model only narrates"* — a comment, and the exact claim §1 refutes) |
+   | **Correct, arm-conditional** | `streamlit_app.py:1273-1288` (branches on `_dense_live`); `chat.py:54`, `:385`, `:399-405`, `:424` (all inside the `jaro_winkler` else-branch) |
+   | **Correct as written** | `streamlit_app.py:139-160` (the CORRECTED block — says plainly the shipped launchers override to opus); `run_cognizant.py:54` (*"the matching score is REAL … with the shipped opus"*) |
+   | **Different meaning — leave** | `agent.py` ×6 and `agent.py:1260`. "The deterministic matcher" there names `matching.map_vendor_product` as the authoritative *component* versus the agent's recommendation; it is not a claim about how the number is computed. Still worth a one-line note that the matcher's own dense arm may be an LLM, because the phrase is what seeded the misreading. |
+
+   Note `agent.py:1260` cites a **86/86** smoke suite; the real figure is
+   113/117 (§7). Unrelated to the gate, but it is in the same docstring.
+2. **The suite fails in the configuration we ship** — 15 failures under
+   `SCUDO_DENSE_BACKEND=opus` (§7). Decide whether the suite should pin the
+   default or cover both arms; today it silently tests a path no launcher uses.
+3. `chat.py` — still no tests, three open defects (#2, #4, #5), newest
+   client-facing surface.
+4. **Commit or discard the §8a work** — 438 uncommitted lines across the scoring
+   path plus three new test files. It is not landed.
+5. §6.1 — is silent fallback the right call for a client demo? (The visibility
+   mitigation is now genuine; the fail-loud question stands.)
+6. §5 defect 7 — the split-brain class of bug; are the three launchers now the
    only places that set the store?
-3. `chat.py` — no tests, and it is the newest client-facing surface.
-4. §6.3 — confirm the single-host boundary is acceptable for the demo, and that
+7. §6.3 — confirm the single-host boundary is acceptable for the demo, and that
    nobody expects Aurora to hold matching precedents.

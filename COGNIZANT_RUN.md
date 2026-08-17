@@ -6,8 +6,11 @@ This is the full application: the React console, the matching dashboard, the
 REST API, and the Streamlit matching console with the agent reasoning trace and
 the reviewer Approve / Reject buttons.
 
-**Nothing external is required** — no Node, no npm, no Docker, no PostgreSQL,
-no FalkorDB, no Neptune, no AWS account. Verified end to end on 2026-08-14.
+The local stack needs no Node, npm, Docker, PostgreSQL, FalkorDB or Neptune.
+The shipped one-click configuration uses Bedrock for the reasoning agent,
+chat, candidate similarity and borderline specialist, so that mode needs a
+working Bedrock bearer key or AWS credentials. An explicit offline mode is
+available below.
 
 ---
 
@@ -63,7 +66,7 @@ match the same catalogue dataset** — and each keeps its own score and its own
 review decision.
 
 Two ready-made contract sets ship in `sample_data/demo/`. In step 01, open
-**"Or load a sample contract set"** and load both:
+**"Sample contract sets — load or download"** and load both:
 
 | Set | Vendor | Contracts |
 |---|---|---|
@@ -73,7 +76,9 @@ Two ready-made contract sets ship in `sample_data/demo/`. In step 01, open
 The contract list **accumulates**, so both vendors sit side by side, and the
 picker shows `vendor · contract` so you always know which one you are matching.
 
-Measured, both vendors against the same 14-node catalogue:
+One measured run against the same 14-node catalogue produced the following
+results. Exact scores can change with the selected Bedrock model; the important
+property is that both contracts can map independently to the same dataset.
 
 | Vendor | Contract | Score | Dataset |
 |---|---|---|---|
@@ -173,28 +178,59 @@ stand-in, not the story.
 
 ---
 
-## 5. Turning on real Bedrock (optional)
+## 5. Bedrock key-drop checklist
 
-The default agent is the **scripted narrator** — it walks the same tools a
-Bedrock agent would and narrates the matcher's own steps, with no AWS call. To
-use real Claude:
+`python run_demo.py` ships with all three model paths enabled:
+`SCUDO_AGENT_BACKEND=bedrock`, `SCUDO_SPECIALIST_BACKEND=local`, and
+`SCUDO_DENSE_BACKEND=opus`. The selected model is written to the shared
+`SCUDO_BEDROCK_MODEL_ID`, so one picker controls the mapping agent, agent chat,
+borderline specialist and dense candidate scorer.
+
+1. Run `python run_demo.py` and open <http://localhost:8501>.
+2. In the sidebar, choose **Agent = bedrock**.
+3. Leave the default region as **eu-west-2**, unless the bearer key and model
+   access belong to another configured region.
+4. Paste the `bedrock-api-key-...` bearer token, choose a model, and press
+   **Apply & test**.
+5. Wait for **Ready — [model] responded.** The preflight calls and fully drains
+   **ConverseStream**, the same streaming API used by the agent. A token that
+   can call only non-streaming Converse is not sufficient.
+6. Load or upload contracts in step 01, run a match, inspect the reasoning
+   trace, then Approve or Reject and run it again to dogfood the learned
+   precedent.
+
+The bearer token is placed only in the running Streamlit process. It is masked,
+not logged, not written to disk, and is lost when the process stops.
+
+The key or its IAM policy needs both permissions:
+
+- `bedrock:InvokeModelWithResponseStream` for the reasoning agent and chat
+  (`ConverseStream`);
+- `bedrock:InvokeModel` for the dense scorer and local borderline specialist.
+
+The model now affects candidate similarity and can therefore change confidence,
+band and selected target. On retrieval paths, one failed model call discards
+the whole model-scored candidate batch and scores every nominee in that match
+with Jaro-Winkler; model and fallback scores are never mixed in one ranking.
+
+Recognise degraded operation in the sidebar: **Dense arm** changes from the
+model backend to **jaro_winkler (degraded)**. The result area may also warn that
+model narration is missing or that the score is provisional. A numeric result
+alone does not prove Bedrock ran.
+
+### Explicit offline mode
+
+AWS is not required when all model paths are deliberately disabled:
 
 ```bash
-export AWS_REGION=us-east-1
-export SCUDO_AGENT_BACKEND=bedrock
-# then either a bearer token in the Streamlit sidebar, or normal AWS creds
+SCUDO_AGENT_BACKEND=scripted \
+SCUDO_DENSE_BACKEND=jaro_winkler \
+python run_demo.py
 ```
 
-In Streamlit, set **Agent = bedrock** in the sidebar.
-
-**The score will not change.** It is deterministic Jaro-Winkler computed by the
-matcher; the model narrates. Switching Opus → Sonnet → Haiku changes the prose
-and the latency, not the number — that is the architecture, and it is what
-makes the score auditable.
-
-If Bedrock fails, you still get a valid score and the UI warns you above the
-result panel. Trust that warning: without it, a failed Bedrock run looks
-identical to a successful one.
+Choose **Agent = scripted** in Streamlit. This is a deterministic local
+dogfood path with Jaro-Winkler scoring, a local Jaro-Winkler specialist and
+scripted narration; it is not evidence of Bedrock reasoning.
 
 ---
 

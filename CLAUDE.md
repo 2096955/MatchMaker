@@ -83,8 +83,50 @@ Both repos work on branch `scudo-phase0-foundations`. A separate deployed React 
   Verified state (measured, not inferred): MySQL is **already gone** (zero
   imports); FalkorDB and Neptune are **lazy-imported and unused** under
   `STORE_BACKEND=local_file`; all `boto3` imports are lazy so Bedrock is
-  additive, and the LLM **narrates** — the score is deterministic Jaro-Winkler
-  either way.
+  additive.
+
+  **The score is NOT deterministic on the shipped path.** `config.py:306`
+  defaults `SCUDO_DENSE_BACKEND` to `jaro_winkler`, but both launchers
+  **`setdefault` it to `opus`** — `streamlit_app.py:88`
+  `os.environ.setdefault("SCUDO_DENSE_BACKEND", "opus")` and
+  `run_cognizant.py:150` `"SCUDO_DENSE_BACKEND": "opus"` applied through the
+  `os.environ.setdefault(_k, _v)` loop at `run_cognizant.py:158`. `setdefault`
+  is **not** an override: an explicit `SCUDO_DENSE_BACKEND=jaro_winkler` already
+  in the environment SURVIVES both launchers. What is true is that the *default*
+  shipped path — nobody sets anything — runs the LLM dense arm.
+
+  On that default path the Opus float IS the published
+  `Candidate.similarity`/confidence (`opus_dense.py:17`), and `opus_dense.py:45-48`
+  states INVARIANT II: *"Identical inputs return the same Jaro-Winkler fallback
+  score (the legacy stand-in is fully deterministic). Opus is NOT deterministic —
+  callers expecting reproducible scores must set `SCUDO_DENSE_BACKEND=jaro_winkler`."*
+  The LLM does not merely narrate; it can change the confidence, the band and
+  the selected target. That conclusion stands.
+
+  Both launchers also `setdefault` **`SCUDO_DENSE_FALLBACK=1`**
+  (`streamlit_app.py:92`, `run_cognizant.py:154`), which is required to
+  accompany the opus arm — without it a Bedrock failure raises
+  `DenseScoringUnavailableError`. With it, the batch path is **all-or-nothing**:
+  a single failed model call discards the whole model batch and re-scores every
+  nominee in that match with Jaro-Winkler, logging a WARNING but never mixing
+  the two scales in one ranking
+  (`store/retrieval_scoring.py` `score_candidates()`, and the parallel
+  guarantee in `opus_dense.py` `make_opus_dense_scorer()` for the
+  `SCUDO_USE_OPUS_DENSE` route). Consequence for reading a run: a run configured
+  for Opus **can silently publish Jaro-Winkler scores instead**, so "the demo was
+  on opus" does not tell you which arm produced a given number — check the
+  effective dense-arm indicator / the WARNING, not the config.
+
+  A fourth lever, `SCUDO_USE_OPUS_DENSE=1`, branches *before* the
+  `SCUDO_DENSE_BACKEND` check — `if env_use_opus_dense():` at
+  `store/scipy_sqlite_store.py:553` and `store/falkordb_store.py:427` (both
+  verified 2026-08-17), returning `multi_path_retrieve` early and bypassing
+  `score_candidates()` entirely — so setting `jaro_winkler` alone does not
+  guarantee determinism; `SCUDO_USE_OPUS_DENSE` must also be unset. Line numbers
+  here are as at the time of writing; search the symbols. Corrected 2026-08-16,
+  precision-corrected 2026-08-17 (the earlier text said "override" where the code
+  is `setdefault`, and omitted the fallback lever); see
+  [[opus-dense-is-the-score]] and [[fourth-dense-lever-use-opus-dense]].
 
 - **Alternate local backend:** `backend/run_local.py`, Flask on :5001,
   `STORE_BACKEND=memory` (set env **before** import). Prefer `start_local.py`
