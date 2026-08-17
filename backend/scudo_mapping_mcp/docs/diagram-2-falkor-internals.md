@@ -8,6 +8,14 @@
 >
 > Specifically, the v0.2 "Inside the Falkor match+check" content shown below — the Jaro-Winkler dense-arm stand-in, the pure-Python BM25 sidecar, and the Reciprocal Rank Fusion (RRF) step — is superseded by the **FalkorDB GraphRAG-SDK multi-path adoption** (vector + fulltext + cypher + relationship expansion + cosine rerank). The SCUDO-specific structural pass (precedent boost, negative-precedent drop, distance check) plugs into the SDK as swappable strategies. The trust gradient and the I5 gate are unchanged.
 >
+> **Numbers below are POINT-IN-TIME (2026-06-10). Do not "correct" them.**
+> When this was written `config.CONFIDENCE_FLOOR` really was `0.80`; it moved
+> to `0.75` in `eb48d67` (2026-07-04). Live values: floor `0.75` is the band
+> CENTRE, half-width `0.05`, so PASS >= 0.80 / FAIL < 0.70. BORDERLINE
+> (0.70-0.80) can still auto-map. See
+> [dense-arm-sdk-adoption.md](dense-arm-sdk-adoption.md) §3 for the live
+> invariants.
+>
 > Content below is retained as historical context only. Do not edit.
 >
 > ---

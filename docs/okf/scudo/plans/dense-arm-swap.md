@@ -7,7 +7,7 @@ tags:
 - dense-arm
 staleness: superseded
 superseded_by: /plans/dense-arm-sdk-adoption.md
-timestamp: '2026-07-09T13:18:02Z'
+timestamp: '2026-08-17T09:02:03Z'
 ---
 
 > **Superseded.** See [dense-arm-sdk-adoption](/plans/dense-arm-sdk-adoption.md).
@@ -32,6 +32,20 @@ timestamp: '2026-07-09T13:18:02Z'
 > - **Theme 10 — Preprocessing policy version derivation.** The SDK's preprocessing is internal to the SDK; we therefore need to **pin the SDK version to a hash** and surface that hash on the same provenance property where we previously planned to record our own preprocessing-policy version. **STILL APPLIES with shifted location.**
 >
 > **Replacement plan (now drafted):** [`dense-arm-sdk-adoption.md`](/plans/dense-arm-sdk-adoption.md) is the live plan. It records the WS-B Opus-4.8-prompt dense arm as the shipped state, leaves the door open for a real vector / SDK swap behind the `SCUDO_DENSE_BACKEND` feature flag, and parks the BLOCKING IAM / Bedrock-model-access / SDK-preprocessing items (with owners TBC) until the path-to-prod swap. All carried-forward findings above are tracked there in §3 (invariants), §5 (path-to-prod), §6 (parked blockers), and §8 (open questions, verbatim).
+>
+> **Numbers below are POINT-IN-TIME (2026-06-10). Do not "correct" them.**
+> This document was written when `config.CONFIDENCE_FLOOR` really was `0.80`
+> (that value held from the initial commit until `eb48d67`, 2026-07-04,
+> "feat(matcher): move confidence bands to 0.80/0.70"). Every "0.80 floor"
+> below is therefore an accurate historical record, NOT a mislabel.
+>
+> As of 2026-07-04 the live values are: `CONFIDENCE_FLOOR = 0.75` (the band
+> CENTRE, `config.py:49`) with `BORDERLINE_HALF_WIDTH = 0.05`, giving
+> `PASS_CUT = 0.80` / `FAIL_CUT = 0.70`. Note BORDERLINE (0.70-0.80) can
+> still auto-map, so a present-day safety argument must cite FAIL_CUT 0.70,
+> not the 0.80 PASS cut. Separately, `backend/scudo/orchestrator.py:41` has
+> its own unrelated `CONFIDENCE_FLOOR = 0.80` (Runtime-A auto-approve publish
+> gate) — the two constants are independent and are not to be reconciled.
 >
 > Content below is retained as historical context only. Do not edit.
 >

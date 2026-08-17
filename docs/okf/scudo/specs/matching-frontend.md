@@ -8,7 +8,7 @@ tags:
 - matching
 - frontend
 staleness: current
-timestamp: '2026-07-09T13:18:02Z'
+timestamp: '2026-08-17T09:02:03Z'
 ---
 
 # SCUDO Matching Front-End — Revised Design Spec
@@ -35,7 +35,7 @@ Mock data is acceptable. Incoherent mock data presented as real bank taxonomy is
 | ID | Decision | Rationale |
 |----|----------|-----------|
 | **D-1** | **Ship `understand-anything-plugin/packages/dashboard`** as the matching UI | Owner rejected `:3000/mapping` ("awful", "shadcn looking thing"). `:5177` dashboard already has layered graph, tour, band colouring, Cognizant polish. |
-| **D-2** | **Confidence bands follow matcher config** (not architecture diagram copy) | PASS ≥ 0.85, BORDERLINE 0.75–0.85, FAIL < 0.75 — see `docs/superpowers/matching-data-provenance.md`. |
+| **D-2** | **Confidence bands follow matcher config** (not architecture diagram copy) | PASS ≥ 0.80, BORDERLINE 0.70–0.80, FAIL < 0.70 — see `docs/superpowers/matching-data-provenance.md`. **Corrected 2026-08-16:** this row said PASS ≥ 0.85 / BORDERLINE 0.75–0.85 / FAIL < 0.75, from the pre-5-zone `CONFIDENCE_FLOOR=0.80`. The decision itself ("follow matcher config") is unchanged and still binding — only the transcribed numbers were stale. |
 | **D-3** | **IRI scheme `jpmorgan:data:cdao:*`** for all CDAO nodes in shipped artifacts | `urn:cdao:*` and bare `cdao:*` are legacy demo pollution. |
 | **D-4** | **Drop Marketing domain** from taxonomy and graph | Incoherent for LSEG / ICE / S&P Global financial-data demo. |
 | **D-5** | **Phase 3–4 (AWS deploy) gated** on owner screenshots of Phases 0–2 on `:5177` | Codex C-8: no public demo without origin secret / auth hardening. |

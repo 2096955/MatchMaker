@@ -8,7 +8,7 @@ tags:
 - legacy
 staleness: superseded
 superseded_by: /architecture/diagrams-and-sources.md
-timestamp: '2026-07-09T13:18:02Z'
+timestamp: '2026-08-17T09:02:03Z'
 ---
 
 > **Superseded.** See [diagrams-and-sources](/architecture/diagrams-and-sources.md).

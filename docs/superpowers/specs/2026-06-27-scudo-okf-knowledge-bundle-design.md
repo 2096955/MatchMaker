@@ -245,6 +245,14 @@ heuristic.
 
 These are repointed during staging so they resolve within the bundle:
 
+> **Stale as of 2026-08-17 — historical record.** Cross-link #1 below states the bands as of
+> 2026-06-27 and asserts them in the present tense as **canonical**, so it reads as a live
+> claim — it is not. The floor moved to `0.75` (PASS `0.80` / FAIL `0.70`) under
+> `docs/superpowers/plans/2026-07-04-scudo-5zone-alignment.md` Task 1. The *wiring*
+> instruction (point every band-citing doc at the one provenance concept) still stands; only
+> the numbers it quotes are historical. Retained unedited as the record of what was true
+> then. Live values: `docs/superpowers/matching-data-provenance.md`.
+
 1. **`reference/matching-data-provenance.md` ← every band-citing doc** — canonical
    PASS≥0.85 / BORDERLINE 0.75–0.85 / FAIL<0.75 (from FLOOR 0.80 ±0.05). Wire from
    `architecture/overview.md`, `architecture/hooks.md`, `reference/agents.md`,

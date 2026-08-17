@@ -49,6 +49,41 @@
 
 ## Task 1: Confidence bands 0.85/0.75 → 0.80/0.70
 
+> **Note added 2026-08-17.** This plan is a point-in-time record and is left as
+> written; this note corrects a factual claim it carries, without rewriting the
+> history. **Covers the two sites in this Task 1 section: the test-docstring
+> block below (the line reading `floating-point defect (0.75 + 0.05 ==
+> 0.8000000000000001, which would push a` / `score of exactly 0.80 into
+> BORDERLINE)`) and the Step 4 derived-comment line `PASS_THRESHOLD =
+> pass_threshold()  # 0.80 (rounded — avoids 0.8000000000000001)`.**
+>
+> **The claim is false.** `0.75 + 0.05` is exactly `0.8` in IEEE-754 double
+> precision, and `(0.75 + 0.05) == 0.80` is `True`. There is no drift at the
+> canonical config, so no score of exactly 0.80 was ever at risk of being pushed
+> into BORDERLINE. Measured:
+>
+> ```
+> $ python3 -c "print(repr(0.75+0.05), (0.75+0.05)==0.80, repr(0.75-0.05), repr(0.80+0.05), repr(0.85-0.05))"
+> 0.8 True 0.7 0.8500000000000001 0.7999999999999999
+> ```
+>
+> **The 2 dp rounding is still correct — for a different reason.** `floor` and
+> `half` are overridable per call and via the `CONFIDENCE_FLOOR` /
+> `BORDERLINE_HALF_WIDTH` env vars, and neighbouring windows are *not* exact:
+> `0.80 + 0.05` yields `0.8500000000000001` (would misclassify an exact-0.85
+> PASS as BORDERLINE) and `0.85 - 0.05` yields `0.7999999999999999` (misclassifies
+> in the opposite direction). The rounding protects the overridden windows, not
+> the default one.
+>
+> **Live source of truth:** `backend/scudo_mapping_mcp/config.py`
+> (`CONFIDENCE_FLOOR` / `BORDERLINE_HALF_WIDTH` / `PASS_CUT` / `FAIL_CUT` /
+> `pass_threshold()` / `borderline_threshold()`) and the corrected docstring on
+> `_gate_thresholds()` in `backend/scudo_mapping_mcp/matching.py`. Note the code
+> has since moved past this plan in two ways: the canonical config now
+> short-circuits to the `PASS_CUT` / `FAIL_CUT` constants rather than computing
+> the sum, and the Step 4 comment now reads `# 0.80 (2dp-rounded in config, not
+> computed here)`.
+
 **Files:**
 - Modify: `backend/scudo_mapping_mcp/config.py:47`
 - Modify: `backend/scudo/build_matching_graph.py:33-34`

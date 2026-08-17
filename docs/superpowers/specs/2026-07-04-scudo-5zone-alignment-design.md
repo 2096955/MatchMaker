@@ -46,6 +46,18 @@ codebase and its CloudFormation with that agreed architecture:
 
 ## 2. Current state (verified in code)
 
+> **Stale as of 2026-08-17 — historical record.** This section states the bands as of
+> 2026-07-04, **before** the change this very document designs. "Current state" here means
+> the **pre-change** state: `CONFIDENCE_FLOOR = 0.80` → pass `0.85` / borderline `0.75` was
+> the starting point that §1's decision table ("Adopt diagram numbers: pass ≥ 0.80,
+> borderline ≥ 0.70 (from 0.85/0.75)") moved away from. The floor moved to `0.75`
+> (PASS `0.80` / FAIL `0.70`) under
+> `docs/superpowers/plans/2026-07-04-scudo-5zone-alignment.md` Task 1
+> ("Confidence bands 0.85/0.75 → 0.80/0.70"). Retained unedited as the record of what was
+> true then — **rewriting these numbers would erase the evidence that the change ever
+> happened**, since this doc's before-state is the only in-repo statement of the values the
+> change started from. Live values: `docs/superpowers/matching-data-provenance.md`.
+
 - `backend/scudo_mapping_mcp/` — the Zone-3 cost-ladder engine (Flask/ECS console
   pipeline): parse/normalise, dense+BM25 semantic match, rank/score, 3-band gate.
   Bands come from `config.py`: `CONFIDENCE_FLOOR = 0.80`, `BORDERLINE_HALF_WIDTH = 0.05`

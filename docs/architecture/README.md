@@ -18,13 +18,62 @@ The Mermaid `.mmd` diagrams under
 [`backend/scudo_mapping_mcp/docs/architecture/`](../../backend/scudo_mapping_mcp/docs/architecture/)
 (`scudo-overview.mmd`, `scudo-match-verify.mmd`, `scudo-retrieval.mmd`) depict
 the **older three-MCP internal view** (Ingestion → Match-Verify → Persistence
-trust gradient) and the matcher internals. They remain accurate for *how the
-matching engine is implemented* — and, checked at HEAD, they carry the **current**
-band values (`scudo-match-verify.mmd` reads `floor 0.80, half-width 0.05`), not
-stale ones. They predate the 5-zone *framing*, so for the target architecture the
-two images in this folder win, but the `.mmd` bands are not the stale ones.
+trust gradient) and the matcher internals. They remain useful for *how the
+matching engine is implemented*, but they predate the 5-zone *framing*, so for
+the target architecture the two images in this folder win.
 
-The genuinely stale `0.85 / 0.75` band labels live in the **OKF bundle**, not in
-the `.mmd` files — e.g. `docs/okf/scudo/handovers/hitl-bands-2026-06-26.md` and
-`docs/okf/scudo/handovers/code-review-fixes.md` (a point-in-time snapshot set).
-Fixing those is a separate doc-hygiene pass; the live bands are **0.80 / 0.70**.
+**The live bands are `passCut 0.80 / failCut 0.70`**, derived from
+`scudo_mapping_mcp/config.py` `CONFIDENCE_FLOOR = 0.75` and
+`BORDERLINE_HALF_WIDTH = 0.05` (floor ± half). `config.py` is the only authority
+here — do not read the band ladder off any diagram, this README included. A
+diagram or doc labelled `floor 0.80, half-width 0.05` is describing the
+**pre-5-zone** ladder (`0.85 / 0.75`) and is stale. Stale `0.85 / 0.75` labels
+are known to exist in more than one place, including the OKF bundle
+(`docs/okf/scudo/handovers/hitl-bands-2026-06-26.md`,
+`docs/okf/scudo/handovers/code-review-fixes.md`) — this README makes **no**
+claim that any particular file is currently clean. Check the file you care about
+against `config.py` before trusting it.
+
+Note that `backend/scudo/orchestrator.py:41` declares a **separate**
+`CONFIDENCE_FLOOR = 0.80` — the Runtime-A auto-approve publish gate. It is a
+different control, it is correctly `0.80`, and it must not be reconciled with
+the matcher ladder above.
+
+> **Corrected 2026-08-17.** This section previously asserted, of the `.mmd`
+> diagrams, that "checked at HEAD, they carry the **current** band values
+> (`scudo-match-verify.mmd` reads `floor 0.80, half-width 0.05`), not stale
+> ones", and that "The genuinely stale `0.85 / 0.75` band labels live in the
+> **OKF bundle**, not in the `.mmd` files". **Both claims were false, and
+> backwards.** `floor 0.80, half-width 0.05` *is* the `0.85 / 0.75` ladder —
+> i.e. the stale one — so the diagram value cited as proof of currency was in
+> fact the defect, and the stale labels were not confined to the OKF bundle.
+>
+> Measured, not read. Live config:
+>
+> ```
+> $ PYTHONPATH=backend python3 -c "from scudo_mapping_mcp import config as c; print(c.CONFIDENCE_FLOOR, c.pass_threshold(), c.borderline_threshold())"
+> 0.75 0.8 0.7
+> ```
+>
+> And the diagram, re-read at the moment this correction was written
+> (2026-08-17T07:42:32+0100):
+>
+> ```
+> $ grep -n "floor" backend/scudo_mapping_mcp/docs/architecture/scudo-match-verify.mmd
+> 9:    GATE{{"Three-band gate<br/>sim vs floor 0.80, half-width 0.05<br/>or required-fail"}}
+> ```
+>
+> A separate pass was underway on that `.mmd` while this was being written, and
+> it landed 56 seconds later. Re-grepped at 2026-08-17T07:43:28+0100:
+>
+> ```
+> $ grep -n "floor" backend/scudo_mapping_mcp/docs/architecture/scudo-match-verify.mmd
+> 9:    GATE{{"Three-band gate<br/>floor 0.75, half-width 0.05<br/>PASS at sim 0.80 and up, FAIL below 0.70<br/>or required-fail"}}
+> ```
+>
+> Both greps above are real output from the timestamps shown; the first is not
+> a transcription error. That is exactly why this section is written to state
+> what the bands **are** rather than to adjudicate which file is stale — the
+> adjudication went out of date within a minute. Nothing here asserts the
+> current state of any file beyond the single line quoted at the single time
+> quoted; re-check before relying on it.

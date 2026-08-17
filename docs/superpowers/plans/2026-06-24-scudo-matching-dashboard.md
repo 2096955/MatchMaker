@@ -122,6 +122,31 @@ Also write `fixtures/meta.json` sidecar:
 { "dataProvenance": "synthetic", "bands": { "pass": 0.85, "borderline": 0.75 } }
 ```
 
+> **Stale as of 2026-08-17 — historical record.** Step 3 above (and this JSON block) states
+> the bands as of 2026-06-24. The floor moved to `0.75` (PASS `0.80` / FAIL `0.70`) under
+> `docs/superpowers/plans/2026-07-04-scudo-5zone-alignment.md` Task 1. Retained unedited as
+> the record of what was true then. Live values:
+> `docs/superpowers/matching-data-provenance.md`.
+>
+> **The instruction was superseded by a better outcome — do not re-apply it.** The builder no
+> longer hardcodes band values at all: `backend/scudo/build_matching_graph.py:33-34` derives
+> them from config —
+> `PASS_THRESHOLD = pass_threshold()` / `BORDERLINE_THRESHOLD = borderline_threshold()`
+> (imported from `scudo_mapping_mcp.config` at lines 29-30) — and every emission site uses
+> those constants (`:90` caption, `:129`/`:131` banding, `:515-516`, `:1371-1372` the
+> `meta.json` sidecar). So the shipped artifact tracks config automatically. Measured
+> 2026-08-17 — `cat backend/scudo/fixtures/meta.json` really contains:
+>
+> ```json
+> {
+>   "dataProvenance": "synthetic",
+>   "bands": {
+>     "pass": 0.8,
+>     "borderline": 0.7
+>   }
+> }
+> ```
+
 - [x] **Step 4: Regenerate and run tests**
 
 Run: `cd backend && python -m scudo.build_matching_graph && PYTHONPATH=. pytest scudo/tests/test_provenance.py -v`  

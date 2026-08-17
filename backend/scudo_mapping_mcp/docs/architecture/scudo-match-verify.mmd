@@ -6,7 +6,7 @@ flowchart TD
     REUSE["Reuse mapping, short-circuit"]
     MATCH["Falkor match and check<br/>GraphRAG-SDK multi-path, sparse structural<br/>similarity is the raw dense score"]
     VAL["Validations, M5 deterministic<br/>required: scope_compatible, identifier_resolves, data_class_match<br/>warn: name and description length"]
-    GATE{{"Three-band gate<br/>sim vs floor 0.80, half-width 0.05<br/>or required-fail"}}
+    GATE{{"Three-band gate<br/>floor 0.75, half-width 0.05<br/>PASS at sim 0.80 and up, FAIL below 0.70<br/>or required-fail"}}
     AUTO["AUTO_MAPPED<br/>PASS, no specialist"]
     SPEC["LLM specialist, borderline only, the agent<br/>anchored to top candidate<br/>confidence is min of dense and specialist"]
     REVIEW["NEEDS_REVIEW<br/>FAIL or required-fail"]

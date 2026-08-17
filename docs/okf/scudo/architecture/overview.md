@@ -8,947 +8,891 @@ tags:
 - overview
 - architecture
 staleness: current
-timestamp: '2026-07-09T13:18:02Z'
+timestamp: '2026-08-17T09:02:03Z'
 ---
 
 # SCUDO MatchMaker
 
-Deterministic vendor→CDAO market-data product mapping, organised as a **five-zone
-architecture** with **Aurora PostgreSQL as the single source of truth**, a
-five-rung cost ladder, and an agentic specialist+verifier gate.
+SCUDO MatchMaker turns inconsistent vendor product catalogues into governed,
+reusable mappings against a client-owned CDAO catalogue.
 
-> **📐 For JPMC engineers standing this up:** the approved target architecture is
-> [`docs/architecture/scudo-5zone-architecture.png`](docs/architecture/scudo-5zone-architecture.png);
-> the module→zone map is [`ZONES.md`](/architecture/ZONES.md); the exact deploy commands are
-> ``backend/scudo/DEPLOY.md``; and the consolidation
-> record (why the design moved off DynamoDB/graph-of-record onto Aurora) is
-> [`infra/HANDOVER_5zone_alignment.md`](/architecture/infra/HANDOVER_5zone_alignment.md). The
-> section [Where this diverges from the code on git](#where-this-diverges-from-the-code-on-git-and-why)
-> explains, deliberately and honestly, where the code retains paths the customer
-> chose not to take.
+It combines deterministic matching, agent assistance, and human review. The
+agents can explain and improve the process, but they do not become the system
+of record. The core operating rule is:
 
-> **🟢 Live demo:**
-> - Formal PoC: https://d1n9fcdyynpn9j.cloudfront.net/cogJPMdemo/
-> - Stakeholder: https://dp4ji14se0pct.cloudfront.net/cogJPMdemo/
->
-> The SCUDO Matching Comprehension dashboard: the interactive **Upload & Test**
-> flow (upload a vendor CSV/JSON → watch it stream live through ETL → matcher),
-> **always-visible HITL** (Approve / Override / Reject), and **reviewer-tunable
-> confidence bands** (move the borderline window → re-band live + re-run).
-> Deployed to `scudo-poc` (account `954976331678`, `us-east-1`) from image
-> `c250e34`; the upload (`/api/mapping/ingest/stream`), matcher
-> (`/api/mapping/agent/run`), and band-override (`/api/mapping/map`) flows are
-> verified live end-to-end. **Auth is currently dev-open — closed demo only; see
-> the auth gate in "What is NOT done" before external exposure.**
+> **The matcher proposes a controlled result, agents add context, and people
+> decide what is uncertain.**
 
-> **Status:** 86 mapping + 8 auth smoke tests passing. The current AWS target is the Cognizant cloudboost account `954976331678` in `us-east-1`, with stack `scudo-poc` providing the Lambda/API and the event-driven ETL substrate. The older ECS/Fargate dev templates remain under `infra/` for the `eu-west-2` sandbox. **This is a dev sandbox**, **not** the JPMC SCUDO production account. Treat all thresholds, dense-arm similarity, and Neptune retrieval as uncalibrated stand-ins until the production cutover.
+## Live multi-vendor console
 
----
+A deployed mirror of this project with a broader vendor catalogue:
 
-## Target architecture (5 zones)
+[http://data-matching-console-1261515569.us-east-1.elb.amazonaws.com/app/catalogue?vendor=lseg](http://data-matching-console-1261515569.us-east-1.elb.amazonaws.com/app/catalogue?vendor=lseg)
 
-This is the architecture JPMC approved (Nigel, 2026-07-03). Everything else in this
-README is an implementation detail underneath it. Read it left-to-right: vendor product
-metadata enters at Zone 1 and flows through to the system of record and human loop at
-Zone 5.
+## Why it matters
 
-![SCUDO 5-zone target architecture](docs/architecture/scudo-5zone-architecture.png)
+Vendor catalogues are difficult to use consistently because product names,
+identifiers, descriptions, classifications, and delivery terms vary by source.
+SCUDO MatchMaker provides a repeatable way to:
 
-| Zone | Name | What it does | Code |
-|------|------|--------------|------|
-| **1** | Vendor Sources & Ingestion | Vendor product metadata enters (MFT/FTP, vendor-S3/DMS, or single-URL scrape). Onboarding a vendor is a **config change**, not a new Lambda. | `poller_handler.py`, `ingestion_mcp.py`, `ingest.py`, `url_ingest.py` |
-| **2** | Ingestion Processing (ETL) | Validate → normalise → land (clean/canonical or quarantine) + audit. | `etl_handler.py`, `frames.py`, `validations.py`, `csvw_aliases.py` |
-| **3** | Matching Engine | The cost ladder: scope → precedent → hybrid retrieval → confidence gate (PASS ≥0.80 / BORDERLINE 0.70–0.80 / FAIL <0.70). | `matching.py`, `retrieval.py`, `matcher_bridge.py`, `store/` |
-| **4** | Agentic Layer | Orchestrator → specialist → verifier → gate-and-decide, routing auto-approve / HITL / reject. Bedrock (Claude Sonnet 5) default; Azure OpenAI shim optional. | `orchestrator.py`, `agents.py`, `lambda_handler.py`, `agent.py` |
-| **5** | Persistence & Human Review | The system of record and the human loop. | `aurora_store.py`, `projection_handler.py`, `catalogue.py`, `persistence_mcp.py`, `feedback.py` |
+- standardise vendor product metadata;
+- map products to a shared business taxonomy;
+- identify ambiguous or out-of-scope products;
+- give reviewers the evidence behind each recommendation;
+- preserve decisions and provenance for audit;
+- use approved decisions to improve future retrieval without silently changing
+  live behaviour.
 
-> **⚡ Aurora PostgreSQL is the single source of truth.** One cluster, four schemas
-> (`public`, `scudo`, `console`, `ingestion`) — audit, decisions, transactional outbox,
-> catalogue, lineage, ETL jobs, taxonomy, and agent memory. The DynamoDB tables the
-> older design used were consolidated into Aurora and removed. The graph store
-> (FalkorDB / Neptune) is a **Zone 3 retrieval index only** — candidate discovery,
-> never the record of what was decided. This is the biggest way the target moved off
-> what the code on git originally reached for; see
-> [Where this diverges from the code on git](#where-this-diverges-from-the-code-on-git-and-why).
+The current product is a governed **vendor-to-taxonomy matching system**. It is
+not yet a complete market-data procurement, spend, licence, usage, or
+entitlement optimisation platform.
 
-The full module→zone map — every module, its one-line purpose, and its AWS entrypoint —
-is [`ZONES.md`](/architecture/ZONES.md), and the five zones are made importable in code (without moving
-any files) by the re-export façade at
-[`backend/scudo/zones/`](backend/scudo/zones/). The canonical record of *why* the design
-consolidated onto Aurora is [`infra/HANDOVER_5zone_alignment.md`](/architecture/infra/HANDOVER_5zone_alignment.md);
-the exact CloudShell deploy commands are ``backend/scudo/DEPLOY.md``.
-
----
-
-## The catalogue data model
-
-The matcher maps vendor products *into* the CDAO catalogue ontology. This is the shape
-of that target — the customer-supplied "MDS DataCatalog and Digital Rights" model:
-
-![MDS DataCatalog and Digital Rights UML](docs/architecture/mds-datacatalog-digital-rights-uml.jpg)
-
-It has two halves. The **catalogue half** — `Dataset` / `Distribution` / `DataService` /
-`DeliveryChannel` / `ProductPackage` / `DataTaxonomy` / `Field` / `FieldGroup` — is what a
-matched product becomes a node in. The **digital-rights half** — `Policy` / `Contract` /
-`Duty` / `Permission` / `Party`, plus the `ContentDeliveryModel` enumeration — is the
-entitlement/rights overlay that governs whether a mapping is even in scope.
-
-Where it lives in code: the catalogue kinds are modelled in
-`backend/scudo_mapping_mcp/models.py` (`ConceptualNodeKind`); the rights half is a
-fail-closed ODRL 2.2 evaluator in `backend/scudo_mapping_mcp/rights_odrl.py`.
-`ContentDeliveryModel` is **deliberately partial** — only 3 of the ~11 diagram values are
-confirmed from source, and a citation guard (`test_rights_contract_model.py`) fails loudly
-if a value is ever added without a documented source, so the enum cannot grow by guesswork.
-
----
-
-## SCUDO as the visibility platform
-
-SCUDO is the **visibility platform** for the matching backend. The three-MCP trust gradient, the cost ladder, the HMAC seal, and the reviewer queue aren't just plumbing — they are the audit surface that makes every mapping decision inspectable end-to-end. The Flask SPA + REST tier exposes that surface to the operator: dataset config, the reviewer queue, the per-decision trajectory, and the sealed verdict are all visible artefacts. Read the backend through this lens — every component exists to make the decision **visible, attributable, and reversible**, not merely to compute it.
-
----
-
-## What is this
-
-SCUDO MatchMaker proposes mappings between **untrusted vendor product references** (rows from S&P Global, Bloomberg, etc.) and the **canonical SCUDO product graph**. It is a sandbox prototype of the matcher that would sit behind the JPMC SCUDO canonical product service: same shape, same invariants, same trust gradient, but with FalkorDB as a non-authoritative local stand-in for Neptune and with the dense-similarity arm wired to Jaro-Winkler rather than a real embedding model.
-
-The codebase is built around two non-negotiable ideas. First, a **first-match-wins cost ladder** — scope gate, precedent reuse, FalkorDB hybrid retrieval, Opus 4.8 specialist, then a deterministic 3-band gate — so the expensive arms only run when the cheap ones cannot decide. Second, a **three-MCP trust gradient** enforced by separate ECS task roles: Ingestion (port 8001) sees vendor data but is explicitly denied the signing key; Match-Verify (port 8002) reads Neptune and calls Bedrock but writes nothing canonical; Persistence (port 8003) is the only writer and holds the publish gate.
-
-What this repo is **not**: a complete SCUDO. There is no production Neptune retrieval (the `find_similar_products` SPARQL implementation is a placeholder returning `similarity=0.0`), the dense-arm similarity is a string metric pretending to be a vector, and the PASS ≥0.80 / BORDERLINE ≥0.70 bands are unvalidated against any golden set. See [What is NOT done](#what-is-not-done).
-
----
-
-## Architecture at a glance
-
-Read the flow top-to-bottom: a vendor file enters at the top, travels the
-three-MCP spine left-to-right, and anything the system isn't sure about exits into
-the **human-in-the-loop** (green), whose decisions loop back to make future matches
-better. Solid arrows are the publish path; dotted arrows are reads / advisory signals.
-
-```mermaid
-flowchart TB
-    vendorOps(["Vendor Ops"]):::actor -->|upload| flask["Flask SPA + REST<br/>visibility &amp; control plane"]:::ctrl
-    flask -->|POST /ingest| ing
-
-    subgraph spine["Trust gradient — three MCPs, each a separate IAM role"]
-        direction LR
-        ing["Ingestion :8001<br/>untrusted vendor in · no signing key"] -->|VendorProductRef| mv["Match-Verify :8002<br/>cost ladder + 3-band gate<br/>mints HMAC seal"] -->|sealed result| per["Persistence :8003<br/>sole writer · publish gate (I5)"]
-    end
-
-    per ==>|NEEDS_REVIEW| queue
-    subgraph hitl["Human-in-the-loop — uncertain ⇒ human, never auto-published"]
-        direction LR
-        queue[("Reviewer queue<br/>Aurora")]:::hitl --> reviewer(["Mapping Reviewer"]):::actor ==>|approve / override / reject| precedent[("Precedent edges<br/>graph store")]:::hitl
-    end
-    precedent -. rank tilt (feedback) .-> mv
-
-    mv -. candidate retrieval .-> graphdb
-    mv -. borderline .-> bedrock
-    per ==>|system of record| aurora
-    per -->|bundles| s3
-    subgraph data["Stores &amp; specialist"]
-        direction LR
-        aurora[("Aurora PostgreSQL<br/>single source of truth")]:::record
-        graphdb[("Graph store<br/>FalkorDB / Neptune<br/>retrieval index only")]:::store
-        bedrock{{"Bedrock · Opus 4.8<br/>BORDERLINE only"}}:::ext
-        s3[("S3 frames<br/>+ bundles")]:::store
-        aurora ~~~ graphdb ~~~ bedrock ~~~ s3
-    end
-
-    classDef actor fill:#fde68a,stroke:#b45309,color:#1a1a1a
-    classDef ctrl fill:#f5f3ef,stroke:#1a1a1a,color:#1a1a1a
-    classDef store fill:#dbeafe,stroke:#1e40af,color:#1a1a1a
-    classDef record fill:#bae6fd,stroke:#0369a1,color:#1a1a1a
-    classDef ext fill:#e9d5ff,stroke:#6b21a8,color:#1a1a1a
-    classDef hitl fill:#bbf7d0,stroke:#15803d,color:#1a1a1a
-```
-
-The thick green loop is the point: a mapping the matcher can't confidently decide is
-written to the reviewer queue as `NEEDS_REVIEW` — never auto-published — and a human's
-verdict is persisted to Aurora **and** written back as a precedent edge in the graph
-store that tilts the next match's retrieval. Aurora is the record of *what was decided*;
-the graph store is the *retrieval index* the matcher searches (and the precedent overlay
-the loop tilts). See [Human-in-the-loop by design](#human-in-the-loop-by-design).
-
----
-
-## Human-in-the-loop by design
-
-SCUDO never auto-publishes a mapping it isn't sure about. Human review is a
-first-class stage of the pipeline, not a bolt-on — five mechanisms keep the human in
-control of every uncertain decision:
-
-1. **Uncertain mappings escalate; they don't guess.** A mapping auto-publishes only
-   when it clears the gate cleanly — a confirmed-precedent reuse, or a PASS band the
-   Claude specialist concurs with. A BORDERLINE result the specialist can't confirm
-   (verifier dissent), or one a reviewer-tightened window pushes below PASS, is marked
-   `NEEDS_REVIEW` and routed to the reviewer queue — *not* the graph of record. (When,
-   exactly, is the [cost ladder](#the-matching-cost-ladder) below.)
-2. **The publish gate is hard (invariant I5).** Persistence is the *only* writer and
-   refuses any verdict whose HMAC seal it can't verify. There is no code path that
-   writes canonical data around a NEEDS_REVIEW decision — releasing one requires a
-   human.
-3. **The review surface is always visible.** In the dashboard, Approve / Override /
-   Reject and the decision reasoning render on load (not hidden until a borderline run
-   happens), and each action is prerequisite-gated by the backend result — a reviewer
-   can't approve a mapping that has no candidate, or override without an alternative.
-4. **Reviewers set the risk threshold, live.** The borderline window is reviewer-movable
-   *per request*; re-running with a tighter or looser window changes what auto-maps
-   versus what escalates. The human owns the threshold — it is not a hard-coded constant.
-5. **Decisions compound.** Approve / override / reject feed the precedent graph, which
-   tilts future retrieval ranking — so each human decision makes the next similar
-   mapping cheaper and more likely to clear without review.
-
-Every decision is attributable and reversible: the per-decision trajectory, the sealed
-verdict, and the human action are all recorded artefacts — the [visibility
-platform](#scudo-as-the-visibility-platform) lens. Implementation:
-`feedback.py` (write-back → precedent), `persistence_mcp.py` + `verdict.py` (publish
-gate), and the dashboard HITL surface in
-[Matching dashboard](#human-in-the-loop--reviewer-tunable-bands).
-
----
-
-## The matching cost ladder
-
-Five rungs. First match wins. A **PASS** (≥0.80) auto-maps; a **FAIL** (<0.70) rejects.
-What happens to a **BORDERLINE** (0.70–0.80) depends on the caller: the public REST path
-(`/api/mapping/map`, `borderline_requires_specialist=True`) demands a specialist decision
-or routes to human review, while the default library/agent path
-(`matcher_bridge`, MCP, `borderline_requires_specialist=False`) falls back to the
-deterministic **floor** — auto-mapping a borderline candidate whose score is ≥ the 0.75
-floor centre and escalating the rest. Both paths run the same gate; they differ only in
-how strict the borderline arm is.
-
-```mermaid
-flowchart TD
-    start([VendorProductRef in]) --> r1{{Rung 1: scope gate<br/>frames.check_scope<br/>fail-closed}}
-    r1 -->|deny| fail_scope([REJECT - out of scope])
-    r1 -->|allow| r2{{Rung 2: precedent reuse<br/>CONFIRMED only}}
-    r2 -->|hit| seal([Seal verdict - PASS])
-    r2 -->|miss| r3[Rung 3: FalkorDB hybrid<br/>Jaro-Winkler dense + BM25 lexical<br/>+ RRF + structural + rank-signal tilt]
-    r3 --> band{{3-band gate<br/>PASS / BORDERLINE / FAIL}}
-    band -->|PASS >= 0.80| seal
-    band -->|FAIL < 0.70| fail_low([REJECT - below floor])
-    band -->|BORDERLINE 0.70-0.80| arm{{specialist arm on?<br/>borderline_requires_specialist}}
-    arm -->|"REST /map (True)"| r4[Rung 4: Claude Sonnet 5 specialist<br/>one-shot, concur-cap MIN not MAX]
-    arm -->|"default library/agent (False)"| floorgate{{>= floor 0.75?}}
-    floorgate -->|yes| seal
-    floorgate -->|no| queue
-    r4 --> r5{{Rung 5: re-gate<br/>verifier concurs?}}
-    r5 -->|concur PASS| seal
-    r5 -->|dissent / abstain → NEEDS_REVIEW| queue[(HITL reviewer queue)]
-    seal --> persist[Persistence MCP verifies HMAC seal<br/>then publishes]
-    queue -.human verdict.-> precedent[(Precedent graph)]
-    precedent -.rank tilt.-> r3
-
-    classDef hitl fill:#bbf7d0,stroke:#15803d,color:#1a1a1a
-    class queue,precedent hitl
-```
-
-Implementation lives in `backend/scudo_mapping_mcp/matching.py`. Validations and field normalisation in `validations.py`. The HMAC verdict seal contract is in `verdict.py` — `v=2` carries the band, Persistence refuses any agent-passed verdict dict.
-
-The PASS / BORDERLINE / FAIL cuts above are the **defaults** (`confidence_floor = 0.75`, `borderline_half_width = 0.05` from `config.py`, yielding PASS ≥0.80 and BORDERLINE ≥0.70). A reviewer can override the window **per request**: the dashboard sends `confidence_floor` + `borderline_half_width` to `/api/mapping/map` (and `/agent/run`), which re-band the same dense score live — see [Matching dashboard](#matching-dashboard-upload--test-interactive-pipeline).
-
----
-
-## Trust gradient (three MCPs) — how the zones are implemented
-
-This is not a competing architecture; it is *how the zones run today*. The three MCPs are
-the deployable services the zones map onto: **Ingestion MCP → Zone 1/2**, **Match-Verify
-MCP → Zone 3** (with the orchestrator/agents of Zone 4 driving it), and **Persistence MCP
-→ Zone 5** (the sole writer in front of Aurora). Viewed as zones it's a data-flow; viewed
-here it's an **IAM isolation boundary** — and that boundary is the point.
-
-IAM, not application code, enforces the isolation. Each MCP runs as a separate ECS Fargate service with its own task role.
+## Business flow
 
 ```mermaid
 flowchart LR
-    subgraph untrusted[" Untrusted zone "]
-        ing[Ingestion MCP :8001<br/>ingestion_mcp.py<br/>--<br/>Role: read S3 frames<br/>EXPLICIT DENY signing key<br/>EXPLICIT DENY Neptune write]
-    end
-
-    subgraph readonly[" Read-only retrieval "]
-        mv[Match-Verify MCP :8002<br/>match_verify_mcp.py<br/>--<br/>Role graph-store READ retrieval<br/>Bedrock invoke<br/>Secrets Manager signing key READ]
-    end
-
-    subgraph writer[" Sole writer "]
-        per[Persistence MCP :8003<br/>persistence_mcp.py<br/>--<br/>Role Aurora WRITE system of record<br/>graph-store precedent write-back<br/>S3 PutObject canonical bundles<br/>Secrets Manager signing key READ]
-    end
-
-    vendor[(Vendor S3 frames)] --> ing
-    ing -->|VendorProductRef<br/>over ALB rule| mv
-    mv -->|sealed MappingResult<br/>HMAC-SHA256 v=2| per
-    mv -.candidate retrieval.-> graphdb[(Graph store<br/>FalkorDB / Neptune)]
-    per -->|system of record| aur[(Aurora PostgreSQL)]
-    per -.precedent edge.-> graphdb
-    per --> s3b[(S3 canonical bundles)]
+    vendor[Vendor catalogue] --> ingest[Ingest and normalise]
+    ingest --> candidates[Find relevant catalogue candidates]
+    candidates --> matcher[Deterministic matcher]
+    matcher --> agent[Agent explanation and specialist review]
+    agent --> gate{Confidence and policy gate}
+    gate -->|Clear result| persist[Persist governed mapping]
+    gate -->|Uncertain result| human[Human review]
+    human --> persist
+    persist --> feedback[Approved feedback improves future retrieval]
 ```
 
-The seal is the contract. Ingestion cannot mint one (no key). Match-Verify mints; Persistence verifies before letting anything past invariant I5 (the publish gate).
+The same product can be run through the browser, REST API, MCP tools, or the
+orchestrated Lambda path. Those surfaces share the same catalogue contracts and
+governance rules, although their runtime wiring is not identical. The current
+implementation documents those differences in [Technical architecture](#technical-architecture).
 
----
+## Decision controls
 
-## Where this diverges from the code on git, and why
+| Control | Business meaning |
+|---|---|
+| Deterministic scope gate | An out-of-scope product is rejected before similarity or model judgement can change the result. |
+| Candidate anchoring | Agents work from candidates retrieved by the matching engine rather than inventing catalogue nodes. |
+| Confidence bands | Clear matches can proceed; borderline and weak matches are made visible for review. |
+| Human-in-the-loop | Reviewers can approve, override, or reject a decision. |
+| Provenance | Inputs, versions, rationale, confidence, and decisions can be traced together. |
+| Durable record | Aurora PostgreSQL is the target system of record for decisions, audit, lineage, and agent memory. |
+| Controlled learning | Recorded outcomes remain offline evidence until they pass holdout evaluation and receive named approval. |
 
-The customer made architecture choices that moved *away* from what the repository still
-carries. None of these are bugs — they are deliberate: the code retains the road not
-taken, behind a single swap point, in case JPMC changes its mind. Read this section before
-you assume the git tree *is* the target.
+## What a reviewer sees
 
-- **Graph store retained but dormant as the record.** JPMC did **not** adopt
-  Neptune/FalkorDB as the canonical store. **Aurora is the single source of truth** — the
-  durable record of what was decided (audit, catalogue, decisions, outbox, lineage, ETL
-  job-status, agent memory). The graph store still plays two roles the matcher needs:
-  it is the **candidate-retrieval index** (Zone 3 discovery, selected by
-  `STORE_BACKEND=falkordb|neptune|memory` behind one seam, `store/factory.py`) **and** it
-  carries the **precedent overlay** — a HITL approve/override/reject writes a precedent
-  edge back into the graph (`feedback.apply_decision` → `store.upsert_precedent`) so the
-  *next* retrieval is tilted. The precise, defensible claim is therefore: **Aurora is never on the
-  candidate-retrieval hot path** (the matcher searches the graph, not Aurora), and Aurora
-  is the authoritative record; it is *not* true that the graph is written only at
-  retrieval — precedents are written to it, and Aurora is written both during ETL (audit /
-  job-status, *before* any mapping decision) and after decisions. We left the
-  Neptune/FalkorDB code in place **in case they change their mind again** — flipping the
-  retrieval backend is one env var, not a rewrite.
+The dashboard is designed around the business decision rather than the
+underlying infrastructure:
 
-- **DynamoDB removed.** The 5-zone consolidation retired the DynamoDB tables (reviewer
-  queue, facts, audit, outbox) into Aurora schemas. Any doc, diagram, or `template.yaml`
-  parameter that still names DynamoDB is describing the pre-consolidation shape.
+1. A vendor file or product record enters the workflow.
+2. The interface shows normalisation, candidate retrieval, scoring, and the
+   confidence gate.
+3. The agent explains the candidate and the evidence it used.
+4. The reviewer sees the proposed mapping, alternatives, confidence, rationale,
+   and any policy or validation issue.
+5. The reviewer approves, overrides, or rejects the result.
+6. The decision becomes a reusable precedent for similar future products.
 
-- **Confidence bands are 0.80 / 0.70 — and the constant name misleads.** The live config
-  is `CONFIDENCE_FLOOR = 0.75` ± `BORDERLINE_HALF_WIDTH = 0.05`
-  (`backend/scudo_mapping_mcp/config.py:47,52`), yielding **PASS ≥0.80 / BORDERLINE
-  0.70–0.80 / FAIL <0.70**. The `0.75` is the band *centre*, **not** the pass edge — the
-  pass edge is `floor + half = 0.80`, computed via `pass_threshold()` which rounds to dodge
-  the `0.75 + 0.05 = 0.800000…1` float defect. Do **not** conflate this with the separate,
-  unrelated `orchestrator.py` `CONFIDENCE_FLOOR = 0.80` (the Zone 4 auto-approve gate).
-  `0.85 / 0.75` appearing in some OKF docs is **stale**.
+The review controls are intentionally visible even when a run has not yet
+produced a decision. A reviewer cannot approve a missing candidate or override
+without an available alternative.
 
-- **Agents: the approved diagram shows Azure; the code defaults to Bedrock.** This is a
-  genuine divergence, called out because the diagram and the code disagree. The
-  [5-zone diagram](docs/architecture/scudo-5zone-architecture.png) labels the agentic
-  layer **"Specialist (Azure)"** and **"Verifier (Azure)"** — that is the demo JPMC saw.
-  The **code default is Bedrock**: `SCUDO_AGENT_PROVIDER_DEFAULT` defaults to `bedrock`
-  (Claude Sonnet 5 via `BedrockModelId` / `SCUDO_BEDROCK_MODEL_ID`; the first
-  deployment in `954976331678` still runs Opus 4.8), and the Azure OpenAI
-  specialist+verifier shim is a deliberate, built path
-  switched on per-deploy (`SCUDO_AGENT_PROVIDER_DEFAULT=azure`) or per-request
-  (`agent_provider`) to reproduce exactly what the diagram depicts — see
-  `backend/scudo/DEPLOY.md` "Intelligent demo" (§62-69), which spells out the Azure
-  overrides. Both providers implement the same specialist+verifier pair; pick the provider
-  deliberately, and don't assume "the approved diagram ⇒ the running default."
+## Controlled self-improvement
 
-- **The percentage tri-band diamond is a rubric+floor gate.** The diagram's percentage
-  decision diamond is implemented as the deterministic rubric+floor gate above, with the
-  same three outcomes (auto-approve / HITL / reject). Same contract, deterministic
-  mechanism.
+SCUDO now has a governed foundation for improving both agent behaviour and
+matching-engine quality.
 
-- **MFT/DMS ingress and Datadog/Dynatrace observability are JPM-owned black boxes.** Per
-  the sign-off, the MFT→FTP gateway and vendor-S3/DMS ingress are JPM-owned; the repo stops
-  at the EventBridge/poller boundary. Observability is the CloudWatch-EMF shim
-  (`metrics.py`), not the JPM APM stack.
+### How it works
 
-Two honesty callouts that are *not* design choices — they are known, flagged, unconverged
-divergences in the code itself (see [`ZONES.md`](/architecture/ZONES.md) and
-[`infra/HANDOVER_5zone_alignment.md`](/architecture/infra/HANDOVER_5zone_alignment.md)):
+1. **Capture evidence.** Agent and deterministic-engine outcomes are stored as
+   structured trajectories with input, decision, provenance, and version data.
+2. **Curate a golden set.** Human-labelled examples are divided into training,
+   holdout, and adversarial cases. A holdout *evaluation* requires at least one
+   positive mapping example; abstention-only scenarios still load and remain
+   valuable adversarial evidence. Duplicate vendor/product identities across
+   splits are rejected.
+3. **Evaluate offline.** Candidate changes are measured for exact matching,
+   abstention recall, false auto-pass, calibration, Brier score, vendor
+   coverage, and taxonomy coverage. A product identity cannot appear in both the mined
+   training trajectories and the held-out evaluation partition.
+4. **Require approval.** A candidate must pass the holdout policy and receive
+   named approval before it can influence live prompts or skills.
+5. **Promote immutably.** The approved artifact is stored under a versioned
+   key, and a live pointer is updated only after the artifact is written.
+6. **Rollback by version.** Earlier approved artifacts remain identifiable and
+   can be restored by changing the live pointer.
+7. **Monitor promoted behavior offline.** A separate monitoring authority joins
+   predictions to authoritative outcomes and signs an immutable
+   `SignedMonitoringEnvelope` with its Ed25519 private key. The runtime monitor
+   receives only that envelope and configured audience, deployment, key ID, and
+   public key. It verifies the active UTC validity period and resolves every
+   signed observation against an immutable trajectory/audit source record before
+   evaluating fixed `monitor-v1` thresholds (20 total and 20 auto-pass
+   observations). Only complete windows atomically claim source events and
+   persist retain/rollback decisions. Insufficient samples, including zero
+   traffic, return `persisted=false` and claim nothing; the external scheduler
+   must retry until its deadline. `monitor-v1` never rolls back merely because
+   traffic is absent. Run the offline backend entrypoint with
+   `python -m scudo.scripts.monitor_promotion_window ENVELOPE.json --audience
+   AUD --deployment-id DEPLOYMENT --key-id KEY --public-key-file PUBLIC.pem`.
+   The scheduler and immutable source audit store are deployment prerequisites;
+   this repository deploys neither.
 
-- **Two audit-table names coexist:** `scudo.audit_events` (schema-qualified, in
-  `aurora_store.py`) vs unqualified `scudo_audit_events` (in `projection_handler.py`) —
-  legacy, not yet converged.
-- **Two HITL decision contracts** at the `…/decision` path — the Flask console shape vs
-  the 5-zone Lambda shape — convergence pending.
+Recording a trajectory does not change live matching. The deterministic matcher
+remains authoritative at request time, and legacy scalar-only skill records are
+quarantined rather than served to agents.
 
-Plus the deployed-PoC reality: **auth is dev-open** (closed-demo only) — see the loud gate
-in [What is NOT done](#what-is-not-done).
+Automatic predictions are valid only at confidence `>= 0.80`. Human teaching
+may create an exact-product precedent immediately, but generalized lessons stay
+quarantined as `rule_candidate` evidence until incorporated into a protected,
+evaluated, promoted artifact.
 
----
+### Offline evaluation command
 
-## Repo layout
-
-```
-backend/scudo_mapping_mcp/
-  ingestion_mcp.py         # MCP server :8001 - untrusted vendor in, normalise to VendorProductRef
-  match_verify_mcp.py      # MCP server :8002 - cost ladder + 3-band gate; emits sealed MappingResult
-  persistence_mcp.py       # MCP server :8003 - sole writer; verifies HMAC seal; publish gate
-  matching.py              # Cost ladder implementation (rungs 1-5, first-match-wins)
-  frames.py                # _read_vendor_frame (mock -> S3 cutover) + check_scope (rights/entitlement)
-  feedback.py              # M4 HITL write-back; approve/override/reject feeds precedent rank signal
-  validations.py           # M5 deterministic checks: scope_compatible, identifier_resolves, data_class_match
-  bundle.py                # M6 portable mapping bundle - versioned, diffable, cutover artifact
-  hydrate.py               # M6 hydration - replays canonical bundle from S3 into FalkorDB at boot
-  verdict.py               # HMAC-SHA256 verdict seal v=2; trust-gradient integrity contract
-  agent.py                 # M9 agent runner behind POST /api/mapping/agent/run; Opus-driven MCP tool use
-  models.py                # Pydantic contracts: MappingStatus, Candidate, MappingResult, etc
-  config.py                # Three-seam env-var contract; STORE_BACKEND selects falkordb | neptune
-  store/
-    base.py                # The seam - retrieval operations interface; never query strings
-    factory.py             # Single decision point: which backend, from config
-    falkordb_store.py      # FalkorDB backend - Cypher; Jaro-Winkler dense stub; pure-Python BM25
-    neptune_store.py       # Neptune backend - SigV4 SPARQL; find_similar_products is M9 PLACEHOLDER
-  tests/
-    smoke.py               # 86 mapping smoke gates - no pytest dependency
-    fake_store.py          # In-memory store for unit-level tests
-
-backend/
-  app.py                   # Flask entrypoint; auth, route registration, before_request hook
-  auth.py                  # Gateway-header principal resolver; AuthError -> 401
-  routes/mapping.py        # Flask REST surface that proxies the matcher (Match-Verify in-process today)
-  tests/test_auth.py       # 8 auth smoke tests
-  Dockerfile               # Single image, four entrypoints (Flask + 3 MCPs)
-  requirements.txt
-
-backend/scudo/
-  template.yaml             # us-east-1 SAM stack: API + ETL/EventBridge/SQS/S3 substrate (Aurora = source of truth)
-  lambda_handler.py         # API Gateway /run + /health; writes audit/outbox/review records when wired
-  etl_handler.py            # SQS-backed raw S3 object processor: clean canonical or quarantine
-  aurora_store.py           # Durable persistence via RDS Data API (audit, decisions, outbox, catalogue, lineage)
-  projection_handler.py     # Async projection Lambda: drains the transactional outbox
-  aws_resources.py          # Lazy boto3 adapter for audit/events/table writes
-  zones/                    # 5-zone re-export façade (no files move) — importable zone map; see ZONES.md
-    z1_ingestion/ … z5_persistence/   # each __init__.py re-exports the real modules for that zone
-
-infra/
-  scudo-dev-foundation.yaml  # VPC, IAM roles, Neptune, S3, ECR, Secrets, DynamoDB queue
-  scudo-dev-deploy.yaml      # ECS cluster, 5 services, ALB w/ 4 listener rules, Cloud Map
-  scudo-dev-build.yaml       # CodeBuild project + scoped service role
-  scudo-dev-frontend.yaml    # S3 + CloudFront with ALB passthrough (written, not deployed)
-  buildspec.yml              # Single-quoted-everywhere CodeBuild buildspec
-  scudo_post_deploy_smoke.sh # Hits /api/* + /mcp/*; dumps target-group health
-
-frontend/                    # React SPA (Vite); reviewer queue UI + provider/dataset admin
-
-docs/okf/scudo/              # navigable OKF knowledge bundle (start at index.md)
-```
-
----
-
-## Tests
-
-```
-86 mapping smoke tests   # cost ladder, scope gate, seal verify, store seam, bundle round-trip, fusion, hydrate
- 8 auth smoke tests      # gateway header + principal + 401 cases
-```
-
-The smoke runner is standalone — no pytest dependency. Run from `backend/`:
+From `backend/`, evaluate saved agent or matcher results against a JSONL golden
+set:
 
 ```bash
-python -m scudo_mapping_mcp.tests.smoke     # 86 mapping gates
-python -m tests.test_auth                   # 8 auth gates
+PYTHONPATH=. python -m scudo.scripts.evaluate_matching_golden \
+  --golden-set cases.jsonl \
+  --golden-version golden-2026-07-16 \
+  --predictions results.jsonl \
+  --candidate-version matcher-v2
 ```
 
-No golden-set evaluation harness is wired up yet. The smoke suite verifies wiring and invariants, not retrieval quality.
+The evaluator is report-only. It does not write Aurora, change thresholds, or
+promote an artifact.
 
-Separately, the Aurora agent memory, offline SkillOpt-Sleep tooling, rights/contract
-model, and the URL-ingest/Matching-Test-page work (see the sections below) are
-covered by hermetic `pytest` suites (no real AWS/network in any of them — Aurora
-calls, the `skillopt-sleep` CLI, and outbound URL fetches are all injected/faked).
+The offline promotion entry points require a structured holdout report and
+named approval; scalar scores fail closed. The scheduler's dry-run invokes the
+same promotion preflight as an apply run, but never writes an artifact or live
+pointer. A holdout *evaluation* with no positive mapping examples is rejected:
+correctly abstaining is important, but it does not demonstrate matching
+capability. A curated business golden set and a scheduled evaluation job are
+still deployment inputs.
+
+## Current experience
+
+### Upload and Test
+
+The primary dashboard flow supports:
+
+- CSV and JSON vendor uploads;
+- live ETL stage events;
+- candidate retrieval and matching;
+- agent activity and rationale;
+- confidence-band review;
+- approve, override, and reject actions;
+- repeat runs with reviewer-selected thresholds.
+
+### Matching Test
+
+The narrower `/matching-test` experience supports:
+
+- selecting an available agent provider;
+- uploading a vendor file;
+- ingesting a website URL through the guarded ingestion path;
+- watching the agent run;
+- inspecting the final authoritative matcher result.
+
+### Demonstration endpoints
+
+Known demonstration endpoints are documented here for stakeholder review. Use
+synthetic data only, and treat these as closed demonstrations until the
+authentication and deployment controls in [Open work and limits](#open-work-and-limits)
+are completed.
+
+- [Stakeholder dashboard](https://dp4ji14se0pct.cloudfront.net/cogJPMdemo/)
+- [Dashboard deployment](https://d2im563be0sl1r.cloudfront.net/demo/)
+- [Matching Test](https://d2im563be0sl1r.cloudfront.net/matching-test)
+- [Multi-vendor catalogue console (LSEG entry)](http://data-matching-console-1261515569.us-east-1.elb.amazonaws.com/app/catalogue?vendor=lseg) — mirror of this project with a broader vendor set
+
+## How matching works
+
+The matcher uses a first-match-wins cost ladder:
+
+1. **Scope:** check whether the product is eligible for the requested
+   catalogue context.
+2. **Precedent:** reuse a confirmed human decision when one exists.
+3. **Retrieval:** find and rank a bounded set of catalogue candidates.
+4. **Validation:** run deterministic checks against the leading candidate.
+5. **Confidence gate:** classify the result as PASS, BORDERLINE, or FAIL.
+6. **Specialist, when appropriate:** use an agent only in the borderline
+   window and keep it anchored to the retrieved candidates.
+7. **Review or persistence:** clear results proceed through the applicable
+   publish controls; uncertain results go to human review.
+
+The default business bands are:
+
+| Band | Default score | Meaning |
+|---|---:|---|
+| PASS | `>= 0.80` | Strong candidate, subject to validation and publish controls. |
+| BORDERLINE | `0.70 - <0.80` | Evidence is useful but not decisive; specialist or human review may be required. |
+| FAIL | `<0.70` | Insufficient confidence for unattended mapping. |
+
+The public REST path requires specialist confirmation for borderline cases. Some
+library and agent paths use the configured floor as a fallback when no
+specialist is available. This is an implementation distinction, not a change to
+the business policy that uncertain work must remain reviewable.
+
+## Human review and feedback
+
+Human review is a control point, not an exception path.
+
+- **Approve** confirms the proposed mapping.
+- **Override** records a different catalogue node.
+- **Reject** records that the candidate is not suitable.
+
+Decisions are bound to the authenticated reviewer, retain the source and
+decision provenance, and can influence future candidate ranking through a
+precedent overlay. The graph store is a retrieval index; it is not the
+authoritative record of what the business decided.
+
+## Data and catalogue scope
+
+The catalogue model supports both:
+
+- business catalogue concepts such as products, datasets, distributions,
+  services, delivery channels, fields, and taxonomies;
+- rights and contract concepts such as parties, contracts, policies, duties,
+  permissions, obligations, and documents.
+
+Rights and scope checks are deterministic and fail closed. Similarity alone
+does not grant entitlement. The rights graph is available as context, but the
+current matching product should not be described as a complete automated
+licence or entitlement decision system.
+
+Vendor ingestion currently supports the normalised frame contract used by the
+matching engine, with adapters for CSV, JSON, XML, XLSX, and guarded URL
+ingestion paths. Source hashes and audit identifiers are preserved when the
+upstream source provides them.
+
+## Current status
+
+### Implemented and verified
+
+- Deterministic matching cost ladder with scope, precedent, retrieval,
+  validation, confidence, and specialist seams.
+- Scripted, Bedrock, and Azure agent runtime options behind a common event
+  contract.
+- Browser-facing upload, matching, agent, and human-review workflows.
+- Aurora-backed agent memory with fail-open reads and fail-loud writes.
+- Structured agent and matching-engine trajectories.
+- Versioned golden-set evaluator with holdout leakage protection.
+- Named-approval and immutable-artifact promotion boundary.
+- Rollback-compatible versioned live skill records.
+
+### Required before broader external use
+
+- Curated, representative business golden sets, including adversarial cases.
+- A scheduled evaluation and approval workflow for self-improvement.
+- Replacement or calibration of the current string-similarity stand-in with
+  production semantic retrieval.
+- A complete Neptune retrieval implementation if Neptune is selected as a
+  deployment backend.
+- Production identity enforcement at the gateway and removal of dev-open auth.
+  The persistence MCP's write tools now fail closed behind
+  `SCUDO_PERSIST_WRITE_TOKEN`, but that authenticates a *service*, not a person:
+  a token holder can still record a decision under any `decided_by` it chooses.
+- Durable reviewer-queue persistence for the separated MCP deployment shape.
+- Deployment of the latest SSE heartbeat and dashboard assets where required.
+- Temporal matching is built but not yet reachable on real data. The comparator
+  and its `SCUDO_TEMPORAL_VALIDATION` flag exist and are tested, but the DCAT
+  loader drops `temporal_coverage` before it reaches a `TaxonomyNode`, so the
+  check passes by default in a live run. Two products identical in name but
+  covering different periods are still indistinguishable to the engine.
+- The Lambda HITL approve path writes `mapping_result` from the request body
+  straight to the catalogue without running the deterministic publish gate, so a
+  malformed IRI can reach the projection table by a route the auto-publish path
+  rejects.
+
+These are explicit boundaries, not hidden assumptions. The repository is
+designed so they can be addressed without allowing unvalidated learning to
+change live mappings.
+
+## Quick start
+
+**No database, no container, no AWS credentials.** One command:
+
+```bash
+pip install -r backend/requirements.txt
+python start_local.py
+```
+
+Then open **<http://localhost:3000>** — that is the UI. The backend on :5000 is
+not the app; opening it directly is the most common false alarm.
+
+Port 5000 is occupied on macOS by AirPlay Receiver, and by some corporate
+agents. If the server starts but nothing loads:
+
+```bash
+PORT=5055 VITE_API_PROXY=http://localhost:5055 python start_local.py
+```
+
+`start_local.py` sets the environment **before** importing `app.py`. That
+ordering is load-bearing: launching `python app.py` directly leaves the auth
+gate unconfigured, every `/api/*` call returns 401, and the UI renders its shell
+with no data — the "only one page opens" symptom. `start_all.sh` now delegates
+here for the same reason.
+
+### What runs with nothing installed
+
+Verified end to end from a clean checkout: ingest a vendor file, run the
+matcher, get a banded result against a real CDAO node. No FalkorDB, no Neptune,
+no MySQL, no PostgreSQL, no Bedrock.
+
+| Page | Works offline? |
+|---|---|
+| Matching Test, Upload and Test, Catalogue | yes |
+| Providers, Datasets, Admin, Ingestion | yes — via the SQLite stand-in below |
+
+Defaults chosen for you by `start_local.py`:
+
+| Variable | Value | Effect |
+|---|---|---|
+| `STORE_BACKEND` | `scipy_sqlite` | full matching ladder and HITL state in `backend/.local/scudo_matching.sqlite3` |
+| `SCUDO_SCIPY_SQLITE_PATH` | `backend/.local/scudo_matching.sqlite3` | matching database; separate from the console database |
+| `CONSOLE_DB_BACKEND` | `sqlite` | console pages run with no PostgreSQL — [`backend/db_sqlite_fallback.py`](backend/db_sqlite_fallback.py), standard library only |
+| `FRAME_SOURCE` | `mock` | bundled sample vendor data instead of S3 |
+| `SCUDO_AUTH_ALLOW_DEV` | `1` | local dev principal, so `/api/*` does not 401 |
+
+Unset `CONSOLE_DB_BACKEND` and the console reverts to real PostgreSQL/Aurora
+via `CONSOLE_DB_*`; `docker compose up postgres` provides that locally. The
+SQLite path is read at call time, so deployed behaviour is unchanged.
+
+`scipy_sqlite` is a single-host backend. Do not put its database on a shared
+network filesystem or use it as a multi-container replacement for the deployed
+FalkorDB/Neptune topology. It is not activated in Lambda merely by setting
+`STORE_BACKEND`; Lambda use requires the explicit `SCUDO_USE_RETRIEVAL_STORE`
+flag and a healthy, pre-seeded taxonomy.
+
+The matching-store factory accepts five backends: `scipy_sqlite`, `local_file`,
+`memory`, `falkordb`, and `neptune`. For local startup, `scipy_sqlite` is the
+default complete matching store: taxonomy, retrieval indexes, HITL decisions,
+precedents, and audit state persist in one SQLite database. `local_file`
+remains the simpler precedent-only fallback; it journals reviewer precedents
+but does not provide the complete SQLite matching-store contract.
+
+### Health endpoints
+
+`/healthz` — liveness. `/readyz` — readiness; it returns **503 until the CDAO
+taxonomy has been seeded**, which happens lazily on the first `/api/*` request,
+then 200. A cold 503 is the probe working, not a failure. There is no `/health`.
+
+### Beyond the laptop
+
+The full trust-gradient deployment — FalkorDB plus the three MCP services — is
+described in ``backend/scudo/DEPLOY.md``. Neptune is
+reachable only from an appropriate AWS network. Neither is needed for anything
+above.
+
+To use Bedrock instead of the offline narrator, set `SCUDO_AGENT_BACKEND` and
+`SCUDO_AGENT_PROVIDER_DEFAULT` to `bedrock` with your `AWS_REGION` and
+`SCUDO_BEDROCK_MODEL_ID`. Note what this does and does not change: it selects the
+**narrating agent** only. It does not decide how the score is computed — that
+is `SCUDO_DENSE_BACKEND`, an independent lever. Both shipped launchers
+(`streamlit_app.py`, `run_cognizant.py`) set it to `opus`, where an LLM
+supplies the candidate similarity that becomes the published confidence. For a
+deterministic Jaro-Winkler score, set `SCUDO_DENSE_BACKEND=jaro_winkler` and
+leave `SCUDO_USE_OPUS_DENSE` unset.
+
+## API entry points
+
+The main browser and integration surfaces are:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/mapping/ingest/stream` | Upload and observe normalisation stages. |
+| `POST /api/mapping/map` | Run the deterministic matcher for one product. |
+| `POST /api/mapping/agent/run` | Stream an agent-assisted matching run over SSE. |
+| `POST /api/mapping/decision` | Approve, override, or reject a decision. |
+| `GET /api/mapping/graph` | Read the dashboard's matching architecture payload. |
+| `GET /api/mapping/agent/describe` | Inspect configured agent providers. |
+
+The matcher package and MCP services expose the same typed contracts to
+automation clients. Raw Cypher, SPARQL, and unrestricted graph queries are not
+agent-facing tools.
+
+## Where the code lives
+
+Two folders sit under `backend/`. Telling them apart answers most "where is
+the agent?" questions:
+
+| Folder | What it holds | When it runs |
+|---|---|---|
+| `backend/scudo_mapping_mcp/` | **The product** — the agent, the matching engine, the catalogue and review logic | Always |
+| `backend/scudo/` | **The AWS wiring** — Lambda, cloud memory, deployment | Only in AWS |
+
+Running it on a laptop or on Streamlit uses the first folder. You can ignore
+the second.
+
+### The four things people look for
+
+Everything below is in `backend/scudo_mapping_mcp/`.
+
+| Looking for | File | In one line |
+|---|---|---|
+| **The agent** | `agent.py` | Explains the match. Two versions: an offline narrator, and Claude via Bedrock |
+| **The agent's tools** | `agent.py` (also `mcp_server.py`) | Six tools it may call — search the catalogue, read a taxonomy node, compare candidates, run the match |
+| **The matching engine** | `matching.py` | Produces the score, the band, and the mapped node |
+| **The memory** | `store/` and `feedback.py` | Reviewer decisions become precedents the next match reuses |
+
+**The narrating agent does not decide the score.** The matching engine does,
+and it is the system of record: the agent's recommendation never overrides it.
+The agent can be switched off entirely without changing a single number.
+
+That is a statement about the *agent selector*, not about whether a model is
+involved in scoring. Those are separate levers, and conflating them was a
+documented defect in this repo. Whether the number is deterministic depends on
+the **dense arm**:
+
+| Dense arm | Score |
+|---|---|
+| `SCUDO_DENSE_BACKEND=jaro_winkler`, `SCUDO_USE_OPUS_DENSE` unset | Deterministic string similarity — the same product scores the same every time |
+| `SCUDO_DENSE_BACKEND=opus` (**what both launchers ship**) | An LLM scores each nominated candidate and that float becomes the published confidence — it can vary between runs and between models |
+| `SCUDO_USE_OPUS_DENSE=1` | Also an LLM, via a different code path that ignores `SCUDO_DENSE_BACKEND` entirely |
+
+A third lever, `SCUDO_SPECIALIST_BACKEND`, adds LLM adjudication of borderline
+cases on either agent, and can cap confidence and force review.
+
+The score is auditable in every configuration; it is only *deterministic* in
+the first row.
+
+The agent also answers one question at a time about one product. It is not a
+chatbot you can ask anything.
+
+### If you need more detail
+
+| Concern | File |
+|---|---|
+| Which retrieval store is in use (`memory`, `local_file`, FalkorDB, Neptune) | `store/factory.py` |
+| Durable local memory that survives a restart | `store/local_file_store.py` |
+| Reviewer approve / override / reject | `feedback.py` |
+| Reading and normalising vendor files | `ingest.py`, `frames.py`, `url_ingest.py` |
+| Business rules applied to a candidate | `validations.py` |
+| Confidence thresholds | `config.py` |
+| Signed verdicts and the write boundary | `verdict.py`, `persistence_mcp.py` |
+
+In `backend/scudo/` (AWS only): `lambda_handler.py` for cloud entry points,
+`orchestrator.py` for the publish gate, `aurora_memory.py` and
+`aurora_store.py` for cloud memory. Note that cloud memory is **not** used by
+the local or Streamlit run — that uses `store/local_file_store.py` instead.
+
+## Technical architecture
+
+The approved target architecture has five business-relevant zones:
+
+| Zone | Responsibility | Representative code |
+|---|---|---|
+| 1. Sources and ingestion | Receive vendor metadata and create normalised records. | `backend/scudo_mapping_mcp/ingest.py`, `backend/scudo_mapping_mcp/frames.py`, `backend/scudo_mapping_mcp/url_ingest.py` |
+| 2. Processing | Validate, clean, quarantine, land, and audit source data. | `backend/scudo_mapping_mcp/validations.py`, `backend/scudo/etl_handler.py` |
+| 3. Matching engine | Retrieve candidates, apply policy, score, validate, and gate. | `backend/scudo_mapping_mcp/matching.py`, `backend/scudo_mapping_mcp/store/` (`matcher_bridge.py` is the Lambda-side adapter — not on the Flask/Streamlit path) |
+| 4. Agentic layer | Provide contextual reasoning, specialist assistance, and verification. | `backend/scudo_mapping_mcp/agent.py` (the agent you run), `backend/scudo/orchestrator.py` (AWS publish gate) |
+| 5. Persistence and review | Store decisions, audit, lineage, memory, and review outcomes. | `backend/scudo/aurora_store.py`, `backend/scudo/aurora_memory.py`, `backend/scudo_mapping_mcp/feedback.py` |
+
+Aurora PostgreSQL is the target system of record. FalkorDB, Neptune, or the
+in-memory backend provides retrieval according to `STORE_BACKEND`; these stores
+are not authoritative for business decisions.
+
+The three MCP services are:
+
+- **Ingestion:** normalises vendor input and provides bounded frame context.
+- **Match-Verify:** provides bounded catalogue evidence and signed deterministic
+  verdicts.
+- **Persistence:** verifies verdicts and owns the write boundary for the
+  separated MCP deployment shape.
+
+The current Flask deployment often calls these package functions in-process.
+The networked MCP topology remains available for the trust-gradient deployment
+shape. Both shapes preserve the same bounded operation contracts.
+
+## Repository guide
+
+```text
+backend/scudo_mapping_mcp/   Matching engine, agent and its tools, MCPs,
+                              catalogue models, stores, reviewer feedback
+backend/scudo/                Orchestrator, Lambda substrate, Aurora memory,
+                              self-improvement, deployment scripts
+                              (AWS only — not used by the local run)
+backend/routes/               Flask REST facade
+frontend/                     React console and matching-test experience
+dashboard-dist/               Vendored dashboard build
+infra/                        AWS infrastructure and deployment runbooks
+docs/architecture/            Approved architecture diagrams and UML sources
+docs/okf/scudo/               Navigable project knowledge base
+ZONES.md                      Module-to-zone map
+start_local.py                One-command local run (sets env before import)
+backend/db_sqlite_fallback.py Console DB stand-in — no PostgreSQL, no Docker
+```
+
+### Handover documents
+
+| Document | For |
+|---|---|
+| [`JPMC_LOCAL_RUN_HANDOVER.md`](/architecture/JPMC_LOCAL_RUN_HANDOVER.md) | Running locally without infrastructure: what is already resolved, what changed and why, per-item evidence. |
+| [`JPMC_PORT_TYPE_IN.md`](/architecture/JPMC_PORT_TYPE_IN.md) | Carrying those changes into `jpmc-port/` by hand. Tiered FIND/TYPE instructions, dry-run verified against the port's own files. |
+| [`CITRIX_FOLLOWUP.md`](/architecture/CITRIX_FOLLOWUP.md) | Corrections after a Citrix-side apply: health-endpoint names, the `falkordb` spelling, switching on the SQLite stand-in. |
+
+## Self-improvement implementation map
+
+| Capability | Location |
+|---|---|
+| Golden cases, metrics, and promotion contracts | `backend/scudo/matching_self_improvement.py` |
+| Report-only evaluator | `backend/scudo/scripts/evaluate_matching_golden.py` |
+| Agent memory and trajectory persistence | `backend/scudo/aurora_memory.py` |
+| Deterministic-engine trajectory adapter | `backend/scudo/aurora_memory.py` |
+| Strict offline sleep cycle | `backend/scudo/skillopt_sleep_runner.py` |
+| Live prompt skill pinning | `backend/scudo/schemas.py`, `orchestrator.py`, `lambda_handler.py` |
+
+## Testing and verification
+
 Run from `backend/`:
 
 ```bash
-python -m pytest scudo/tests/ scudo_mapping_mcp/tests/ tests/ -v
+# Focused self-improvement and memory coverage
+PYTHONPATH=. pytest \
+  scudo/tests/test_matching_self_improvement.py \
+  scudo/tests/test_aurora_memory.py \
+  scudo/tests/test_lambda_handler_memory_wiring.py \
+  scudo/tests/test_skillopt_sleep_runner.py -q
+
+# Full SCUDO and matching-engine coverage
+PYTHONPATH=. pytest scudo/tests scudo_mapping_mcp/tests -q \
+  --disable-warnings --maxfail=10
 ```
 
----
+On July 16, 2026, the focused suite passed 76 tests. The broader SCUDO and
+matching-engine run passed 494 tests and had two known failures in
+`scudo/tests/test_provenance.py` caused by pre-existing forbidden Marketing
+content in the generated conceptual graph. Those failures are unrelated to the
+self-improvement implementation.
 
-## Run locally
-
-The integrated backend doesn't ship a root `docker-compose.yml` yet (#14 follow-up). For now, start FalkorDB by hand and run each service from a Python venv.
+Additional standalone smoke suites are available:
 
 ```bash
-# 1. FalkorDB sidecar (Docker Desktop or `falkordb/falkordb` directly in WSL)
-docker run -d --name falkordb -p 6379:6379 falkordb/falkordb:v4.10.4
-
-# 2. Backend (Flask + 3 MCPs share one image, four entrypoints)
-cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-export STORE_BACKEND=falkordb
-export FALKORDB_URL=falkordb://localhost:6379
-export VERDICT_SIGNING_KEY=dev-only-not-a-real-secret
-export SCUDO_AUTH_ALLOW_DEV=1
-export SCUDO_AUTH_DEV_PRINCIPAL=local@dev
-
-# Each MCP is its own entrypoint; run in separate terminals (or backgrounded):
-python -m scudo_mapping_mcp.ingestion_mcp        # :8001
-python -m scudo_mapping_mcp.match_verify_mcp     # :8002
-python -m scudo_mapping_mcp.persistence_mcp      # :8003
-
-# Flask SPA + REST (in another terminal):
-gunicorn -b 0.0.0.0:5000 -k gthread --threads 4 --timeout 300 app:app
-
-# 3. Frontend (in another terminal)
-cd ../frontend
-npm install && npm run dev
+PYTHONPATH=. python -m scudo_mapping_mcp.tests.smoke
+PYTHONPATH=. python -m tests.test_auth
 ```
 
-Switching to Neptune locally is not supported — Neptune is reachable only from inside the VPC.
+The root `backend/tests/test_ingest_*.py` files currently have a pytest
+collection-path issue involving `_ingest_helpers`; use the relevant standalone
+test command or exclude those files while that test-infrastructure issue is
+resolved.
+
+## Deployment and operating references
+
+Use the detailed runbooks for deployment rather than copying commands from this
+overview:
+
+- ``backend/scudo/DEPLOY.md`` - SAM/Lambda deployment
+  and required Aurora inputs.
+- [`infra/DEPLOY_RUNBOOK_scudo-poc.md`](/architecture/infra/DEPLOY_RUNBOOK_scudo-poc.md) -
+  CloudShell deployment, smoke checks, and rollback.
+- [`infra/HANDOVER_5zone_alignment.md`](/architecture/infra/HANDOVER_5zone_alignment.md) -
+  why Aurora is the target system of record.
+- [`ZONES.md`](/architecture/ZONES.md) - module-to-zone ownership.
+- [`docs/architecture/README.md`](/architecture/docs/architecture/README.md) - approved
+  architecture diagrams and UML sources.
+- ``docs/okf/scudo/index.md`` - navigable knowledge
+  base covering architecture, operations, specifications, and plans.
+
+## Open work and limits
+
+The following items should be treated as explicit delivery gates:
+
+1. **Retrieval quality:** the default dense arm is currently Jaro-Winkler
+   string similarity, not a calibrated production embedding model. Thresholds
+   must be recalibrated when the scoring backend changes.
+2. **Golden data:** the evaluator is implemented, but a representative,
+   approved business golden set and scheduled evaluation process are not
+   included in this repository.
+3. **Self-improvement operations:** the offline evaluator and promotion boundary
+   are implemented; the default optimizer/evaluator integration and scheduled
+   AWS job remain operator-owned.
+4. **Neptune:** the Neptune retrieval implementation is not complete enough to
+   treat it as a production matching backend.
+5. **Identity:** the current demo posture can allow dev-open authentication.
+   External exposure requires a trusted gateway identity boundary and removal
+   of the dev bypass.
+6. **Reviewer queue:** the separated Persistence MCP currently has an
+   in-memory reviewer queue; durable queue wiring remains open.
+7. **Test debt:** the two provenance failures and the ingest test collection
+   issue described above remain visible and should not be hidden.
+
+## Glossary
+
+| Term | Meaning |
+|---|---|
+| CDAO catalogue | The client-owned taxonomy and related catalogue/rights model that products are mapped into. |
+| HITL | Human-in-the-loop review for uncertain or policy-sensitive decisions. |
+| Precedent | A confirmed human decision reused as evidence for a later similar product. |
+| Golden set | Versioned, human-labelled examples used to evaluate matching changes. |
+| Holdout set | Examples kept out of training or candidate generation and used for promotion evaluation. |
+| Confidence band | The policy classification of a match as PASS, BORDERLINE, or FAIL. |
+| MCP | Model Context Protocol service exposing bounded, typed operations to agents. |
+| Trajectory | A structured record of an input, decision, evidence, and versions used for offline analysis. |
+
+## Source of truth
+
+This README is the business and engineering index. Detailed implementation
+decisions belong in the linked architecture diagrams, specifications, plans,
+and deployment runbooks. When those documents disagree, use the current code
+and the approved architecture sources, then record the decision in the relevant
+specification.
 
 ---
 
-## Deploy to AWS cloudboost account
+# Appendix A — Why the local run needs no infrastructure
 
-Current connected account: `954976331678` (`cb4115669a-genaipocs-aw`) in `us-east-1`.
-There is a **second, separate live deployment** in a different AWS account —
-see [Second live deployment](#second-live-deployment-account-426271381846-us-east-1)
-below. The two do not share any infrastructure; neither promotes to the other.
+Three sessions independently set out to "remove MySQL, FalkorDB and Neptune"
+before anyone ran the system to see whether they were load-bearing. They were
+not. What follows is the measured position, so the fourth session does not
+repeat it.
 
-> **Operational runbooks** (CloudShell, for an operator with AWS creds — the
-> local repo has none):
-> - `infra/DEPLOY_RUNBOOK_scudo-poc.md` — full deploy (clone → dashboard sync →
->   backend image → smoke → security gates → rollback).
-> - `infra/build_dashboard_dist.sh` / `infra/deploy_dashboard_cloudshell.sh` —
->   build+vendor the dashboard / publish to S3 `/demo/` + invalidate.
-> - `infra/REDEPLOY_NOTE_branding.md` — re-publish to both `/demo/` and the
->   base-rewritten `/cogJPMdemo/` path.
-> - `infra/SMOKE_upload_flow_live.md` — live Upload & Test smoke (curl SSE +
->   browser); `infra/SMOKE_FIXES_round1.md` — round-1 findings + fixes.
+| Component | Actual state |
+|---|---|
+| MySQL | Already gone. Zero `mysql`/`pymysql` imports. `db.py` targets Aurora PostgreSQL — the MySQL→Aurora migration already happened. |
+| FalkorDB | Lazy-imported in two production files (`store/falkordb_store.py`, `store/factory.py`; three more are tests), reachable only through `factory.py`'s branch. Never loaded under `STORE_BACKEND=local_file`. |
+| Neptune | Same: lazy, unused locally. |
+| Bedrock | Every `boto3` import is lazy. The app imports and runs with no credentials. |
 
-The deployable AIA stack is ``backend/scudo/template.yaml``. It matches the target diagram's first AWS slice: raw/clean/quarantine/catalog S3 buckets, EventBridge + SQS routing, ETL Lambda, **Aurora PostgreSQL as the persistence layer** (audit / facts / job-status / human-review / transaction-outbox — all schema-qualified tables, **not** DynamoDB), and the Bedrock-backed matching Lambda/API. See ``backend/scudo/DEPLOY.md`` for exact CloudShell commands.
+Nothing was commented out, and that was deliberate — `store/factory.py:20-32`
+records the reasoning. The branches stay active because the AWS deploys set
+`STORE_BACKEND=falkordb` and would break without them; being lazy imports, they
+cost a local run nothing.
 
-> **This is the biggest deploy-time divergence from the git history.** The template
-> **requires** `AuroraClusterArn` + `AuroraSecretArn` (no default — the deploy fails
-> without them) *precisely because the DynamoDB tables were removed* in the 5-zone
-> consolidation (`template.yaml` comments this at the parameter and at line 368). Any
-> older diagram or doc that still shows DynamoDB audit/facts/HITL/outbox tables is
-> pre-consolidation. See [Where this diverges](#where-this-diverges-from-the-code-on-git-and-why).
+**`falkordb_store.py` must stay on disk even though the database is unused:**
+the default scoring path imports `_jaro_winkler` from that file. The *pip
+package* is not required — its import lives inside a method.
 
-```mermaid
-flowchart LR
-    raw[S3 raw feed] --> eb[EventBridge object-created rule]
-    eb --> q[SQS ETL queue]
-    q --> etl[ETL Lambda worker]
-    etl --> clean[S3 clean canonical metadata]
-    etl --> quarantine[S3 quarantine]
-    etl --> facts[Aurora: facts + job tracking]
-    api[API Gateway /run] --> match[SCUDO matching Lambda]
-    match --> audit[Aurora: audit log]
-    match --> review[Aurora: human review]
-    match --> outbox[Aurora: transaction outbox]
-    match --> bus[SCUDO EventBridge bus]
-    bus --> projection[SQS projection queue]
+### The real cause of "FalkorDB keeps being asked for"
+
+Not the branches — the **default**. `STORE_BACKEND` defaulted to `"falkordb"`,
+so any entry point that set no environment tried to open a connection on :6379.
+`start_all.sh` set no environment at all, which is why the obvious script kept
+demanding a database nobody wanted.
+
+Two fixes: the default is now `local_file`, and `start_all.sh` delegates to
+`start_local.py` rather than keeping a second env block that silently diverged.
+Changing the default is safe because **every deployed path sets the variable
+explicitly** — verified across `backend/Dockerfile`, `infra/scudo-dev-deploy.yaml`
+(four containers), `infra/scudo-poc-app.yaml`, and `backend/scudo/template.yaml`.
+
+### And "only one page opens"
+
+Also an environment problem, not a database one. `start_all.sh` used to run
+`python3 app.py` directly, leaving the auth gate unconfigured, so every
+`/api/*` call returned 401 while the UI shell rendered normally. Port 5000 is
+separately occupied on macOS by AirPlay Receiver.
+
+### The console database
+
+Providers, Datasets, Admin and Ingestion are the only pages needing a
+relational store — 74 `execute()` calls over 9 tables — and they returned 500
+without PostgreSQL. [`backend/db_sqlite_fallback.py`](backend/db_sqlite_fallback.py)
+is a file-backed stand-in using only the standard library.
+
+It was cheap because the route SQL is nearly dialect-free: `%s`→`?`,
+`SERIAL`→`INTEGER`, `TIMESTAMPTZ`/`JSONB`→`TEXT`. `RETURNING` and
+`ON CONFLICT` are native in SQLite 3.35+ and pass through untouched. The hook
+lives in `db.py`'s two connection functions and is read at **call** time, so
+**no route code changed** and the deployed Aurora path is byte-for-byte
+unaffected.
+
+Limits, stated rather than hidden: no schemas (`console.`/`ingestion.` collapse
+into one namespace); the PL/pgSQL `updated_at` trigger is skipped, so that
+column does not self-update; single writer. Sized for one person running a
+demo, which is the stated need.
+
+---
+
+# Appendix B — Why gates are deterministic, not advisory
+
+A check that is computed but never acted on is not a gate. Two were found here,
+both by adversarial review rather than by testing.
+
+`Orchestrator._pre_verify_defects` returns a list of defect strings. That list
+was only ever **concatenated into the verifier model's prompt**. Nothing
+enforced it. A verifier that scored well and ignored the injected text
+published anyway. Measured, before the fix:
+
+```
+specialist proposes a node never offered in bundle.candidates
+  -> OUTCOME: PUBLISHED | published: 1
 ```
 
-Aurora is **required** (`AuroraClusterArn` + `AuroraSecretArn`, no default — supply an
-existing cluster; the stack does not create one). The other cost-bearing always-on stores
-are optional seams, exposed as parameters and empty by default: `NeptuneSparqlEndpoint`
-and `OpenSearchEndpoint`. Pass existing endpoints during deploy when those managed stores
-are ready.
+The consequence is not cosmetic: the model could map a vendor product to **any
+CDAO node it invented**, and no confidence score catches that — an invented
+node scores however the model says it does.
 
-### Second live deployment (account `426271381846`, us-east-1)
+Two checks were therefore promoted into `_gate_and_decide`, where no model
+opinion can override them:
 
-A separate AWS account also runs the full stack at the same deployed commit
-(`848f104`) — independent infrastructure, not connected to the `954976331678`
-deployment above and not a promotion pipeline between them. Built and deployed
-from AWS CloudShell (`/home/cloudshell-user/matchmaker-deploys/`), the same
-no-local-creds pattern as the primary account.
+- `vendor_product_iri` must equal the deterministically minted value. It is the
+  primary key of the published record, and the publish gate's IRI-shape check
+  only inspected *triple subjects*, never this field.
+- `proposed_target_iri` must be one of the offered candidates.
 
-- **CloudFront:** `https://d2im563be0sl1r.cloudfront.net` (distribution `E3FLKLK9JY9832`)
-- **S3 (frontend):** `scudo-poc-frontend-426271381846`
-- **ECR:** `scudo-poc-console-backend` (tags `848f104`, `latest`)
-- **Stacks:** `scudo-poc-net` (`backend/scudo/network-falkordb.yaml`),
-  `scudo-poc-data` (`backend/scudo/data-platform.yaml`), `scudo-poc-foundation`
-  (`infra/scudo-poc-foundation.yaml`), `scudo-poc` (`infra/scudo-poc-app.yaml`),
-  `scudo-poc-frontend` (`infra/scudo-poc-frontend.yaml`)
+The candidate check was initially written `if target and candidates and target
+not in candidates` — **fail-open**: an empty candidate list published anything.
+That is precisely the case with the least grounding, so it now fails closed on
+both degenerate shapes.
 
-Live paths: root React app at `/`, Matching Test at `/matching-test`, dashboard
-demo at `/demo/`, health at `/healthz`, provider info at
-`/api/mapping/agent/describe`.
+**The generalisable rule: adding a check to `_pre_verify_defects` does not
+enforce it.** Enforcement belongs in `_gate_and_decide`. Three other checks
+there (evidence, source IRIs, band consistency) remain advisory by design and
+are commented as such.
 
-Build/publish steps run from CloudShell: backend image built from
-`backend/Dockerfile` and pushed to ECR; `frontend/` built with
-`npm ci && npm run build` and synced to the S3 bucket root; `dashboard-dist/`
-synced to `s3://scudo-poc-frontend-426271381846/demo/`, with an explicit
-`demo/` object key written from `dashboard-dist/index.html` so `/demo/` serves
-the dashboard instead of falling through to the root SPA.
+### Related: frames are authoritative
 
-See [Second deployment — status](#second-deployment-426271381846--status)
-below for smoke results and known gaps.
-
-### Legacy ECS dev sandbox
-
-Target: `954976331678` / `eu-west-2` (Cognizant cloudboost). **Not JPMC.**
-
-> **Pre-5-zone shape — read as historical.** This sandbox predates the Aurora
-> consolidation: its `scudo-dev-foundation.yaml` genuinely provisions a **Neptune
-> cluster** and a **DynamoDB reviewer queue**, so the DynamoDB/Neptune mentions below are
-> real *for this legacy stack* — they are **not** the current AIA target (which is Aurora,
-> above). Kept for the `eu-west-2` sandbox and as the "in case they change their mind"
-> graph path; do not deploy this for a JPMC 5-zone stand-up.
-
-```mermaid
-flowchart LR
-    s1[1. Foundation stack<br/>scudo-dev-foundation.yaml] --> s2[2. CodeBuild stack<br/>scudo-dev-build.yaml]
-    s2 --> s3[3. Trigger build<br/>aws codebuild start-build]
-    s3 --> s4[4. Deploy stack<br/>scudo-dev-deploy.yaml<br/>ECS Fargate + ALB]
-    s4 --> s5[5. Post-deploy smoke<br/>scudo_post_deploy_smoke.sh]
-```
-
-1. **Foundation** — `infra/scudo-dev-foundation.yaml` creates the VPC (2 public + 2 private subnets), three IAM task roles enforcing the trust gradient, Bedrock + ECR + CloudWatch Logs interface endpoints, Neptune cluster, S3 frames bucket, ECR repo, KMS-encrypted Secrets Manager signing key (M-V + Persistence read, Ingestion explicit-Deny), DynamoDB reviewer queue.
-2. **CodeBuild stack** — `infra/scudo-dev-build.yaml` provisions the CodeBuild project. One-time GitHub credential setup is required for private repos (`aws codebuild import-source-credentials --auth-type PERSONAL_ACCESS_TOKEN --server-type GITHUB --token <ghp_xxx>`) OR temporarily flip the repo public.
-3. **Trigger build** — `aws codebuild start-build --project-name scudo-dev-build`. Cold build is ~70s; pushes both `:SHORT_SHA` and `:latest` to ECR.
-4. **Deploy** — `infra/scudo-dev-deploy.yaml` creates the Fargate cluster, five services (Flask + 3 MCPs + FalkorDB), ALB with four listener rules, and Cloud Map private DNS for `falkor.scudo.local`.
-5. **Smoke** — `infra/scudo_post_deploy_smoke.sh` hits the four ALB-backed paths and dumps target-group health. Exits 0 only when every probe is non-5xx AND every target group has ≥1 healthy target.
-
-Frontend stack (`infra/scudo-dev-frontend.yaml`) covers S3 + CloudFront with ALB passthrough. Written, not yet deployed.
+Frame resolution exists in **three files** that must agree —
+`routes/mapping.py:242`, `match_verify_mcp.py:255` (`_resolve_frame`, with a
+thin `_frame` wrapper at `:308`), and `mcp_server.py:127`. All three now
+ignore caller-supplied `name`/`description` unless
+`SCUDO_MV_ALLOW_INLINE_FRAME` is set, and refuse rather than fabricating
+`name=product_id` when no frame exists. Two of the three copies were found only
+after the first was fixed; a per-file fix leaves the other ingresses open.
 
 ---
 
-## Matching dashboard: Upload & Test (interactive pipeline)
+# Appendix C — Why the agents are told what they are judged on
 
-The shipping UI is the **understand-anything matching dashboard** (React 19 +
-`@xyflow/react`), built via `pnpm build:matching`. It is no longer a static
-diagram — a user can upload a vendor file and watch it flow through the real
-pipeline, driven entirely by backend telemetry (no simulation):
+`VerifierDimension` defined ten scoring dimensions as bare enum names —
+`semantic_fit`, `candidate_coverage`, `conflict_handling` — with **no
+definition anywhere in the repository**. Two consequences:
 
-1. **Upload** — the "Upload & Test" panel (matching mode) posts a CSV/JSON +
-   vendor to `POST /api/mapping/ingest/stream`, which streams **real ETL stage
-   events** (`received → parse → validate → sink`) with actual counts as
-   `ingest_bytes` runs. Each event carries the ETL graph node ids it lights up
-   (EventBridge → SQS → Lambda → Validate → S3/Aurora).
-2. **Match** — the panel then calls `POST /api/mapping/agent/run` and consumes
-   the matcher SSE stream (`find_similar_products → get_taxonomy_node →
-   map_vendor_product → final_result`), lighting Parse → Semantic → Rank → Gate.
-3. **Contextualise** — selecting a node shows its static role plus, during a run,
-   the live data that passed through it (counts at ETL, candidates/band at the
-   gate) via a run-state overlay in the store (the loaded graph is never mutated).
+1. The **verifier** invented what each name meant on every call, and its
+   `total_score` drives a hard publish / retry / human-review gate. Scores were
+   not comparable between runs.
+2. The **specialist** was never shown the dimensions at all, and was graded on
+   a rubric it could not see. Separately, `vendor_product_iri` appeared **zero
+   times** in its prompt while the gate hard-rejects a mismatch on that field —
+   the model could not comply with a rule it was never given.
 
-Client wiring: `packages/dashboard/src/api/mapping.ts` (fetch + ReadableStream SSE
-— `EventSource` can't POST), `src/store.ts` run-state slice,
-`src/components/UploadTestPanel.tsx`. `VITE_API_BASE` defaults to `""`
-(**same-origin**: CloudFront routes `/api/*` → the Flask ALB in prod, so there is
-no prod CORS). Set `VITE_API_BASE` + `VITE_DEV_PRINCIPAL` in
-`packages/dashboard/.env.local` only for local dev against the Flask dev server.
+The tell was already in the code: a hand-written line in the verifier prompt
+explaining how to score `taxonomy_freshness`. One dimension patched by hand
+because the list was not shared.
 
-### Human-in-the-loop + reviewer-tunable bands
+The rubric is now defined once in `prompts._RUBRIC` and rendered for both
+audiences from that single source. `rubric_text()` **raises** if a dimension has
+no definition, so a new one cannot ship undefined the way these ten did.
 
-The HITL surface is **always visible** in matching mode (no longer hidden until a
-borderline run): `DecisionPanel` (Approve / Override / Reject) and `ReasoningPanel`
-render on load with idle empty states. Decision actions are **prerequisite-gated**
-by the backend result — Approve needs a mapped node + confidence, Override needs an
-alternative candidate, and out-of-scope / no-candidate results disable the actions
-(no spurious POST). A **"Run sample"** button runs a known product through the live
-pipeline so the panels populate without hunting for a file.
+### On the risk of naming the rubric
 
-The reviewer can also **move the confidence bands**. A "Review thresholds" control
-changes the borderline window (e.g. `0.70–0.80 → 0.65–0.80`); graph edges + node
-info **re-colour live** (advisory display — it never mutates the recorded human
-decision), and **"Re-run with these thresholds"** re-invokes the matcher with the
-chosen window so the actual AUTO_MAPPED vs NEEDS_REVIEW escalation changes. The FE
-derives `confidence_floor=(passCut+failCut)/2` and
-`borderline_half_width=(passCut−failCut)/2` (4dp, so odd-span windows round-trip
-exactly through the backend's 2dp gate); the backend (`routes/mapping.py`) validates
-`0 ≤ floor−half < floor+half ≤ 1` (→ 400) and threads the window to the
-authoritative `map_vendor_product` call. Client: `src/utils/reviewBands.ts`,
-`src/components/DecisionPanel.tsx`. Two-way chat is out of scope (the reasoning
-transcript is one-way).
+Telling a model how it is graded invites writing to the scorer. This was
+accepted deliberately, because the alternative is worse: a specialist
+optimising blind produces work the verifier rejects for reasons nobody stated,
+costing a model call and a review ticket per miss.
 
-### Deploy the dashboard (vendored dist + CloudShell)
-
-The dashboard is a separate pnpm-workspace repo, and `build:matching` emits
-assets under `base:"/demo/"`. For the PoC it is built locally and **vendored**:
-
-```bash
-# 1. On a machine with node + pnpm + the understand-anything repo:
-bash infra/build_dashboard_dist.sh      # → MatchMaker/dashboard-dist/
-
-# 2. From AWS CloudShell (us-east-1, 954976331678 — no local AWS creds):
-bash infra/deploy_dashboard_cloudshell.sh
-# → syncs dashboard-dist/ to s3://<bucket>/demo/ + invalidates CloudFront
-# → served at https://<cloudfront-domain>/demo/
-```
-
-`infra/scudo-poc-build.yaml` is also revised to publish the vendored
-`dashboard-dist/` under the `demo/` prefix (it no longer builds `frontend/`).
-Auto-building the dashboard inside CodeBuild (git-submodule + pnpm workspace) is
-a hardening follow-up — see TODO(aws) below.
+Three things bound the risk. The verifier is a **separate model**; the
+deterministic gates in Appendix B cannot be talked out of; and every definition
+rewards a **verifiable property** of the output rather than a rhetorical one —
+"cite the evidence you used" is not gameable in a way that hurts, because it is
+the actual goal. The specialist is also told explicitly not to write to the
+scorer, and that instruction is pinned by a test.
 
 ---
 
-## Matching Test page (`frontend/`) — file + website URL ingest, provider selection
+# Appendix D — Why refusals are answers
 
-A second, narrower demo surface lives in the editable `frontend/` (React 18)
-app itself, at **`/matching-test`** — built to prove the UI can drive the real
-matching path for a file *and* a website URL, with live provider selection,
-against one locally running backend (`STORE_BACKEND=memory`, scripted agent
-backend — zero real LLM/AWS calls unless `SCUDO_AGENT_BACKEND` is set).
+Tools may now return a typed refusal instead of data — `frame_not_found` when
+no ingested frame exists for a product. This is deliberate: the system declines
+to score a product whose real details it does not have, rather than inventing a
+name from the identifier and matching on that.
 
-- **File upload** → `POST /api/mapping/ingest/stream` (the same real,
-  SSE-streaming ETL route the dashboard uses — real stage events, not a
-  simulation).
-- **Website URL ingest** → `POST /api/mapping/ingest/url` (new). Fetches the
-  URL **server-side**, SSRF-guarded (rejects non-http(s) schemes and any
-  resolved loopback/private/link-local/reserved/multicast address —
-  `scudo_mapping_mcp/url_ingest.py`), extracts the page `<title>` + a
-  2000-character text excerpt via `lxml`, synthesizes ONE product row, and
-  feeds it through the **same, unmodified** `ingest_bytes()` pipeline used
-  for file uploads — no parallel ingestion path. `SCUDO_URL_INGEST_ALLOW_LOOPBACK=1`
-  is a narrow, off-by-default escape hatch (loopback only — private/
-  link-local/reserved addresses stay blocked unconditionally) that exists
-  purely so a live E2E/demo run can target a local fixture server instead of
-  the real internet; never set it in a deployed environment.
-- **Provider selection** → the dropdown is populated live from
-  `GET /api/mapping/agent/describe`. Bedrock is always shown enabled; Azure
-  is shown **disabled** whenever the 3 required Azure OpenAI env vars aren't
-  all set — proving the not-configured contract honestly in the UI rather
-  than letting an operator pick a path already known to fail.
-- **Run match** → `POST /api/mapping/agent/run` with the selected
-  `agent_provider`, rendering confidence/provenance/provider and a distinct
-  error state on failure.
+Two consequences were handled explicitly.
 
-Live-verified via a Playwright E2E suite
-(`backend/tests/e2e/test_matching_ui_e2e.py`, run through
-`infra/e2e_smoke.sh`) that starts the real backend + frontend, drives both
-this page and the dashboard bundle, and tears both down — see that script for
-exact ports (`BACKEND_PORT`/`FRONTEND_PORT`, defaulting to 5050/3010 to dodge
-two machine-specific local port conflicts encountered while building this:
-macOS's AirPlay Receiver on 5000, and an unrelated process on 3000).
+**The agent is told refusals are answers, not errors to work around.** Without
+that instruction the natural behaviour is to retry, or to substitute a
+plausible name — exactly the fabrication the refusal exists to prevent. The
+agent prompt now says to report it and recommend human review.
+
+**The UI must keep the actionable half.** The backend returns
+`{error, detail}`, and all sixteen frontend call sites read only `error`, so a
+user saw a bare `frame_not_found` while *"ingest it first"* was discarded. A
+single response interceptor now folds `detail` into `error`, fixing every call
+site without touching any of them.
+
+The same reasoning applies to the reasoning trace. The backend streams a full
+agent trace over SSE — a real run emits fourteen events including four tool
+calls and their results. The frontend received all of them and rendered each as
+raw JSON truncated at 120 characters, cutting the agent's sentences off
+mid-word. The information was arriving; it was not legible. It is now rendered
+as a followable sequence of thinking, calls, and returns.
 
 ---
 
-## Aurora agent memory + SkillOpt-Sleep (offline, outside the Lambda)
+# Appendix E — Verification posture
 
-The Orchestrator/Lambda pipeline's CONSULT/DISTILL memory (precedents,
-promoted rules, and a versioned matching **skill document**) is backed by one
-Aurora PostgreSQL table, `scudo.agent_memory`, via the RDS Data API
-(`backend/scudo/aurora_store.py`/`aurora_memory.py`). Reads are fail-open
-(a missing/unreachable Aurora is advisory, never blocks a mapping request);
-writes are fail-loud.
+Four practices, each stated with the case that produced it so a reader can
+judge the practice rather than take it on trust.
 
-**Required env vars** (same three `aurora_store._execute` already requires
-for every other Aurora write in this codebase):
+**Check that a new test fails when its fix is reverted.** Otherwise it may be
+asserting something trivially true. This proves sensitivity to that specific
+regression — not correctness in general. Applied to the confidence-band parity
+check
+(`backend/scudo_mapping_mcp/tests/test_band_config_parity.py`), this exposed a
+real evasion: the original scanner paired `Name:`/`Value:` keys in source
+order, so the equally-legal `Value:`-before-`Name:` form parsed as zero
+records and drift passed silently. The fix is a structural YAML parse, pinned
+by `test_key_order_cannot_hide_a_band_declaration`, plus an anti-vacuity test
+proving the parser finds the real declarations rather than nothing.
 
-```bash
-export SCUDO_AURORA_CLUSTER_ARN=arn:aws:rds:...
-export SCUDO_AURORA_SECRET_ARN=arn:aws:secretsmanager:...
-export SCUDO_AURORA_DATABASE_NAME=scudo
-```
+**Distinguish "the code exists" from "the code runs."** Two absence claims were
+checked by execution rather than grep, and both answers were more nuanced than
+the original wording:
 
-**Diagnostics** (`backend/scudo/scripts/aurora_smoke.py`) — read-only by
-default:
+- *"Dates cannot be matched."* A temporal comparator and its
+  `SCUDO_TEMPORAL_VALIDATION` flag now exist and are tested. But
+  `matching.py` contains **zero** references to `node_temporal_coverage`, and
+  the DCAT loader drops the field before it reaches a `TaxonomyNode` — so on a
+  live run the check passes by default and the original limitation still
+  holds. Built is not the same as reachable; this is listed in "Open work and
+  limits" for that reason.
+- *"No embedding retrieval path exists."* Wrong as stated. A LlamaIndex
+  retriever with real Bedrock embeddings exists at
+  `backend/scudo/sidecar/retrieval.py`, is exposed as a tool in
+  `tools.py:41`, and **is** attached to the generic mapping specialist via
+  `MAPPING_SPECIALIST_TOOLS`. It is unreachable on two axes only: the deployed
+  Lambda builds tool-less agents, and `SCUDO_SIDECAR_GRAPH_ENDPOINT` is unset
+  in `infra/`, so the sidecar falls back to an in-memory mock. Wired in the
+  specialist path, unwired in the Lambda path — which is a different and more
+  useful statement than either "exists" or "does not exist."
 
-```bash
-python -m scudo.scripts.aurora_smoke                  # SELECT 1 FROM scudo.agent_memory LIMIT 1
-python -m scudo.scripts.aurora_smoke --write-smoke-test  # + one throwaway insert/read/delete round-trip
-```
+**Expect two different defect shapes, not one.** The defects found in this
+work fell into two kinds, and a review that anticipates only the first will
+miss the second.
 
-Skips clearly (exit `77`, the conventional "test skipped" code) when the env
-vars above are absent — the expected state for a local/CI run without Aurora
-credentials, not a diagnostic failure.
+*Incomplete scope* — the fix was correct inside the file it was scoped to
+while the same defect sat untouched elsewhere. Frame resolution was fixed in
+`match_verify_mcp.py` while byte-equivalent copies remained in
+`routes/mapping.py:242` and `mcp_server.py:127`, the latter backing four live
+endpoints.
 
-**Offline SkillOpt-Sleep cycle** (`backend/scudo/scripts/run_sleep_cycle_job.py`)
-— harvest → mine → evaluate → gate → promote, against real `aurora_memory`,
-**dry-run by default**:
+*A bug inside the fix* — the first hard candidate check was written
+`if target and candidates and target not in candidates`, which published
+anything when the candidate list was empty: precisely the case with the least
+grounding. Recorded at `orchestrator.py:425`, pinned at
+`backend/scudo/tests/smoke.py:552`.
 
-```bash
-python -m scudo.scripts.run_sleep_cycle_job            # dry-run: reports the gate decision, writes nothing
-python -m scudo.scripts.run_sleep_cycle_job --apply     # actually promotes if the gate accepts
-```
+Neither is visible from the changed file alone: the first needs a search for
+other copies of the function, the second needs the empty-list case to be tried.
 
-Neither script is ever imported by `lambda_handler.py` — verified by a
-subprocess-based test per module (a grep of import lines is not sufficient
-against transitive imports; this bit us once during this work and is now
-a permanent regression test).
+**Do not let a red baseline become background noise.** Two tests fail on an
+unmodified checkout:
 
-**Be honest about SkillOpt itself**: microsoft/SkillOpt's real CLI
-(`skillopt-sleep`, verified directly from source — see
-`backend/scudo/skillopt_adapter.py`'s docstring for the exact verified flags/
-schemas) is wired as far as safely possible without inventing anything. The
-default optimizer/evaluator seam (`skillopt_sleep_runner.py`) and the CLI
-adapter both **fail clearly** (a typed error, not a silent no-op or a fake
-result) when the `skillopt-sleep` binary isn't installed. Two things remain
-genuinely open, not glossed over: whether SCUDO's vendor-mapping outcomes are
-a meaningfully *scorable* signal for SkillOpt-Sleep's judge/replay machinery
-is a domain-fit question, not a technical one; and `ContentDeliveryModel`
-(the rights/contract model's delivery-channel enum) is **deliberately
-provisional** — only 3 of the ~11 reported values are confirmed from source,
-and a test-side citation guard (`test_rights_contract_model.py`) fails loudly
-if a future value is ever added without a documented source, so the enum
-cannot silently grow by guesswork.
+- `test_provenance.py::test_matching_graph_is_knowledge_graph_schema`
+- `test_provenance.py::test_every_node_is_labelled_and_expositional`
 
----
+Both reject the `marketing_dataset` kind supplied by
+`fixtures/conceptual_layer.json` and propagated through
+`build_matching_graph.py`. Verified by running the file on a clean worktree at
+HEAD with none of this work applied: 1 passed, 2 failed.
 
-## Key invariants
-
-| # | Invariant | Where enforced |
-|---|-----------|----------------|
-| I1 | Deterministic routing — same input, same rung, same band | `matching.py` |
-| I2 | No raw-query passthrough — MCP tools take operations, not Cypher / SPARQL strings | `store/base.py` |
-| I3 | Scope gate is fail-closed — exception ⇒ deny, never allow | `frames.check_scope` |
-| I4 | Band edges derive from `settings.confidence_floor` + `settings.borderline_half_width` — single source | `matching.py`, `config.py` |
-| I5 | Publish gate — Persistence MCP verifies HMAC seal before any write | `persistence_mcp.py`, `verdict.py` |
-| I6 | Invariants live outside the model — never in the prompt | `validations.py` |
-| I7 | Store seam is retrieval operations, not query strings (Cypher in `falkordb_store`, SPARQL in `neptune_store`) | `store/base.py` |
-| I8 | Deterministic UUID5 IRIs — same `(vendor, product_id)` → same mds.<slug>:<uuid5> | `models.mds_iri` |
-| I9 | FalkorDB is non-authoritative — hydrated from canonical M6 bundle at boot | `hydrate.py` |
-| I10 | Single swap points — `STORE_BACKEND`, `FRAME_SOURCE`, scorer each change in one place | `config.py`, `store/factory.py`, `matching.py` |
-
----
-
-## What is NOT done
-
-Be honest. Engineering, not marketing.
-
-- **`NeptuneStore.find_similar_products` is a placeholder.** It returns every taxonomy node with `similarity=0.0`. The production cutover requires Neptune Analytics or a Bedrock-backed vector search; both are M9 work. Until then, do not run rung 3 against Neptune in any meaningful test.
-- **The dense arm is not dense.** `falkordb_store.py` uses Jaro-Winkler as a stand-in for vector similarity. The PASS ≥0.80 / BORDERLINE ≥0.70 defaults were chosen for the Jaro-Winkler distribution. When real embeddings arrive, the floor and bands must be **re-derived against a golden set** as a coupled swap — do not assume the numbers carry over.
-- **No golden-set evaluation harness.** Smoke tests cover wiring; they do not measure precision / recall.
-- **CloudFront frontend — deployed.** The dashboard is served via CloudFront on both the formal `scudo-poc-frontend` stack (`d1n9fcdyynpn9j.cloudfront.net`) and the dev distribution (`dp4ji14se0pct.cloudfront.net`), at `/demo/` + `/cogJPMdemo/`. A separate, independent deployment in account `426271381846` also serves it at `d2im563be0sl1r.cloudfront.net` — see [Second live deployment](#second-live-deployment-account-426271381846-us-east-1).
-- **Aurora, Neptune, and OpenSearch are not created by the SAM stack default.** The stack exposes endpoint/ARN seams and provisions the event backbone. Create or import the managed stores explicitly before switching those parameters away from empty strings.
-- **No production secret rotation.** `VERDICT_SIGNING_KEY` is dev-only; KMS-backed rotation hooks are stubbed.
-- **Q1 (validations as candidate-set filter) is the next matching-ladder code task** — validations currently gate the single best candidate, not the full surviving set.
-- **`ContentDeliveryModel` is deliberately incomplete.** Only 3 of the ~11 reported values are confirmed from source; the remaining ones are not guessed, and a test-side citation guard blocks silently adding one without a documented source. See "Aurora agent memory + SkillOpt-Sleep" above.
-- **SkillOpt-Sleep domain-fit is unverified, not assumed.** The real `skillopt-sleep` CLI is wired via a genuine adapter, but whether SCUDO's mapping trajectories are a scorable training signal for its judge/replay machinery has not been tested against a real run — that's a domain question, separate from the (verified) CLI wiring itself.
-- **No EventBridge/cron infra for the nightly sleep cycle.** `run_sleep_cycle_job.py` exists and is tested; actually scheduling it in AWS is documented in the script's own docstring but not deployed.
-- **Two `test_provenance.py` tests fail at HEAD, unadjudicated.** `conceptual_layer.json` carries a node of kind `marketing_dataset` (labelled "Equity Prices Historical Series") and the test greps the JSON blob for "marketing"; the two failures are pre-existing and not yet adjudicated — flagged here so a JPMC engineer running `pytest` isn't surprised by a red suite.
-- **Outbox head-of-line starvation is a known, unadjudicated risk.** `projection_handler.py` `sweep_outbox` drains the transactional outbox in order; a poison/slow entry at the head can stall projections behind it. Flagged in `infra/HANDOVER_5zone_alignment.md`, not yet fixed.
-
-### Upload & Test / AWS deploy — status
-
-**✅ Live & verified end-to-end on `scudo-poc` (us-east-1, image `c250e34`):**
-`/healthz` → `{"status":"ok"}`; `/api/mapping/ingest/stream` streams real ETL
-stage events (`received → parse → validate → sink → final_result → done`) with
-real counts; `/api/mapping/agent/run` streams the live matcher with Bedrock
-`us.anthropic.claude-opus-4-8`; the deployed SPA calls same-origin `/api/*`
-(no baked-in dev host). Deploy is the vendored `dashboard-dist/` synced to S3
-`/demo/` + `/cogJPMdemo/` on the dev CloudFront distribution.
-
-**Still open / `TODO(aws)`:**
-
-- **🔴 SECURITY — auth gate is dev-open (ACCEPTED RISK for the closed demo).**
-  `SCUDO_AUTH_ALLOW_DEV` is enabled on the deployed backend, so `/api/*` answers
-  without a header (fine for a **closed demo only**). The SPA no longer sends
-  `X-Authenticated-User` (the prod build pins `VITE_DEV_PRINCIPAL=""`). Because the
-  API is internet-facing with no edge gate and `AgentBackend=bedrock`, anyone with
-  the URL can trigger **paid Bedrock Opus inference** (`/api/mapping/agent/run`) and
-  write decisions to the precedent store — the data is synthetic, so the exposures
-  are **cost-abuse + demo integrity**, not a data breach. This is a **recorded,
-  deliberate** owner decision (URL-obscurity only, 2026-06-27) — see
-  `infra/HANDOVER_hitl_bands_2026-06-26.md` §5. Before external exposure this is a
-  **coupled** change: unset `SCUDO_AUTH_ALLOW_DEV` (→ 401 unauth) **and** have
-  CloudFront/ALB **strip inbound** `X-Authenticated-User` + inject the trusted
-  identity. Doing only one half breaks the demo or leaves a spoofing path. This is
-  the loudest remaining gate.
-- **Live embeddings vs local.** On AWS, similarity uses Bedrock + Titan
-  (`amazon.titan-embed-text-v2:0`). Locally it's the Jaro-Winkler stand-in; the
-  dashboard labels synthetic/illustrative data via the banner.
-- **ETL telemetry is real for the ingest endpoint, not the full event backbone.**
-  `/ingest/stream` emits genuine counts from `ingest_bytes`
-  (decode/parse/validate/sink). The deployed EventBridge → SQS → Lambda →
-  S3/Aurora backbone is separate; surfacing *its* live telemetry is not wired.
-- **SSE through ALB/CloudFront — verified working** (`Compress:false` on `/api/*`,
-  `X-Accel-Buffering:no` on the route). A *long* live Bedrock run could still
-  exceed the ALB 60s idle timeout — a heartbeat event is a TODO for slow runs;
-  the current fast path is fine.
-- **Formal `scudo-poc-frontend` stack — deployed** (`d1n9fcdyynpn9j.cloudfront.net`),
-  with `/healthz` + `/readyz` routed to the console ALB. The dev distribution
-  (`scudo-dev-frontend-954976331678` / `dp4ji14se0pct`) also still serves the
-  dashboard. Note: `/readyz` exists only on the formal stack — the dev distribution
-  has no `/readyz` behavior, so don't use its `/readyz` as a health signal.
-- **Dashboard CI build deferred.** Deploy uses a locally-built, vendored
-  `dashboard-dist/`; building it inside CodeBuild (submodule + pnpm workspace +
-  prebuild `core`) is unspiked.
-- **NodeInfo live-context per-node detail** is best-effort (node-ring animation
-  is reliable; the per-node live panel depends on mid-drill-down selection).
-
-### Second deployment (`426271381846`) — status
-
-**✅ Smoke-tested** at `https://d2im563be0sl1r.cloudfront.net`: `/healthz` →
-`{"status":"ok"}`; `/api/mapping/agent/describe` responds; `POST
-/api/mapping/ingest/url` ingests a URL; `POST /api/mapping/agent/run` reaches
-the matching path and returns a final CDAO mapping result.
-
-**Known gaps on this deployment, `TODO(aws)`:**
-
-- **Bedrock live inference: switch to Claude Sonnet 5.** The provider is
-  configured (`AgentProviderDefault=bedrock`), but this account lacks AWS
-  model/Marketplace access for `us.anthropic.claude-opus-4-8`. Claude Sonnet 5
-  (`us.anthropic.claude-sonnet-5`) is accessible in this account, and the
-  template defaults now pin it as `BedrockModelId`. To unblock: update **both**
-  stacks with the new parameter — `scudo-poc-foundation` (the IAM
-  invoke/converse grant is scoped to the exact profile id) and `scudo-poc`
-  (injects `SCUDO_BEDROCK_MODEL_ID` into the ECS task) — then force a new ECS
-  deployment. Until that stack update runs, the deployed task still points at
-  the Opus profile and live inference stays blocked.
-- **Azure is visible but disabled.** It appears in the provider dropdown but
-  has no Azure OpenAI env vars/secrets configured on this account's ECS task.
-- **Matching Test vendor field is free-text, not a dropdown**, on this
-  deployment.
-- **Providers admin page is broken here** — the default `/providers` page
-  loads but shows "Failed to load providers"; use `/matching-test` for the
-  validated demo workflow instead.
-
----
-
-## Architecture source of truth
-
-The Mermaid diagrams in [`backend/scudo_mapping_mcp/docs/architecture/`](/architecture/diagrams-and-sources.md) are the **approved source of truth** for the SCUDO architecture (ratified 2026-06-10):
-
-- ``scudo-overview.mmd`` — system-level: Gateway → Agent → MCP host → three MCPs → stores + observability, trust-gradient classification preserved.
-- ``scudo-match-verify.mmd`` — internals of the matching engine: scope → precedent → match → validations → three-band gate → specialist → seal → Persistence.
-- ``scudo-retrieval.mmd`` — internals of the retrieval surface: GraphRAG-SDK multi-path (vector / fulltext / cypher / rel-expansion) → cosine rerank → precedent boost → negative-precedent drop → distance check (deferred) → survivors.
-
-The ARB review pack at [`backend/scudo_mapping_mcp/docs/architecture/arb-review-pack.md`](/architecture/arb-review-pack.md) carries the decision log, consistency findings, and open questions. `docs/diagram-1-main-flow.md`, `docs/diagram-2-falkor-internals.md`, and `docs/dense-arm-swap.md` are **SUPERSEDED** by the three diagrams above.
-
-These `.mmd` diagrams — and the rest of the project's scattered docs — are also consolidated into a single navigable knowledge base. See [Knowledge base (OKF bundle)](#knowledge-base-okf-bundle).
-
----
-
-## Knowledge base (OKF bundle)
-
-This project's knowledge — architecture, specs, plans, runbooks, handovers, agent
-skills — had accreted across five places (`backend/scudo/`,
-`backend/scudo_mapping_mcp/docs/`, `docs/superpowers/`, `infra/`, and the repo root).
-Worse, ~14 of those files were commit-pinned, point-in-time snapshots that still *read*
-as current truth. Finding the right, still-accurate doc meant grepping and guessing.
-
-**What it is.** ``docs/okf/scudo/`` is a navigable
-[Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf)
-bundle: **37 concepts** (one markdown file each) organised into 7 topic folders —
-`architecture/`, `reference/`, `skills/`, `specs/`, `plans/`, `deployment/`,
-`handovers/`.
-
-**What it does** — makes the knowledge *clearer and trustworthy*:
-
-- **Index-first navigation** — start at `index.md` and follow links; you don't grep
-  the tree (every folder has its own `index.md` + `claude.md` agent guide).
-- **Typed, summarised concepts** — each file carries a `type` (Architecture / Spec /
-  Plan / Runbook / Handover / Skill / Reference / Decision Record), a one-line
-  description, and cross-links, so you can decide what to open without reading it.
-- **Honest staleness** — every concept is tagged `current` / `historical` /
-  `superseded`, and replaced docs carry a visible "superseded by →" banner. The
-  point-in-time snapshots that used to masquerade as current are now labelled
-  (20 current · 14 historical · 3 superseded).
-- **Link graph** — `docs/okf/scudo/viz.html` visualises how the concepts relate.
-
-**Why we did it.** To make the codebase's *knowledge* as clear as its code — a human
-or an agent should reach the one authoritative doc in a couple of hops instead of
-re-deriving context every session. The bundle is **deploy-safe** (it is `docs/`-only,
-excluded from the backend image and the S3 sync) and **reproducible**.
-
-**Use / rebuild.** Read it from `docs/okf/scudo/index.md`. It is *generated*, not
-hand-maintained: sources are **copied**, never moved, so edit
-`docs/okf/build/manifest.yaml` and rebuild — don't hand-edit `docs/okf/scudo/`.
-
-```bash
-# OKF toolkit lives in a separate repo/venv (one-time: pip install -e . there)
-OKF_BIN=/path/to/OpenKnowledgeFormat/.venv/bin/okf ./docs/okf/build_bundle.sh
-```
-
-Status + rebuild details: [`docs/okf/README.md`](/architecture/docs/okf/README.md),
-[`docs/okf/SUMMARY.md`](/architecture/docs/okf/SUMMARY.md).
-
----
-
-## Tech stack
-
-- **Backend:** Python 3.12, Flask + gunicorn (gthread workers for SSE), Pydantic v2, FastMCP servers (Ingestion / Match-Verify / Persistence)
-- **Frontend:** React SPA (Vite)
-- **System of record:** **Aurora PostgreSQL** (single source of truth — one cluster, four schemas `public`/`scudo`/`console`/`ingestion`) via the RDS Data API (`aurora_store.py`) and psycopg v3 for the console (`backend/db.py`)
-- **Retrieval index (Zone 3 only, non-authoritative):** FalkorDB (local / prototype, Cypher) or Amazon Neptune (SPARQL via SigV4), selected by `STORE_BACKEND` — candidate discovery, never the record
-- **LLM:** Bedrock — Claude Opus 4.8 (specialist+verifier, default); Titan v2 embeddings (dense arm on AWS); optional Azure OpenAI shim (`agent_provider`)
-- **Object storage:** S3 (vendor frames + canonical bundles)
-- **Auth / integrity:** Gateway-header principal resolution (`auth.py`); HMAC-SHA256 verdict seals (`verdict.py`, v=2); Secrets Manager + KMS
-- **Infra:** AWS SAM/CloudFormation for the `us-east-1` AIA Lambda stack; legacy CloudFormation for ECS Fargate, ALB, VPC endpoints (Bedrock, ECR, Logs), Cloud Map private DNS, and CodeBuild
+They are named here rather than counted because a count is a weak signal — it
+stays green if one failure is fixed while another appears. The better end state
+is an explicit `xfail` with a tracking issue, so the suite is green and the
+exception is documented in code rather than in prose.
 
 ## Related
 

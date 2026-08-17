@@ -9,7 +9,7 @@ tags:
 - hooks
 - architecture
 staleness: current
-timestamp: '2026-07-09T13:18:02Z'
+timestamp: '2026-08-17T09:02:03Z'
 ---
 
 # Hooks — Deterministic Enforcement Layer
