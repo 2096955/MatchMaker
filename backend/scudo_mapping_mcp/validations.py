@@ -601,6 +601,7 @@ def run_validations(
 def required_failures(validations: list[Validation]) -> list[Validation]:
     """Return the subset of validations that block auto-mapping.
 
-    The matcher uses this to force `needs_review` even at/above the 0.80 floor.
+    The matcher uses this to force `needs_review` even at/above the 0.80 PASS
+    cut (the ``CONFIDENCE_FLOOR`` constant is the 0.75 band centre, not the cut).
     """
     return [v for v in validations if v.required and v.status == "fail"]

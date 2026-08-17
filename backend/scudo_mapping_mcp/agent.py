@@ -17,7 +17,11 @@ matching.py:
     alongside and produces the AUTHORITATIVE result the rest of the
     system consumes (HITL, bundle, audit). The agent never bypasses:
       - scope_gate  (I3)
-      - confidence_floor 0.80  (I4)
+      - confidence_floor 0.75 — the matcher's band centre
+        (config.CONFIDENCE_FLOOR); with the 0.05 half-width the gate
+        edges are PASS at 0.80 and up, FAIL below 0.70.  (I4)
+        NOT scudo/orchestrator.py's separate CONFIDENCE_FLOOR = 0.80,
+        which is the Runtime-A auto-approve publish gate.
       - validations  (I6)
       - the store write side  (I5 — HITL-only)
     If the agent's recommendation conflicts with the matcher's status
@@ -427,8 +431,10 @@ class BedrockMappingAgent:
         "get_ontology_neighbourhood, and map_vendor_product.\n\n"
         "RULES (load-bearing — never violate):\n"
         "  1. You do NOT decide the final mapping status. The deterministic "
-        "     matcher (which runs after you) applies a 0.80 confidence floor "
-        "     and a set of validations. Your role is to EXPLORE and "
+        "     matcher (which runs after you) applies a banded confidence "
+        "     gate (PASS at 0.80 and up; BORDERLINE 0.70-0.80, which may "
+        "     still auto-map; FAIL below 0.70) and a set of validations. "
+        "     Your role is to EXPLORE and "
         "     RECOMMEND, not to gate.\n"
         "  2. You MUST NOT bypass the scope gate. If find_similar_products "
         "     returns no candidates, recommend NEEDS_REVIEW and stop.\n"
@@ -1106,8 +1112,10 @@ class AzureMappingAgent:
         "given the candidate nodes already retrieved for you.\n\n"
         "RULES (load-bearing — never violate):\n"
         "  1. You do NOT decide the final mapping status. The deterministic "
-        "     matcher (which runs after you) applies a 0.80 confidence floor "
-        "     and a set of validations. Your role is to EXPLORE and "
+        "     matcher (which runs after you) applies a banded confidence "
+        "     gate (PASS at 0.80 and up; BORDERLINE 0.70-0.80, which may "
+        "     still auto-map; FAIL below 0.70) and a set of validations. "
+        "     Your role is to EXPLORE and "
         "     RECOMMEND, not to gate.\n"
         "  2. If no candidates are supplied, recommend NEEDS_REVIEW and stop.\n"
         "  3. End with a one-paragraph rationale citing the top candidate's "

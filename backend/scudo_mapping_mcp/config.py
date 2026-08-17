@@ -61,10 +61,19 @@ def pass_threshold(
 ) -> float:
     """Upper band edge (>= this -> PASS).
 
-    Rounded to 2 dp: a naive ``floor + half`` yields 0.8000000000000001 for the
-    canonical 0.75/0.05 config, which silently pushes a score of exactly 0.80
-    into BORDERLINE. Banding is the product's headline behaviour, so the edge
-    must be exact.
+    The canonical 0.75/0.05 config is NOT at risk and never reaches the
+    rounding: ``0.75 + 0.05`` really is exactly the float 0.8, and the branch
+    below short-circuits to ``PASS_CUT`` whenever ``floor``/``half`` are the
+    module defaults. ``round(floor + half, 2)`` runs only for OVERRIDDEN
+    windows — and those are the ones that break. ``0.80 + 0.05`` yields
+    0.8500000000000001, so a naive sum would silently push a score of exactly
+    0.85 into BORDERLINE.
+
+    ``floor``/``half`` are overridable per call (both are keyword arguments
+    here and are threaded through ``matching.map_vendor_product``) and via the
+    ``CONFIDENCE_FLOOR`` / ``BORDERLINE_HALF_WIDTH`` env vars read in
+    ``Settings.from_env`` below. Banding is the product's headline behaviour,
+    so the edge must be exact for every window, not just the default one.
     """
     if floor == CONFIDENCE_FLOOR and half == BORDERLINE_HALF_WIDTH:
         return PASS_CUT
@@ -74,7 +83,20 @@ def pass_threshold(
 def borderline_threshold(
     floor: float = CONFIDENCE_FLOOR, half: float = BORDERLINE_HALF_WIDTH
 ) -> float:
-    """Lower band edge (>= this -> at least BORDERLINE). Rounded to 2 dp."""
+    """Lower band edge (>= this -> at least BORDERLINE).
+
+    Same shape as ``pass_threshold`` above: the canonical 0.75/0.05 config
+    short-circuits to ``FAIL_CUT`` and would be exact anyway (``0.75 - 0.05``
+    really is the float 0.7). ``round(floor - half, 2)`` runs only for
+    OVERRIDDEN windows, where the subtraction is not exact —
+    ``0.85 - 0.05`` yields 0.7999999999999999. Note the error runs the
+    OPPOSITE way from ``pass_threshold``'s: the edge lands one ULP BELOW
+    0.80, so an exact 0.80 still clears it (``0.80 >= 0.7999999999999999``
+    is True). What slips through is the largest float under 0.80 —
+    ``math.nextafter(0.80, 0)`` IS that edge — which without the rounding
+    would be admitted to BORDERLINE instead of FAIL. Upper edge too strict,
+    lower edge too lenient; the rounding fixes both.
+    """
     if floor == CONFIDENCE_FLOOR and half == BORDERLINE_HALF_WIDTH:
         return FAIL_CUT
     return round(floor - half, 2)

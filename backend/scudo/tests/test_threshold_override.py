@@ -50,9 +50,15 @@ class _FakeStore:
 
 
 def test_default_window_0_78_is_borderline_needs_review():
-    """sim 0.78 with the default 0.80/0.05 window:
+    """sim 0.78 with an EXPLICITLY OVERRIDDEN 0.80/0.05 window:
     pass cut 0.85, borderline cut 0.75 → 0.75 <= 0.78 < 0.85 → BORDERLINE.
     No specialist → falls back to floor 0.80; 0.78 < 0.80 → NEEDS_REVIEW.
+
+    NOT the shipped default. The live default window is floor 0.75 / half
+    0.05 (config.CONFIDENCE_FLOOR), under which sim 0.78 AUTO-MAPS —
+    measured, not inferred. The 0.80/0.05 passed below is the override this
+    test exists to exercise; the function name is retained so the pin keeps
+    its identity in the suite. Corrected 2026-08-17 (found by Codex).
     """
     store = _FakeStore(0.78)
     result = map_vendor_product(_ref(), store=store, floor=0.80, half=0.05)

@@ -21,7 +21,7 @@ exposes them over plain JSON for the browser:
 - ``GET  /api/mapping/agent/describe``                — which agent backend
 - ``POST /api/mapping/agent/run``                     — SSE-stream an agent run
 
-Tool envelopes (clamps, scope gate, 0.80 confidence floor) are enforced inside
+Tool envelopes (clamps, scope gate, banded confidence gate) are enforced inside
 the package, not here — this file only translates HTTP <-> the typed contracts.
 On the Neptune cutover the package's ``store/`` swap is the only change; the
 routes do not move.
@@ -165,8 +165,10 @@ def _validate_vendor(vendor):
     """Reject vendors outside the priority set up front; matches the scope gate.
 
     This is a MEMBERSHIP check and nothing more — priority does NOT lower the
-    0.80 confidence floor for any vendor. The auto-mapping threshold is read
-    once from ``config.settings.confidence_floor`` inside
+    confidence gate for any vendor. The gate is banded, not a single floor:
+    ``config.settings.confidence_floor`` (0.75) is the band CENTRE, and
+    ``BORDERLINE_HALF_WIDTH`` (0.05) gives PASS >= 0.80 / FAIL < 0.70. It is read
+    once inside
     ``matching.map_vendor_product``; no other code path touches it. Adding a
     vendor-specific override here would re-introduce a hidden second decision
     surface and violate I4 (floor in code, in one place).
@@ -495,7 +497,9 @@ def map_product():
     """Map one vendor product to a CDAO node.
 
     Applies the deterministic scope gate (out-of-scope vendors are blocked) and
-    the 0.80 confidence floor (below -> ``needs_review`` for a human). Reuses a
+    the banded confidence gate. The gate is NOT a single floor: PASS (>= 0.80)
+    auto-maps; BORDERLINE (0.70-0.80) consults the specialist and may still
+    auto-map; FAIL (< 0.70) returns ``needs_review`` for a human. Reuses a
     prior approved mapping when one exists.
 
     JSON body:

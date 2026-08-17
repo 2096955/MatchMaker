@@ -14,8 +14,8 @@ PRODUCTION SWAP-POINTS (per Diagram 2):
                   deterministic stand-in. CRITICAL INVARIANT (arb-review
                   §5.2): ``Candidate.similarity`` IS the raw dense
                   score the backend returned — no rerank, no fusion,
-                  no boost contamination. The 0.80 confidence floor
-                  sees exactly that value.
+                  no boost contamination. The band gate (0.75 centre;
+                  PASS cut 0.80) sees exactly that value.
 
   Lexical arm  -> LlamaIndex ``BM25Retriever`` (or FalkorDB-native
                   full-text index). TODAY: the pure-Python BM25 on
@@ -384,8 +384,9 @@ class FalkorDBStore(RetrievalStore):
         rank-signal tilt). See Diagram 2.
 
         DESIGN: dense stays AUTHORITATIVE for ``Candidate.similarity``.
-        BM25 is a SORT-only sidecar. The 0.80 floor was calibrated against
-        Jaro-Winkler's [0,1] string similarity; making the floor gate
+        BM25 is a SORT-only sidecar. The band gate (0.75 centre; PASS cut
+        0.80) was calibrated against
+        Jaro-Winkler's [0,1] string similarity; making the gate
         against a max-normalised RRF score (which always yields 1.0 for
         the top hit) would silently break I4 — any query with at least one
         weakly-similar candidate would auto-map. So:
@@ -463,7 +464,6 @@ class FalkorDBStore(RetrievalStore):
         from ..taxonomy_text import (
             maybe_log_taxonomy_text_shadow,
             taxonomy_bm25_doc,
-            taxonomy_candidate_desc,
             taxonomy_dense_text,
         )
 
@@ -476,7 +476,7 @@ class FalkorDBStore(RetrievalStore):
 
         if dense_backend == "opus":
             # Lazy import so the package still loads when boto3 is absent.
-            from ..opus_dense import opus_dense_score
+            from ..opus_dense import make_opus_dense_scorer
 
             query_label = ref.name or ref.product_id
             query_desc = ref.description or ""
@@ -490,12 +490,14 @@ class FalkorDBStore(RetrievalStore):
                 node_by_iri[iri] = node
                 labels[iri] = node.label or ""
                 parents[iri] = node.parent_iri
-                dense_scores[iri] = opus_dense_score(
-                    query_label=query_label,
-                    query_desc=query_desc,
-                    candidate_label=node.label or "",
-                    candidate_desc=taxonomy_candidate_desc(node),
-                )
+            scorer = make_opus_dense_scorer(query_desc=query_desc)
+            rescored = scorer(
+                query_label,
+                [Candidate(node=node_by_iri[iri], similarity=0.0) for iri in labels],
+            )
+            dense_scores = {
+                candidate.node.iri: candidate.similarity for candidate in rescored
+            }
         else:
             for iri, label, parent in rows:
                 if iri in rejected:

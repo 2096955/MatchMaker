@@ -1,8 +1,15 @@
 """Confidence-band boundary tests.
 
-Pins the exact-boundary behaviour of the PASS/BORDERLINE/FAIL gate so the
-floating-point defect (0.75 + 0.05 == 0.8000000000000001, which would push a
-score of exactly 0.80 into BORDERLINE) cannot regress.
+Pins the exact-boundary behaviour of the PASS/BORDERLINE/FAIL gate so a
+float-representation defect cannot regress.
+
+The canonical 0.75/0.05 window is NOT itself at risk: measured,
+``0.75 + 0.05 == 0.80`` and ``0.75 - 0.05 == 0.70`` are both exactly True.
+The rounding in ``config.pass_threshold()`` earns its keep because floor and
+half-width are overridable, and neighbouring windows are not exact —
+``0.80 + 0.05`` yields 0.8500000000000001 and ``0.85 - 0.05`` yields
+0.7999999999999999. These tests pin the canonical edges; the override paths
+are pinned in ``test_threshold_override.py``.
 
 Canonical contract (5-zone alignment, 2026-07-04):
     PASS       similarity >= 0.80

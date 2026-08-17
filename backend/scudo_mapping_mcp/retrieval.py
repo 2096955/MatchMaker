@@ -21,7 +21,7 @@ For the demo this is TWO arms:
       ``dense_scorer`` signature). The survivors of the pre-filter +
       negative-precedent drop + candidate_filter get rescored. The
       Opus score becomes ``Candidate.similarity`` — i.e. the value the
-      0.80 confidence floor sees.
+      band gate (0.75 centre; PASS cut 0.80) sees.
 
 Future arms (cypher / rel-expansion) are stubbed by comment, not by code,
 so this file stays small and demoable.
@@ -29,7 +29,8 @@ so this file stays small and demoable.
 Invariants
 ----------
 I.  ``Candidate.similarity`` is the DENSE score. Never BM25. Never RRF.
-    The 0.80 floor was calibrated against a [0,1] dense quantity; lifting
+    The band gate (0.75 centre; PASS cut 0.80) was calibrated against a
+    [0,1] dense quantity; lifting
     it onto a fused rank score would silently break I4.
 II. BM25 is PRE-FILTER ONLY. It nominates ``_BM25_PREFILTER_TOP_N``
     candidates, no more. The dense scorer never sees the full universe.
@@ -54,6 +55,7 @@ from typing import Callable, Optional
 from .config import env_subsumption_expand, settings
 from .loaders.subsumption import build_child_index, direct_subsumption_neighbors
 from .models import Candidate, TaxonomyNode, VendorProductRef
+from .opus_dense import DenseScoringUnavailableError
 from .store.base import CandidateFilter, RetrievalStore
 from .taxonomy_text import maybe_log_taxonomy_text_shadow, taxonomy_bm25_doc
 
@@ -64,8 +66,10 @@ from .taxonomy_text import maybe_log_taxonomy_text_shadow, taxonomy_bm25_doc
 _BM25_PREFILTER_TOP_N = 25
 
 # Degraded-mode constant similarity. Picked at 0.5 so it sits squarely
-# below the 0.80 confidence floor — a run with no dense scorer cannot
-# accidentally auto-map anything.
+# below the 0.70 FAIL cut — a run with no dense scorer cannot accidentally
+# auto-map anything. NB the property that matters is "below FAIL_CUT", not
+# "below the 0.80 PASS cut": BORDERLINE scores (0.70-0.80) can still
+# auto-map, so clearing only 0.80 would NOT make this safe.
 _DEGRADED_SIMILARITY = 0.5
 
 
@@ -262,6 +266,8 @@ def _dense_rescore(
         ]
     try:
         rescored = dense_scorer(query_text, survivors)
+    except DenseScoringUnavailableError:
+        raise
     except Exception as exc:  # noqa: BLE001 — fail-closed swallows by design
         import logging
 

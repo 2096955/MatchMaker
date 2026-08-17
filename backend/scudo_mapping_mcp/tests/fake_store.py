@@ -237,8 +237,8 @@ class FakeStore(RetrievalStore):
         # per Diagram 2.
         rejected = set(self.get_negative_precedents(ref.vendor, ref.product_id))
         # Same separation as FalkorDBStore: boost tilts SORT only;
-        # Candidate.similarity stays the raw oracle score so the 0.80 floor
-        # sees the unmodified value.
+        # Candidate.similarity stays the raw oracle score so the band gate
+        # (0.75 centre; PASS cut 0.80) sees the unmodified value.
         scored: list[tuple[Candidate, float]] = []
         for iri, node in self._nodes.items():
             if iri in rejected:

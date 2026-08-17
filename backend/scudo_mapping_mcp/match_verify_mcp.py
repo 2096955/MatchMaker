@@ -5,7 +5,9 @@ ROLE
 ----
 Runs the deterministic matcher: scope gate, precedent reuse, bounded
 candidate retrieval (Falkor's match-and-check tier), the M5 validations
-layer, and the 0.80 floor. Returns a typed ``MappingResult`` plus an
+layer, and the band gate (PASS at 0.80 and up; the ``CONFIDENCE_FLOOR``
+constant is the 0.75 band centre, not the pass edge). Returns a typed
+``MappingResult`` plus an
 HMAC seal computed over (input_hash, mapped_node_iri, status,
 confidence, ts) — the seal is what proves to Persistence that the
 verdict came from the deterministic matcher and not from the agent.

@@ -269,7 +269,8 @@ def _():
 def _():
     """Rank signal tilts ORDER; Candidate.similarity stays the raw oracle score.
 
-    The matcher's 0.80 floor sees the unmodified similarity, so a base-0.10
+    The matcher's band gate (0.75 centre; PASS cut 0.80) sees the unmodified
+    similarity, so a base-0.10
     candidate can never be auto_mapped just because it accumulated boosts
     (Section 10a CAVEAT / I5). This is the post-review fix.
     """
@@ -3349,8 +3350,8 @@ def _():
 # WS-B — Opus-as-dense seam (opus_dense.py).
 # Pins the arb-review §5.2 invariant: ``Candidate.similarity`` equals the
 # RAW DENSE SCORE the backend returned, never a fused / boosted /
-# reranked value. The 0.80 confidence floor is calibrated against that
-# raw quantity; contamination would silently break I4.
+# reranked value. The band gate (0.75 centre; PASS cut 0.80) is calibrated
+# against that raw quantity; contamination would silently break I4.
 # ─────────────────────────────────────────────────────────────────────────
 from .. import opus_dense as opus_dense_mod
 
@@ -3609,7 +3610,7 @@ def _():
 def _():
     """No dense_scorer wired → every survivor gets the degraded constant.
 
-    The constant is BELOW the 0.80 floor by construction so a misconfigured
+    The constant is BELOW the 0.70 FAIL cut by construction so a misconfigured
     run cannot accidentally auto-map anything. Also pins the value at 0.5
     so a reviewer can tell at a glance that the run was degraded.
     """

@@ -7,7 +7,9 @@ WHY THIS EXISTS
 With write capability physically isolated to Persistence MCP, the question
 becomes: how does Persistence know a MappingResult arriving via
 ``persist.commit_mapping`` was actually produced by Match & Verify's
-deterministic matcher (scope gate + validations + 0.80 floor) and not
+deterministic matcher (scope gate + validations + the band gate, which
+PASSes at 0.80 and up — the floor constant itself is the 0.75 band
+centre, not the pass edge) and not
 synthesised by the agent? Answer: Match & Verify computes an HMAC-SHA256
 seal over the verdict, using a key that only Match & Verify and Persistence
 hold. The agent carries the seal but cannot forge it.
@@ -53,6 +55,7 @@ CONTRACT
     SDK. Imported by ``match_verify_mcp`` (to sign) and ``persistence_mcp``
     (to verify). Deliberately NOT imported by ``ingestion_mcp``.
 """
+
 from __future__ import annotations
 
 import base64
@@ -62,24 +65,19 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 
 # ──────────────────────────────────────────────────────────────────────
 # Key material — single swap point
 # ──────────────────────────────────────────────────────────────────────
-_DEV_KEY = (
-    b"scudo-dev-verdict-key-do-not-use-in-prod-"
-    b"0123456789abcdef0123456789abcdef"
-)
+_DEV_KEY = b"scudo-dev-verdict-key-do-not-use-in-prod-0123456789abcdef0123456789abcdef"
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
 def _dev_allowed() -> bool:
-    return (
-        os.getenv("SCUDO_VERDICT_ALLOW_DEV", "").strip().lower() in _TRUTHY
-    )
+    return os.getenv("SCUDO_VERDICT_ALLOW_DEV", "").strip().lower() in _TRUTHY
 
 
 def _load_signing_key() -> bytes:
@@ -113,6 +111,7 @@ def _max_age_seconds() -> int:
 @dataclass(frozen=True)
 class VerificationResult:
     """Outcome of ``verify``. ``ok=True`` → trust the verdict; else don't."""
+
     ok: bool
     reason: str = ""
     payload: Optional[dict] = None
@@ -160,9 +159,9 @@ def sign(
         "band": str(band or "n/a"),
         "ts_ms": int(ts_ms),
     }
-    canonical = json.dumps(
-        payload, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
     mac = hmac.new(_load_signing_key(), canonical, hashlib.sha256).digest()
     return {
         "payload_b64": base64.b64encode(canonical).decode("ascii"),
@@ -203,7 +202,9 @@ def verify(
         return VerificationResult(False, "seal_encoding_invalid")
 
     expected_mac = hmac.new(
-        _load_signing_key(), canonical, hashlib.sha256,
+        _load_signing_key(),
+        canonical,
+        hashlib.sha256,
     ).digest()
     if not hmac.compare_digest(expected_mac, provided_mac):
         return VerificationResult(False, "seal_mismatch")
@@ -234,9 +235,7 @@ def verify(
     # Identity binding — a verdict for product X cannot be replayed
     # against product Y. This is the I8 invariant lifted to the seal.
     expected_input = input_hash(expected_vendor, expected_product_id)
-    if not hmac.compare_digest(
-        expected_input, payload.get("input_hash", "")
-    ):
+    if not hmac.compare_digest(expected_input, payload.get("input_hash", "")):
         return VerificationResult(False, "identity_mismatch")
 
     return VerificationResult(ok=True, payload=payload)
@@ -245,6 +244,7 @@ def verify(
 def binascii_error() -> type:
     """Lazy-import binascii.Error to keep the module surface clean."""
     import binascii as _b
+
     return _b.Error
 
 

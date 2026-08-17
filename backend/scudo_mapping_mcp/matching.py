@@ -135,10 +135,21 @@ SpecialistScorer = Callable[
 def _gate_thresholds(floor: float, half: float) -> tuple[float, float]:
     """Return ``(pass_threshold, borderline_threshold)`` for the gate.
 
-    Delegates to the config helpers so the band edges are rounded to 2 dp:
-    a naive ``floor + half`` yields 0.8500000000000001 for the canonical
-    0.80/0.05 config and silently misclassifies an exact-0.85 PASS as
-    BORDERLINE. Single source of truth shared with ``build_matching_graph``.
+    Delegates to the config helpers so the band edges are rounded to 2 dp
+    rather than computed inline as ``floor ± half``.
+
+    The canonical 0.75/0.05 config is not itself at risk — ``0.75 + 0.05``
+    really does print ``0.8`` and ``0.75 - 0.05`` really does print ``0.7``,
+    both exactly equal to the 0.80/0.70 band edges. The rounding matters
+    because ``floor`` and ``half`` are overridable per call and via the
+    ``CONFIDENCE_FLOOR`` / ``BORDERLINE_HALF_WIDTH`` env vars, and most
+    neighbouring windows are NOT exact: ``0.80 + 0.05`` yields
+    0.8500000000000001, so a naive sum would silently misclassify an
+    exact-0.85 PASS as BORDERLINE; ``0.85 - 0.05`` yields 0.7999999999999999,
+    which misclassifies in the opposite direction. Banding is the product's
+    headline behaviour, so the edge must be exact for every window, not just
+    the default one. Single source of truth shared with
+    ``build_matching_graph``.
     """
     return _pass_threshold(floor, half), _borderline_threshold(floor, half)
 

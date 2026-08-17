@@ -311,7 +311,7 @@ class RetrievalStore(ABC):
         """Return the additive rank-signal boost for one candidate node.
 
         Used by ``find_similar_products`` to TILT candidate ORDERING. The boost
-        MUST NOT lift a base similarity past the 0.80 confidence floor unattended
+        MUST NOT lift a base similarity past the 0.80 PASS cut unattended
         (Section 10a CAVEAT / I5) — the matcher achieves this by sorting on
         ``base + boost`` but emitting ``Candidate.similarity = base``, so the
         floor still sees the raw oracle score.

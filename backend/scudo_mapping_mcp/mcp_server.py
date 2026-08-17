@@ -268,10 +268,14 @@ async def analyse_taxonomy_candidates(params: TaxonomyAnalysisInput) -> str:
     annotations={"title": "Map a vendor product to CDAO", **_RO},
 )
 async def map_vendor_product_tool(params: MapInput) -> str:
-    """Map one vendor product to a CDAO node, applying the scope gate and confidence floor.
+    """Map one vendor product to a CDAO node, applying the scope gate and band gate.
 
-    Scope-blocked products return status 'out_of_scope'. Below the 0.80 floor
-    they return 'needs_review' for a human. Returns the full MappingResult as JSON:
+    Scope-blocked products return status 'out_of_scope'. The band gate is NOT a
+    single floor: PASS (>= 0.80) auto-maps; BORDERLINE (0.70-0.80) consults the
+    specialist and may STILL auto-map (measured: sim 0.78 auto-maps on the
+    default window); FAIL (< 0.70), a required-validation failure, or a
+    specialist disagreement return 'needs_review'. Returns the full
+    MappingResult as JSON:
     {vendor_product_iri, vendor, product_id, product_name, mapped_node_iri,
      mapped_node_label, confidence, status, candidates[], rationale}.
     """

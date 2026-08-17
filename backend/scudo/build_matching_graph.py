@@ -30,7 +30,7 @@ from scudo_mapping_mcp.config import (  # noqa: E402
     pass_threshold,
 )
 
-PASS_THRESHOLD = pass_threshold()  # 0.80 (rounded — avoids 0.8000000000000001)
+PASS_THRESHOLD = pass_threshold()  # 0.80 (2dp-rounded in config, not computed here)
 BORDERLINE_THRESHOLD = borderline_threshold()  # 0.70
 _PASS = f"{PASS_THRESHOLD:.2f}"
 _BORDER = f"{BORDERLINE_THRESHOLD:.2f}"
