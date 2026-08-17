@@ -103,3 +103,6 @@ logs/
 !docs/okf/build/test_stage.py
 !docs/okf/build/manifest.yaml
 !docs/okf/build/.gitkeep
+
+# Local runtime state (SQLite fallback store, console DB) — never committed
+backend/.local/
