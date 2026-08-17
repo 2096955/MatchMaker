@@ -28,9 +28,11 @@ WHY THIS FILE EXISTS
       streamlit run   works, but serves only the matching path — no Providers,
                       no Datasets, no Admin, no dashboard.
 
-    This script needs NO Node, NO npm, NO Docker, NO PostgreSQL, NO FalkorDB,
-    NO Neptune and NO AWS credentials. It serves the PRE-BUILT front ends
-    straight from Flask, so there is no bundler in the picture at all.
+    This script needs NO Node, NO npm, NO Docker, NO PostgreSQL, NO FalkorDB or
+    Neptune. It serves the PRE-BUILT front ends straight from Flask, so there
+    is no bundler in the picture at all. The shipped agent/specialist/dense
+    configuration does need Bedrock credentials; explicit scripted +
+    Jaro-Winkler settings provide the no-AWS path.
 
     The environment is set BEFORE app.py is imported. That ordering is the whole
     point: scudo_mapping_mcp/config.py reads these at import time, so setting
@@ -46,9 +48,11 @@ INSTALL FIRST (once)
     pip install -r backend/requirements-local.txt
 
 WHAT IS REAL AND WHAT IS NOT
-    The matching score is REAL — deterministic Jaro-Winkler over the CDAO
-    taxonomy, the same code the AWS deployment runs. Reviewer decisions are
-    REAL and persist to the durable matching store
+    The matching score is REAL. With the shipped SCUDO_DENSE_BACKEND=opus,
+    the selected Bedrock model supplies candidate similarity and can change
+    confidence, band and target. Explicit SCUDO_DENSE_BACKEND=jaro_winkler
+    gives the deterministic offline scorer. Reviewer decisions are REAL and
+    persist to the durable matching store
     (backend/.local/scudo_matching.sqlite3 under the default
     STORE_BACKEND=scipy_sqlite; a readable JSONL journal under local_file).
 
@@ -63,11 +67,12 @@ WHAT IS REAL AND WHAT IS NOT
        So after restarting, re-ingest the file and the approval is reused —
        the decision is remembered, the upload is not.
 
-    By default the agent is the SCRIPTED narrator: it walks the same tools a
-    Bedrock agent would and narrates the matcher's own steps, with no AWS call.
-    Set SCUDO_AGENT_BACKEND=bedrock (plus credentials) for real Claude
-    narration. The SCORE does not change either way — the model narrates, the
-    matcher scores.
+    The shipped defaults are agent=bedrock, specialist=local and dense=opus.
+    The Streamlit model picker writes their shared SCUDO_BEDROCK_MODEL_ID, so
+    it changes the reasoning agent, chat, borderline specialist and dense
+    scorer together. On retrieval failure, fallback is whole-batch: every
+    nominee for that match is rescored with Jaro-Winkler rather than mixing
+    model and fallback scales.
 """
 
 from __future__ import annotations
@@ -134,18 +139,18 @@ _ENV: dict[str, str] = {
     #   SCUDO_DENSE_BACKEND=opus         LLM dense arm in candidate ranking,
     #                                    instead of Jaro-Winkler alone.
     #
-    # Every one of these fails SOFT: on a missing key, an expired token or a
-    # Bedrock outage the deterministic path takes over and the demo keeps
-    # moving. That is deliberate (chosen 2026-08-14) — but it means a silent
-    # downgrade is possible, so judge a run by the reasoning trace, not by the
+    # Bedrock failures are fail-soft for the demo. Retrieval fallback is
+    # atomic across the nominated batch: one failed model score discards the
+    # whole model batch and recomputes every nominee with Jaro-Winkler. The
+    # agent/chat and specialist have their own fail-soft paths. Judge a run by
+    # the reasoning trace and effective dense-arm indicator, not merely by the
     # fact that a number appeared.
     "SCUDO_AGENT_BACKEND": "bedrock",
     "SCUDO_SPECIALIST_BACKEND": "local",
     "SCUDO_DENSE_BACKEND": "opus",
-    # MUST accompany SCUDO_DENSE_BACKEND=opus. Without it opus_dense_score
-    # RAISES on any Bedrock error — measured: a malformed key aborted the whole
-    # match with RuntimeError instead of scoring. With it, the dense arm falls
-    # back to Jaro-Winkler per candidate and the demo keeps moving.
+    # MUST accompany SCUDO_DENSE_BACKEND=opus. Without it a Bedrock error
+    # raises. With it, retrieval discards any partial model results and falls
+    # back to Jaro-Winkler for the whole nominated batch.
     "SCUDO_DENSE_FALLBACK": "1",
 }
 
@@ -270,11 +275,12 @@ def main() -> int:
     {base}/healthz       Liveness check
 
 {_streamlit_hint}
-  This run needs no Node, no Docker, no database and no AWS account.
+  This run needs no Node, Docker or external database. Bedrock mode needs
+  credentials; explicit scripted + Jaro-Winkler mode needs no AWS account.
 
     Store            {_store:<11} (decisions survive a restart)
     Console DB       sqlite      (no PostgreSQL needed)
-    Agent            {os.environ["SCUDO_AGENT_BACKEND"]:<11} (the matcher scores; the agent narrates)
+    Agent            {os.environ["SCUDO_AGENT_BACKEND"]:<11} (model-backed by default)
     Decisions known  {remembered}
 
   Learned decisions live here — {evidence_note}:

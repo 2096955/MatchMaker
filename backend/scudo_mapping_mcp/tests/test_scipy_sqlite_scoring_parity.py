@@ -1,13 +1,46 @@
 from __future__ import annotations
 
+import threading
+
+import pytest
+
 
 from scudo_mapping_mcp import opus_dense
-from scudo_mapping_mcp.models import TaxonomyNode, VendorProductRef
+from scudo_mapping_mcp.models import Candidate, TaxonomyNode, VendorProductRef
 from scudo_mapping_mcp.store.falkordb_store import _jaro_winkler
 from scudo_mapping_mcp.store.memory_store import MemoryStore
 from scudo_mapping_mcp.store.retrieval_scoring import score_candidates
 from scudo_mapping_mcp.store.scipy_sqlite_store import ScipySQLiteStore
 from scudo_mapping_mcp.taxonomy_text import taxonomy_dense_text
+
+
+@pytest.fixture(autouse=True)
+def _isolate_breaker_state():
+    """The Bedrock breaker is process-global.
+
+    Several tests here deliberately fail model calls, which trips it — and a
+    tripped breaker changes the arm every LATER test runs on, in this file and
+    others. That is the exact cross-test leak that previously made a store test
+    fail only inside the full suite, so isolate it here rather than rediscover
+    it in CI.
+    """
+    saved = (
+        opus_dense._breaker_failures,
+        opus_dense._breaker_opened_at,
+        opus_dense._breaker_probe_inflight,
+        opus_dense._breaker_probe_started_at,
+        opus_dense._breaker_generation,
+        opus_dense._breaker_probe_owner,
+    )
+    yield
+    (
+        opus_dense._breaker_failures,
+        opus_dense._breaker_opened_at,
+        opus_dense._breaker_probe_inflight,
+        opus_dense._breaker_probe_started_at,
+        opus_dense._breaker_generation,
+        opus_dense._breaker_probe_owner,
+    ) = saved
 
 
 def _nodes() -> list[TaxonomyNode]:
@@ -352,3 +385,279 @@ def test_scoring_reads_one_snapshot_even_when_revision_changes_mid_score(
         "cdao:c",
         "cdao:d",
     }
+
+
+# ── All-or-nothing dense scoring (2026-08-15) ──────────────────────────────
+#
+# A candidate list must carry exactly ONE similarity scale. Before this
+# contract, workers shared a process-global circuit breaker, so which
+# candidates got an Opus score and which silently fell back to Jaro-Winkler
+# depended on thread interleaving — and a review measured that flipping the
+# published band (0.84/pass serial vs 0.77/borderline concurrent). Comparing
+# scores from two different scales in one ranking is the real defect; the
+# timing was only how it surfaced.
+
+
+def _jaro_baseline(tmp_path_factory_dir, ref):
+    """Expected shape when the whole batch is scored by Jaro-Winkler."""
+    memory = MemoryStore(_nodes())
+    sqlite = ScipySQLiteStore(tmp_path_factory_dir / "baseline.sqlite3")
+    sqlite.replace_taxonomy(_nodes())
+    return _shape(memory.find_similar_products(ref)), _shape(
+        sqlite.find_similar_products(ref)
+    )
+
+
+def test_opus_batch_uses_model_scores_only_when_every_nominee_succeeds(
+    tmp_path, monkeypatch
+):
+    """A fully successful batch keeps every model score."""
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "opus")
+    model_scores = {
+        "Equity Prices": 0.71,
+        "Bond Reference": 0.62,
+        "Commodity Curve": 0.93,
+    }
+
+    def strict(*, candidate_label, **_kwargs):
+        return model_scores[candidate_label]
+
+    for module in ("memory_store", "scipy_sqlite_store"):
+        monkeypatch.setattr(
+            f"scudo_mapping_mcp.store.{module}.opus_dense.opus_dense_score",
+            strict,
+        )
+    memory, sqlite = _stores(tmp_path)
+    ref = VendorProductRef(vendor="ICE", product_id="O-2", name="Anything")
+
+    memory_shape = _shape(memory.find_similar_products(ref))
+    assert memory_shape == _shape(sqlite.find_similar_products(ref))
+    assert {score for _iri, score in memory_shape} <= set(model_scores.values())
+
+
+def test_one_opus_failure_discards_the_whole_model_batch(tmp_path, monkeypatch):
+    """One failure must discard the successes from the SAME batch.
+
+    This is the regression that matters: previously the failing candidate fell
+    back to Jaro-Winkler on its own while its siblings kept their model scores,
+    so one list held two incomparable scales.
+    """
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "opus")
+    monkeypatch.setenv("SCUDO_DENSE_FALLBACK", "1")
+    ref = VendorProductRef(vendor="ICE", product_id="O-3", name="Anything")
+
+    # Baseline: what a full Jaro-Winkler batch produces for this fixture.
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "jaro_winkler")
+    baseline_memory, baseline_sqlite = _jaro_baseline(tmp_path, ref)
+
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "opus")
+    succeeded: set[float] = set()
+
+    def flaky(*, candidate_label, **_kwargs):
+        if candidate_label == "Bond Reference":
+            raise RuntimeError("bedrock refused this candidate")
+        value = 0.99 if candidate_label == "Commodity Curve" else 0.88
+        succeeded.add(value)
+        return value
+
+    for module in ("memory_store", "scipy_sqlite_store"):
+        monkeypatch.setattr(
+            f"scudo_mapping_mcp.store.{module}.opus_dense.opus_dense_score",
+            flaky,
+        )
+    memory, sqlite = _stores(tmp_path / "attempt")
+    memory_shape = _shape(memory.find_similar_products(ref))
+    sqlite_shape = _shape(sqlite.find_similar_products(ref))
+
+    assert memory_shape == baseline_memory
+    assert sqlite_shape == baseline_sqlite
+    assert all(score not in succeeded for _iri, score in memory_shape)
+
+
+def _assert_zero_model_calls(monkeypatch, product_id: str) -> None:
+    calls: list[str] = []
+
+    def counting(*, candidate_label, **_kwargs):
+        calls.append(candidate_label)
+        return 0.9
+
+    monkeypatch.setattr(
+        "scudo_mapping_mcp.store.memory_store.opus_dense.opus_dense_score",
+        counting,
+    )
+    store = MemoryStore(_nodes())
+    store.find_similar_products(
+        VendorProductRef(vendor="ICE", product_id=product_id, name="Anything")
+    )
+    assert calls == []
+
+
+def test_result_is_identical_under_opposite_completion_orders(tmp_path, monkeypatch):
+    """The published shape must not depend on which worker finishes first.
+
+    This is the defect the all-or-nothing contract exists to kill: a reviewer
+    measured 0.84/pass serially and 0.77/borderline concurrently on identical
+    inputs, purely from thread interleaving.
+    """
+    ref = VendorProductRef(vendor="ICE", product_id="O-4", name="Anything")
+
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "jaro_winkler")
+    baseline, _ = _jaro_baseline(tmp_path / "base", ref)
+
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "opus")
+    monkeypatch.setenv("SCUDO_DENSE_FALLBACK", "1")
+
+    def _run(fail_first: bool):
+        gate = threading.Event()
+
+        def ordered(*, candidate_label, **_kwargs):
+            if candidate_label == "Bond Reference":
+                if not fail_first:
+                    gate.wait(timeout=2)
+                raise RuntimeError("model refused")
+            if fail_first:
+                gate.wait(timeout=2)
+            gate.set()
+            return 0.97
+
+        for module in ("memory_store", "scipy_sqlite_store"):
+            monkeypatch.setattr(
+                f"scudo_mapping_mcp.store.{module}.opus_dense.opus_dense_score",
+                ordered,
+            )
+        store = MemoryStore(_nodes())
+        return _shape(store.find_similar_products(ref))
+
+    run_a = _run(fail_first=True)
+    run_b = _run(fail_first=False)
+    assert run_a == run_b == baseline
+
+
+def test_open_breaker_makes_zero_model_calls(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "opus")
+    monkeypatch.setenv("SCUDO_DENSE_FALLBACK", "1")
+    monkeypatch.setenv("SCUDO_BEDROCK_BREAKER_COOLDOWN_S", "9999")
+    # Breaker state is restored by the autouse _isolate_breaker_state fixture,
+    # so this can trip it freely. (An earlier version restored it by hand AND
+    # carried a no-op monkeypatch.setattr that set the value to itself.)
+    for _ in range(opus_dense._BREAKER_THRESHOLD):
+        opus_dense.record_dense_batch_failure(opus_dense.begin_dense_batch())
+    _assert_zero_model_calls(monkeypatch, "O-5")
+
+
+def test_fallback_off_open_breaker_raises_before_model_calls(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "opus")
+    monkeypatch.delenv("SCUDO_DENSE_FALLBACK", raising=False)
+    monkeypatch.setenv("SCUDO_BEDROCK_BREAKER_COOLDOWN_S", "9999")
+    for _ in range(opus_dense._BREAKER_THRESHOLD):
+        opus_dense.record_dense_batch_failure(opus_dense.begin_dense_batch())
+    calls: list[str] = []
+
+    def counting(*, candidate_label, **_kwargs):
+        calls.append(candidate_label)
+        return 0.9
+
+    monkeypatch.setattr(
+        "scudo_mapping_mcp.store.memory_store.opus_dense.opus_dense_score",
+        counting,
+    )
+    store = MemoryStore(_nodes())
+
+    with pytest.raises(RuntimeError, match="circuit.*open"):
+        store.find_similar_products(
+            VendorProductRef(vendor="ICE", product_id="O-5-loud", name="Anything")
+        )
+    assert calls == []
+
+
+def test_fallback_off_open_breaker_raises_from_multi_path_scorer_before_model_calls(
+    monkeypatch,
+):
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "opus")
+    monkeypatch.setenv("SCUDO_USE_OPUS_DENSE", "1")
+    monkeypatch.delenv("SCUDO_DENSE_FALLBACK", raising=False)
+    monkeypatch.setenv("SCUDO_BEDROCK_BREAKER_COOLDOWN_S", "9999")
+    for _ in range(opus_dense._BREAKER_THRESHOLD):
+        opus_dense.record_dense_batch_failure(opus_dense.begin_dense_batch())
+    calls: list[str] = []
+
+    def counting(*_args, **_kwargs):
+        calls.append("called")
+        return 0.9
+
+    monkeypatch.setattr(opus_dense, "_opus_invoke_score", counting)
+    scorer = opus_dense.make_opus_dense_scorer()
+    survivors = [Candidate(node=node, similarity=0.0) for node in _nodes()]
+
+    with pytest.raises(RuntimeError, match="circuit.*open"):
+        scorer("Anything", survivors)
+    assert calls == []
+
+
+def test_jaro_configured_mode_makes_zero_model_calls(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "jaro_winkler")
+    _assert_zero_model_calls(monkeypatch, "O-6")
+
+    def counting(*, candidate_label, **_kwargs):
+        calls.append(candidate_label)
+        return 0.9
+
+
+def test_network_level_failure_cannot_produce_mixed_scales(tmp_path, monkeypatch):
+    """Fail at the NETWORK seam, which is what a dead key actually does.
+
+    Regression for a real defect in the first cut of all-or-nothing scoring:
+    the batch called `opus_dense_score`, which makes its OWN per-candidate
+    fallback decision, so half the candidates kept model scores and half got
+    Jaro-Winkler — measured [1.0, 0.9333, 0.91, 0.91] with 0.91 the model
+    value. Scripting the injected scorer hid this; only failing the real
+    network seam exposes it.
+    """
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "opus")
+    monkeypatch.setenv("SCUDO_DENSE_FALLBACK", "1")
+    model_value = 0.91
+    calls = {"n": 0}
+
+    def half_dead(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] % 2 == 0:
+            raise RuntimeError("AccessDenied")
+        return model_value
+
+    monkeypatch.setattr(opus_dense, "_opus_invoke_score", half_dead)
+    store = MemoryStore(_nodes())
+    ref = VendorProductRef(vendor="ICE", product_id="O-7", name="Equity Prices")
+    similarities = [c.similarity for c in store.find_similar_products(ref)]
+
+    assert model_value not in similarities
+
+
+def test_multi_path_opus_route_is_also_all_or_nothing(tmp_path, monkeypatch):
+    """SCUDO_USE_OPUS_DENSE=1 bypasses score_candidates() entirely.
+
+    The stores return `multi_path_retrieve` early on that flag, so the batch
+    guarantee in score_candidates() does not cover it. Measured before the
+    fix: one failed call at the network seam returned
+    [0.93, 0.93, 0.93, 0.4473] — three model scores ranked against one
+    Jaro-Winkler score, on a route the demo runbook tells operators to enable.
+    """
+    monkeypatch.setenv("SCUDO_DENSE_BACKEND", "opus")
+    monkeypatch.setenv("SCUDO_DENSE_FALLBACK", "1")
+    monkeypatch.setenv("SCUDO_USE_OPUS_DENSE", "1")
+    model_value = 0.93
+    calls = {"n": 0}
+
+    def half_dead(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("AccessDenied")
+        return model_value
+
+    monkeypatch.setattr(opus_dense, "_opus_invoke_score", half_dead)
+    store = ScipySQLiteStore(tmp_path / "multipath.sqlite3")
+    store.replace_taxonomy(_nodes())
+    ref = VendorProductRef(vendor="ICE", product_id="O-8", name="Equity Prices")
+    similarities = [c.similarity for c in store.find_similar_products(ref)]
+
+    assert similarities, "expected candidates"
+    assert model_value not in similarities

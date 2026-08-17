@@ -34,8 +34,10 @@ NOT A REPLACEMENT
 from __future__ import annotations
 
 import json
+import importlib
 import os
 import sys
+import uuid
 from pathlib import Path
 
 # Environment BEFORE importing the package: config.py reads these at import
@@ -76,17 +78,17 @@ os.environ.setdefault("SCUDO_AUTH_DEV_PRINCIPAL", "streamlit@local")
 os.environ.setdefault("SCUDO_VERDICT_ALLOW_DEV", "1")
 os.environ.setdefault("SCUDO_PERSIST_ALLOW_DEV_WRITES", "1")
 os.environ.setdefault("CONSOLE_DB_BACKEND", "sqlite")
-# Real agent by default (2026-08-14). All three levers fail SOFT, so a missing
-# or expired key degrades to the deterministic path rather than erroring —
-# judge a run by the reasoning trace, not by a number appearing.
+# Real model paths by default (2026-08-14). A missing or expired key is
+# fail-soft so the demo keeps moving; judge a run by the reasoning trace and
+# effective dense-arm indicator, not by a number appearing.
 #   local (NOT strands) is the working specialist: strands_specialist.py was
 #   never built, so that backend abstains on every call.
 os.environ.setdefault("SCUDO_AGENT_BACKEND", "bedrock")
 os.environ.setdefault("SCUDO_SPECIALIST_BACKEND", "local")
 os.environ.setdefault("SCUDO_DENSE_BACKEND", "opus")
-# MUST accompany the opus dense arm: without it a Bedrock error RAISES and the
-# whole match aborts (measured with a malformed key). With it, the dense arm
-# degrades to Jaro-Winkler per candidate.
+# MUST accompany the opus dense arm: without it a Bedrock error raises. With
+# it, retrieval discards a partial model batch and scores every nominee in that
+# match with Jaro-Winkler, never mixing the two scales in one ranking.
 os.environ.setdefault("SCUDO_DENSE_FALLBACK", "1")
 
 import streamlit as st  # noqa: E402
@@ -103,6 +105,7 @@ from scudo_mapping_mcp.frames import _read_vendor_frame  # noqa: E402
 from scudo_mapping_mcp.ingest import ingest_bytes, seed_taxonomy  # noqa: E402
 from scudo_mapping_mcp.models import TaxonomyNode, VendorProductRef  # noqa: E402
 from scudo_mapping_mcp.store import get_store, storage_ready  # noqa: E402
+from scudo_mapping_mcp.streamlit_frames import StreamlitFrameRegistry  # noqa: E402
 
 st.set_page_config(
     page_title="SCUDO — vendor → CDAO matching",
@@ -124,18 +127,14 @@ RED = "#b91c1c"
 
 _BAND_COLOUR = {"PASS": GREEN, "BORDERLINE": AMBER, "FAIL": RED}
 
-# Models offered in the sidebar. All three verified callable with a Bedrock
-# API key in us-east-1 on 2026-08-07. Opus first: it is the one the pipeline
-# is specified against, and the others exist so a demo can show the
-# cost/latency trade-off (Opus took ~14s end to end; the smaller models are
-# quicker and visibly terser).
+# Models offered in the sidebar. Opus first: it is the model the pipeline is
+# specified against, and the others expose the cost/latency trade-off.
 #
-# The SCORE does not change between them — it is deterministic Jaro-Winkler
-# computed by the matcher. Only the narration changes. Verified: scripted and
-# Opus both returned confidence 0.851 / band pass / Equity Prices.
-#
-# One documented exception: with SCUDO_DENSE_BACKEND=opus the model IS on the
-# score (memory_store.py:57->63->73->111 feeds Candidate.similarity).
+# The picker writes SCUDO_BEDROCK_MODEL_ID, the shared swap point read by the
+# mapping agent, chat agent, local specialist and dense scorer. With the
+# shipped SCUDO_DENSE_BACKEND=opus, changing model can therefore change
+# candidate similarity, confidence, band and selected target as well as prose
+# and latency.
 #
 # CORRECTED 2026-08-12. This comment used to claim the model "can only lower the
 # deterministic anchor, never inflate it", citing the min(best, specialist) cap
@@ -154,10 +153,11 @@ _BAND_COLOUR = {"PASS": GREEN, "BORDERLINE": AMBER, "FAIL": RED}
 # raw dense score. With shipped defaults (floor=0.75, half=0.05 -> pass=0.80,
 # borderline=0.70) the auto-mapping window [0.75, 0.80) is non-empty.
 #
-# What actually makes the paragraph above safe is the DEFAULT, not a cap:
-# SCUDO_DENSE_BACKEND defaults to "jaro_winkler" (config.py:301). Leave it unset
-# and the score is deterministic and the model only narrates. Never cite a cap
-# as the reason -- on the two auto-mapping branches no cap is involved.
+# Explicit SCUDO_DENSE_BACKEND=jaro_winkler gives the deterministic offline
+# path. The shipped launchers override the library default to opus, so launcher
+# documentation must not describe the one-click score as model-free. Never cite
+# a cap as the reason for safety -- on the two auto-mapping branches no cap is
+# involved.
 
 # ONE region value for the whole app. The agent resolves AWS_REGION ->
 # AWS_DEFAULT_REGION -> "eu-west-2" (agent.py:467-472); the preflight below and
@@ -288,22 +288,31 @@ st.markdown(
 
 
 @st.cache_resource(show_spinner="Seeding CDAO taxonomy…")
-def _bootstrap() -> tuple[object, int]:
-    """Own and validate the process store, then seed the taxonomy once.
+def _bootstrap() -> object:
+    """Own and validate the process store, seeding only an empty taxonomy.
 
     cache_resource (not cache_data): this mutates a store rather than
-    returning a value, and must run exactly once even though Streamlit
-    re-executes this whole file on every interaction.
+    returning a value. The cache may be cleared after an upload, and a durable
+    store survives process restarts, so a cache miss must never replace an
+    already-populated taxonomy.
     """
     store = get_store()
     if not storage_ready(store):
         raise RuntimeError(
             "matching store storage/schema is unhealthy before taxonomy seed"
         )
-    nodes = seed_taxonomy()
+    if store.taxonomy_size() == 0:
+        seed_taxonomy()
+    nodes = store.taxonomy_size()
     if nodes <= 0 or not store.health():
         raise RuntimeError("matching store is unhealthy or empty after taxonomy seed")
-    return store, nodes
+    return store
+
+
+@st.cache_resource
+def _frame_registry() -> StreamlitFrameRegistry:
+    """Keep authoritative mock frames stable across Streamlit script reruns."""
+    return StreamlitFrameRegistry()
 
 
 # Band edges — ALWAYS via these two helpers, never the bare config calls.
@@ -365,8 +374,8 @@ def _html(markup: str) -> str:
     return "\n".join(ln.strip() for ln in markup.splitlines() if ln.strip())
 
 
-def _preflight_bedrock() -> dict:
-    """Prove the bearer key actually works, before the demo does it live.
+def _preflight_bedrock_legacy_unused() -> dict:
+    """Unused compatibility reference.
 
     A Bedrock API key is a single opaque bearer token that carries its own
     region and credentials — there is no access key, secret, session token or
@@ -375,9 +384,9 @@ def _preflight_bedrock() -> dict:
     (they last ~12h) or scoped to a model this account cannot call, and both
     look identical until the first call.
 
-    We therefore make ONE tiny converse() with maxTokens=8. It costs a
-    fraction of a cent and is the only thing that distinguishes a working key
-    from a plausible-looking one.
+    We therefore make ONE tiny ConverseStream call with maxTokens=8 and drain
+    it fully. This tests the separately-authorised streaming permission the
+    agent actually uses; a successful non-streaming Converse call would not.
 
     Never raises — a preflight that crashes the page is worse than the failure
     it was checking for.
@@ -387,7 +396,7 @@ def _preflight_bedrock() -> dict:
         return {"ok": False, "message": "No API key set \u2014 paste one above."}
 
     try:
-        import boto3
+        boto3 = importlib.import_module("boto3")
     except ImportError:
         return {"ok": False, "message": "boto3 is not installed."}
 
@@ -430,6 +439,128 @@ def _preflight_bedrock() -> dict:
 
     label = next((k for k, v in BEDROCK_MODELS.items() if v == model_id), model_id)
     return {"ok": True, "message": f"Ready \u2014 {label} responded."}
+
+
+def _preflight_bedrock() -> dict:
+    """Independently prove the stream and direct-invoke Bedrock paths."""
+    model_id = os.environ.get("SCUDO_BEDROCK_MODEL_ID", "")
+    base = {"model_id": model_id, "region": SCUDO_REGION}
+    if not os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip():
+        return {
+            **base,
+            "level": "error",
+            "agent_ok": False,
+            "invoke_ok": False,
+            "message": "No API key set — paste one above.",
+        }
+
+    try:
+        boto3 = importlib.import_module("boto3")
+    except ImportError:
+        return {
+            **base,
+            "level": "error",
+            "agent_ok": False,
+            "invoke_ok": False,
+            "message": "boto3 is not installed.",
+        }
+
+    try:
+        client = boto3.client("bedrock-runtime", region_name=SCUDO_REGION)
+    except Exception as exc:  # noqa: BLE001 - sanitized below
+        return {
+            **base,
+            "level": "error",
+            "agent_ok": False,
+            "invoke_ok": False,
+            "message": f"Bedrock client failed: {type(exc).__name__}.",
+        }
+
+    def failure(operation: str, permission: str, exc: Exception) -> str:
+        name = type(exc).__name__
+        text = str(exc)
+        if "ExpiredToken" in text or "expired" in text.lower():
+            hint = " Bedrock API keys last ~12 hours — this one has expired."
+        elif "AccessDenied" in name or "AccessDenied" in text:
+            hint = f" Missing permission: `bedrock:{permission}` for `{model_id}`."
+        elif "ValidationException" in name or "ValidationException" in text:
+            hint = f" `{model_id}` may not exist in `{SCUDO_REGION}`."
+        else:
+            hint = ""
+        return f"{operation} failed: {name}.{hint}"
+
+    agent_ok = False
+    invoke_ok = False
+    agent_failure = ""
+    invoke_failure = ""
+    try:
+        stream = client.converse_stream(
+            modelId=model_id,
+            messages=[{"role": "user", "content": [{"text": "ok"}]}],
+            inferenceConfig={"maxTokens": 8},
+        )
+        for _ in stream.get("stream", []):
+            pass
+        agent_ok = True
+    except Exception as exc:  # noqa: BLE001 - direct invoke must still run
+        agent_failure = failure(
+            "InvokeModelWithResponseStream",
+            "InvokeModelWithResponseStream",
+            exc,
+        )
+
+    try:
+        response = client.invoke_model(
+            modelId=model_id,
+            body=json.dumps(
+                {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 1,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "text", "text": "ok"}],
+                        }
+                    ],
+                }
+            ),
+            contentType="application/json",
+            accept="application/json",
+        )
+        response["body"].read()
+        invoke_ok = True
+    except Exception as exc:  # noqa: BLE001 - report both operation outcomes
+        invoke_failure = failure("InvokeModel", "InvokeModel", exc)
+
+    label = next((k for k, v in BEDROCK_MODELS.items() if v == model_id), model_id)
+    if agent_ok and invoke_ok:
+        level = "ready"
+        message = (
+            f"Ready — {label}: InvokeModelWithResponseStream and InvokeModel "
+            "passed (agent stream + dense/local specialist)."
+        )
+    elif agent_ok:
+        level = "degraded"
+        message = (
+            f"Degraded — Agent stream is ready; {invoke_failure} "
+            "Dense/local specialist can use the safe fallback."
+        )
+    elif invoke_ok:
+        level = "degraded"
+        message = (
+            f"Degraded — {agent_failure} InvokeModel passed. "
+            "Use the scripted fallback until streaming access is granted."
+        )
+    else:
+        level = "error"
+        message = f"{agent_failure} {invoke_failure}"
+    return {
+        **base,
+        "level": level,
+        "agent_ok": agent_ok,
+        "invoke_ok": invoke_ok,
+        "message": message,
+    }
 
 
 def _render_event(event: dict) -> None:
@@ -537,7 +668,12 @@ def _render_event(event: dict) -> None:
 
 # ── page ───────────────────────────────────────────────────────────────────
 
-_store_resource, nodes = _bootstrap()
+_store_resource = _bootstrap()
+nodes = _store_resource.taxonomy_size()
+_frames_resource = _frame_registry()
+if "_frame_session_key" not in st.session_state:
+    st.session_state["_frame_session_key"] = uuid.uuid4().hex
+_frame_session_key = st.session_state["_frame_session_key"]
 
 st.markdown(
     f"""
@@ -709,7 +845,21 @@ with st.sidebar:
 
         status = st.session_state.get("creds_checked")
         if status:
-            (st.success if status["ok"] else st.error)(status["message"])
+            current_model = os.environ.get("SCUDO_BEDROCK_MODEL_ID", "")
+            if (
+                status.get("model_id") != current_model
+                or status.get("region") != SCUDO_REGION
+            ):
+                st.info(
+                    "Not tested — model or region changed. Press Apply & test again."
+                )
+            else:
+                render_status = {
+                    "ready": st.success,
+                    "degraded": st.warning,
+                    "error": st.error,
+                }
+                render_status[status["level"]](status["message"])
 
     # The run facts were a dense strip under the title, where they competed
     # with it. They are reference values, not headline — a client reads them
@@ -745,9 +895,15 @@ with st.sidebar:
           <div class="scudo-side-fact">
             <span>Agent</span><b>{provider}</b></div>
           <div class="scudo-side-fact">
-            <span>Specialist</span><b>{os.environ.get("SCUDO_SPECIALIST_BACKEND", "off")}</b></div>
+            <span>Specialist</span><b>{
+            os.environ.get("SCUDO_SPECIALIST_BACKEND", "off")
+        }</b></div>
           <div class="scudo-side-fact">
-            <span>Dense arm</span><b style="color:{AMBER if _dense_status["degraded"] else INK}">{_dense_status["effective"]}{" (degraded)" if _dense_status["degraded"] else ""}</b></div>
+            <span>Dense arm</span><b style="color:{
+            AMBER if _dense_status["degraded"] else INK
+        }">{_dense_status["effective"]}{
+            " (degraded)" if _dense_status["degraded"] else ""
+        }</b></div>
           <div class="scudo-side-fact" style="border-bottom:none;">
             <span>Store</span><b>{os.environ["STORE_BACKEND"]}</b></div>
           <div class="scudo-side-fact" style="border-bottom:none; font-size:.68rem;">
@@ -873,6 +1029,7 @@ with left:
                     "product_id": _f.product_id,
                     "name": _f.name,
                 }
+            _frames_resource.add(_frame_session_key, _frames)
             st.session_state.products = list(_existing.values())
             st.session_state.pop("last_decision", None)
             st.success(f"Loaded {len(_frames)} contract(s) for {_pv}")
@@ -916,6 +1073,7 @@ with left:
                     "product_id": f.product_id,
                     "name": f.name,
                 }
+            _frames_resource.add(_frame_session_key, frames)
             st.session_state.products = list(existing.values())
             st.success(
                 f"Ingested {len(frames)} product(s) for {vendor} — "
@@ -955,6 +1113,7 @@ with left:
                 "its own review decision."
             )
         if st.button("Clear all", help="Empty the contract list and start again"):
+            _frames_resource.clear(_frame_session_key)
             st.session_state.products = []
             st.session_state.pop("last_decision", None)
             st.rerun()
@@ -1047,9 +1206,10 @@ with left:
                 except Exception as _exc:  # noqa: BLE001 — per-row, keep going
                     _skipped.append(f"row {_i}: {type(_exc).__name__}: {_exc}")
             if _added:
-                # The sidebar node count is cached; it would keep the old
-                # number while matching used the new catalogue.
-                _bootstrap.clear()
+                # Refresh the displayed count directly. Clearing the bootstrap
+                # cache is unnecessary: the cached store object is the same
+                # object the upload just updated.
+                nodes = _store_resource.taxonomy_size()
                 st.success(
                     f"Added {_added} dataset(s) to the catalogue. "
                     "Rerun a match to score against them."
@@ -1121,7 +1281,10 @@ if run_clicked and choice is not None:
     # traceback on screen, which is the worst thing to show a client. Latent
     # at the default FRAME_SOURCE=mock (always returns None), cheap to guard.
     try:
-        ref = _read_vendor_frame(match_vendor, choice)
+        if settings.frame_source == "s3":
+            ref = _read_vendor_frame(match_vendor, choice)
+        else:
+            ref = _frames_resource.read(_frame_session_key, match_vendor, choice)
     except Exception as exc:  # FrameDataError / ConnectionError / NotImplementedError
         st.error(f"Could not read the vendor frame: {exc}")
         ref = None

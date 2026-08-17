@@ -9,9 +9,11 @@ Starts EVERYTHING and opens the browser:
            Reject, and free-text chat with the agent
     :5055  React console (/app/), matching dashboard (/demo/), REST API
 
-Needs NO Node, NO Docker, NO database and NO AWS account. The matching score is
-real and deterministic; reviewer decisions persist to a readable JSONL journal
-and survive a restart.
+Needs no Node, Docker or external database. The shipped configuration uses
+Bedrock for the reasoning agent, chat, candidate similarity and borderline
+specialist; paste a bearer key in Streamlit, or explicitly select the offline
+scripted + Jaro-Winkler configuration. Reviewer decisions persist in the local
+SQLite matching store and survive a restart.
 
 This is the single entry point. run_cognizant.py starts only the Flask half;
 this starts both and is what a first-time user should double-click.
@@ -99,10 +101,17 @@ def main() -> int:
     }
     streamlit_proc = subprocess.Popen(
         [
-            sys.executable, "-m", "streamlit", "run", str(_ROOT / "streamlit_app.py"),
-            "--server.port", str(ST_PORT),
-            "--server.headless", "true",
-            "--browser.gatherUsageStats", "false",
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(_ROOT / "streamlit_app.py"),
+            "--server.port",
+            str(ST_PORT),
+            "--server.headless",
+            "true",
+            "--browser.gatherUsageStats",
+            "false",
         ],
         cwd=str(_ROOT),
         env=st_env,
@@ -135,8 +144,14 @@ def main() -> int:
        -> status becomes 'approved', rationale becomes 'precedent'
     5. Ask the agent in step 04: "how does the scoring work?"
 
-  No AWS needed. For real Claude narration set SCUDO_AGENT_BACKEND=bedrock
-  with credentials, then pick 'bedrock' in the sidebar.
+  BEDROCK DOGFOOD
+    In the sidebar choose 'bedrock', paste a bearer key, choose a model,
+    then press 'Apply & test'. The model drives agent/chat and candidate
+    similarity. 'Dense arm: jaro_winkler (degraded)' means fallback is active.
+
+  OFFLINE
+    Set SCUDO_AGENT_BACKEND=scripted and
+    SCUDO_DENSE_BACKEND=jaro_winkler before launch.
 
   Ctrl-C to stop both.
 """,
